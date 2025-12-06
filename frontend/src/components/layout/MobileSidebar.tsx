@@ -9,12 +9,16 @@ import {
   Moon,
   Settings,
   Menu,
-  X,
+  LogOut,
+  UserCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
+import { Link } from "react-router-dom";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -65,7 +69,7 @@ export function MobileSidebar() {
         </nav>
 
         {/* Bottom items */}
-        <div className="absolute bottom-0 left-0 right-0 py-4 px-2 border-t border-sidebar-border">
+        <div className="absolute bottom-0 left-0 right-0 py-4 px-2 border-t border-sidebar-border space-y-1">
           {bottomItems.map((item) => (
             <NavLink
               key={item.path}
@@ -78,6 +82,36 @@ export function MobileSidebar() {
               <span>{item.label}</span>
             </NavLink>
           ))}
+
+          <Separator className="my-2" />
+
+          {/* Account section */}
+          <div className="flex items-center gap-3 px-3 py-2">
+            <Avatar className="size-8">
+              <AvatarFallback className="text-xs">U</AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-foreground">User</span>
+              <span className="text-xs text-muted-foreground">user@example.com</span>
+            </div>
+          </div>
+
+          <Link
+            to="/settings"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-smooth"
+          >
+            <UserCircle className="w-5 h-5 flex-shrink-0" />
+            <span>Profile</span>
+          </Link>
+
+          <button
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-smooth w-full"
+          >
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            <span>Sign out</span>
+          </button>
         </div>
       </SheetContent>
     </Sheet>
