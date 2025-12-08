@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Pencil, DollarSign, ShoppingBag, Car, Utensils, Film, Home, Zap, Heart } from "lucide-react";
+import { Plus, Trash2, Pencil, DollarSign, ShoppingBag, Car, Utensils, Film, Home, Zap, Heart, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -39,19 +39,49 @@ const categories = [
 
 const todayStr = new Date().toISOString().split("T")[0];
 
-const initialExpenses: Expense[] = [
-  { id: "1", description: "Grocery shopping", amount: 85.50, category: "Food", date: todayStr },
-  { id: "2", description: "Uber ride", amount: 24.00, category: "Transport", date: todayStr },
-  { id: "3", description: "Netflix subscription", amount: 15.99, category: "Entertainment", date: "2024-12-04" },
-  { id: "4", description: "New headphones", amount: 149.99, category: "Shopping", date: "2024-12-03" },
-  { id: "5", description: "Restaurant dinner", amount: 68.00, category: "Food", date: "2024-12-03" },
-  { id: "6", description: "Electric bill", amount: 120.00, category: "Utilities", date: "2024-12-02" },
-  { id: "7", description: "Gas station", amount: 45.00, category: "Transport", date: "2024-12-01" },
-  { id: "8", description: "Coffee shop", amount: 12.50, category: "Food", date: "2024-12-01" },
-];
+// Generate sample data for multiple months
+const generateSampleExpenses = (): Expense[] => {
+  const expenses: Expense[] = [];
+  const now = new Date();
+  
+  // Current month expenses
+  expenses.push(
+    { id: "1", description: "Grocery shopping", amount: 85.50, category: "Food", date: todayStr },
+    { id: "2", description: "Uber ride", amount: 24.00, category: "Transport", date: todayStr },
+    { id: "3", description: "Netflix subscription", amount: 15.99, category: "Entertainment", date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-04` },
+    { id: "4", description: "New headphones", amount: 149.99, category: "Shopping", date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-03` },
+    { id: "5", description: "Restaurant dinner", amount: 68.00, category: "Food", date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-03` },
+    { id: "6", description: "Electric bill", amount: 120.00, category: "Utilities", date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-02` },
+    { id: "7", description: "Gas station", amount: 45.00, category: "Transport", date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01` },
+    { id: "8", description: "Coffee shop", amount: 12.50, category: "Food", date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01` },
+  );
+
+  // Last month expenses
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  expenses.push(
+    { id: "9", description: "Monthly groceries", amount: 320.00, category: "Food", date: `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-15` },
+    { id: "10", description: "Internet bill", amount: 65.00, category: "Utilities", date: `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-10` },
+    { id: "11", description: "Movie tickets", amount: 28.00, category: "Entertainment", date: `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-08` },
+    { id: "12", description: "Gym membership", amount: 50.00, category: "Health", date: `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-01` },
+    { id: "13", description: "Car maintenance", amount: 180.00, category: "Transport", date: `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-20` },
+    { id: "14", description: "Clothing", amount: 95.00, category: "Shopping", date: `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}-12` },
+  );
+
+  // Two months ago
+  const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  expenses.push(
+    { id: "15", description: "Rent", amount: 1200.00, category: "Housing", date: `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, '0')}-01` },
+    { id: "16", description: "Groceries", amount: 280.00, category: "Food", date: `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, '0')}-10` },
+    { id: "17", description: "Electric bill", amount: 95.00, category: "Utilities", date: `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, '0')}-15` },
+  );
+
+  return expenses;
+};
+
+const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default function Expenses() {
-  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses);
+  const [expenses, setExpenses] = useState<Expense[]>(generateSampleExpenses);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [formData, setFormData] = useState({
@@ -105,6 +135,40 @@ export default function Expenses() {
     });
   };
 
+  // Monthly comparison data
+  const monthlyData = useMemo(() => {
+    const data: { month: string; year: number; monthIndex: number; total: number; count: number }[] = [];
+    const now = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = targetDate.getFullYear();
+      const month = targetDate.getMonth();
+      
+      const monthExpenses = expenses.filter(e => {
+        const d = new Date(e.date);
+        return d.getMonth() === month && d.getFullYear() === year;
+      });
+      
+      data.push({
+        month: monthNames[month],
+        year,
+        monthIndex: month,
+        total: monthExpenses.reduce((sum, e) => sum + e.amount, 0),
+        count: monthExpenses.length
+      });
+    }
+    
+    return data;
+  }, [expenses]);
+
+  const currentMonthTotal = monthlyData[monthlyData.length - 1]?.total || 0;
+  const lastMonthTotal = monthlyData[monthlyData.length - 2]?.total || 0;
+  const monthOverMonthChange = lastMonthTotal > 0 
+    ? ((currentMonthTotal - lastMonthTotal) / lastMonthTotal * 100) 
+    : 0;
+  const maxMonthlyTotal = Math.max(...monthlyData.map(m => m.total), 1);
+
   const todayExpenses = expenses.filter(e => e.date === todayStr);
   const todayTotal = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
   const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -123,7 +187,7 @@ export default function Expenses() {
 
   return (
     <AppLayout title="Expenses" subtitle="Track your spending">
-      <div className="max-w-4xl space-y-6">
+      <div className="w-full max-w-5xl mx-auto space-y-6">
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
@@ -138,12 +202,87 @@ export default function Expenses() {
             <p className="text-2xl font-semibold text-foreground">${thisWeek.toFixed(0)}</p>
           </div>
           <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">Total Spent</p>
-            <p className="text-2xl font-semibold text-foreground">${totalSpent.toFixed(0)}</p>
+            <p className="text-xs text-muted-foreground mb-1">This Month</p>
+            <p className="text-2xl font-semibold text-foreground">${currentMonthTotal.toFixed(0)}</p>
           </div>
           <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">Transactions</p>
-            <p className="text-2xl font-semibold text-foreground">{expenses.length}</p>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-muted-foreground">vs Last Month</p>
+              {monthOverMonthChange !== 0 && (
+                monthOverMonthChange > 0 
+                  ? <ArrowUpRight className="w-4 h-4 text-destructive" />
+                  : <ArrowDownRight className="w-4 h-4 text-success" />
+              )}
+            </div>
+            <p className={cn(
+              "text-2xl font-semibold",
+              monthOverMonthChange > 0 ? "text-destructive" : monthOverMonthChange < 0 ? "text-success" : "text-foreground"
+            )}>
+              {monthOverMonthChange > 0 ? "+" : ""}{monthOverMonthChange.toFixed(0)}%
+            </p>
+          </div>
+        </div>
+
+        {/* Monthly Comparison Chart */}
+        <div className="bg-card rounded-lg border border-border shadow-soft p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Monthly Comparison</h3>
+              <p className="text-xs text-muted-foreground">Last 6 months spending</p>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Total:</span>
+              <span className="font-semibold text-foreground">
+                ${monthlyData.reduce((sum, m) => sum + m.total, 0).toFixed(0)}
+              </span>
+            </div>
+          </div>
+          
+          <div className="flex items-end justify-between gap-2 h-40">
+            {monthlyData.map((month, index) => {
+              const heightPercent = (month.total / maxMonthlyTotal) * 100;
+              const isCurrentMonth = index === monthlyData.length - 1;
+              const prevMonth = monthlyData[index - 1];
+              const change = prevMonth && prevMonth.total > 0 
+                ? ((month.total - prevMonth.total) / prevMonth.total * 100)
+                : 0;
+              
+              return (
+                <div key={`${month.month}-${month.year}`} className="flex-1 flex flex-col items-center gap-2 group relative">
+                  {/* Tooltip */}
+                  <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-foreground text-background text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-smooth whitespace-nowrap z-10">
+                    ${month.total.toFixed(0)} ({month.count} items)
+                    {change !== 0 && (
+                      <span className={cn("ml-1", change > 0 ? "text-red-300" : "text-green-300")}>
+                        {change > 0 ? "+" : ""}{change.toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="w-full bg-muted rounded-t-sm relative flex-1 flex items-end min-h-[80px]">
+                    <div
+                      className={cn(
+                        "w-full rounded-t-sm transition-all duration-300",
+                        isCurrentMonth ? "bg-primary" : "bg-primary/60",
+                        "hover:bg-primary"
+                      )}
+                      style={{ height: `${Math.max(heightPercent, 5)}%` }}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <span className={cn(
+                      "text-xs block",
+                      isCurrentMonth ? "font-medium text-foreground" : "text-muted-foreground"
+                    )}>
+                      {month.month}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ${month.total >= 1000 ? `${(month.total / 1000).toFixed(1)}k` : month.total.toFixed(0)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

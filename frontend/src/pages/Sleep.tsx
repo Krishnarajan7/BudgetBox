@@ -134,7 +134,7 @@ export default function Sleep() {
 
   return (
     <AppLayout title="Sleep" subtitle="Track your rest">
-      <div className="max-w-4xl space-y-6">
+      <div className="w-full max-w-5xl mx-auto space-y-6">
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
