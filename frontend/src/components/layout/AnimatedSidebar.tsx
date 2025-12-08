@@ -228,8 +228,10 @@ export function AnimatedSidebar() {
                           <UserCircle className="h-4 w-4" /> Profile
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="flex items-center gap-2">
-                        <LogOut className="h-4 w-4" /> Sign out
+                      <DropdownMenuItem asChild className="flex items-center gap-2">
+                        <Link to="/auth">
+                          <LogOut className="h-4 w-4" /> Sign out
+                        </Link>
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

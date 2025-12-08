@@ -79,7 +79,7 @@ export default function Water() {
 
   return (
     <AppLayout title="Water" subtitle="Stay hydrated">
-      <div className="max-w-3xl space-y-6">
+      <div className="w-full max-w-4xl mx-auto space-y-6">
         {/* Main Tracker */}
         <div className="bg-card rounded-lg border border-border shadow-soft p-6 sm:p-8">
           <div className="flex flex-col items-center">

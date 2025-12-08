@@ -99,7 +99,7 @@ export default function Mood() {
 
   return (
     <AppLayout title="Mood" subtitle="Track how you feel">
-      <div className="max-w-3xl space-y-6">
+      <div className="w-full max-w-4xl mx-auto space-y-6">
         {/* Today's Mood Logger */}
         <div className="bg-card rounded-lg border border-border shadow-soft p-6">
           <h3 className="text-sm font-semibold text-foreground mb-4">

@@ -105,13 +105,14 @@ export function MobileSidebar() {
             <span>Profile</span>
           </Link>
 
-          <button
+          <Link
+            to="/auth"
             onClick={() => setOpen(false)}
             className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-smooth w-full"
           >
             <LogOut className="w-5 h-5 flex-shrink-0" />
             <span>Sign out</span>
-          </button>
+          </Link>
         </div>
       </SheetContent>
     </Sheet>
