@@ -97,7 +97,7 @@ export function MobileSidebar() {
           </div>
 
           <Link
-            to="/settings"
+            to="/profile"
             onClick={() => setOpen(false)}
             className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-smooth"
           >

@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Pencil, DollarSign, ShoppingBag, Car, Utensils, Film, Home, Zap, Heart, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Plus, Trash2, Pencil, DollarSign, ShoppingBag, Car, Utensils, Film, Home, Zap, Heart, ArrowUpRight, ArrowDownRight, Receipt, PieChart, Calendar, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface Expense {
   id: string;
@@ -28,12 +29,12 @@ interface Expense {
 }
 
 const categories = [
-  { name: "Food", icon: Utensils, color: "bg-primary" },
-  { name: "Transport", icon: Car, color: "bg-info" },
-  { name: "Shopping", icon: ShoppingBag, color: "bg-warning" },
-  { name: "Entertainment", icon: Film, color: "bg-destructive" },
-  { name: "Housing", icon: Home, color: "bg-success" },
-  { name: "Utilities", icon: Zap, color: "bg-purple-500" },
+  { name: "Food", icon: Utensils, color: "bg-emerald-500" },
+  { name: "Transport", icon: Car, color: "bg-blue-500" },
+  { name: "Shopping", icon: ShoppingBag, color: "bg-amber-500" },
+  { name: "Entertainment", icon: Film, color: "bg-rose-500" },
+  { name: "Housing", icon: Home, color: "bg-violet-500" },
+  { name: "Utilities", icon: Zap, color: "bg-cyan-500" },
   { name: "Health", icon: Heart, color: "bg-pink-500" },
 ];
 
@@ -84,6 +85,7 @@ export default function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>(generateSampleExpenses);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
@@ -185,118 +187,214 @@ export default function Expenses() {
     total: expenses.filter(e => e.category === cat.name).reduce((sum, e) => sum + e.amount, 0)
   })).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
 
+  const filteredExpenses = selectedCategory === "all" 
+    ? expenses 
+    : expenses.filter(e => e.category === selectedCategory);
+
+  // Calculate pie chart segments
+  const pieSegments = useMemo(() => {
+    let cumulative = 0;
+    return categoryTotals.map((cat, index) => {
+      const percentage = (cat.total / totalSpent) * 100;
+      const startAngle = cumulative * 3.6; // Convert percentage to degrees
+      cumulative += percentage;
+      return {
+        ...cat,
+        percentage,
+        startAngle,
+        endAngle: cumulative * 3.6,
+      };
+    });
+  }, [categoryTotals, totalSpent]);
+
   return (
-    <AppLayout title="Expenses" subtitle="Track your spending">
-      <div className="w-full max-w-5xl mx-auto space-y-6">
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <div className="flex items-center gap-2 mb-1">
-              <DollarSign className="w-4 h-4 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">Today</p>
+    <AppLayout title="Expenses" subtitle="Track and analyze spending">
+      <div className="w-full max-w-6xl mx-auto space-y-6">
+        {/* Header Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-card rounded-xl border border-border p-5 shadow-soft">
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-primary" />
+              </div>
+              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded-full">Today</span>
             </div>
-            <p className="text-2xl font-semibold text-foreground">${todayTotal.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-foreground">${todayTotal.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground mt-1">{todayExpenses.length} transactions</p>
           </div>
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">This Week</p>
-            <p className="text-2xl font-semibold text-foreground">${thisWeek.toFixed(0)}</p>
+          
+          <div className="bg-card rounded-xl border border-border p-5 shadow-soft">
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-10 h-10 rounded-lg bg-info/10 flex items-center justify-center">
+                <Receipt className="w-5 h-5 text-info" />
+              </div>
+              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded-full">7 days</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">${thisWeek.toFixed(0)}</p>
+            <p className="text-xs text-muted-foreground mt-1">This week</p>
           </div>
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">This Month</p>
-            <p className="text-2xl font-semibold text-foreground">${currentMonthTotal.toFixed(0)}</p>
+          
+          <div className="bg-card rounded-xl border border-border p-5 shadow-soft">
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
+                <Calendar className="w-5 h-5 text-success" />
+              </div>
+              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded-full">Month</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">${currentMonthTotal.toFixed(0)}</p>
+            <p className="text-xs text-muted-foreground mt-1">This month</p>
           </div>
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-muted-foreground">vs Last Month</p>
-              {monthOverMonthChange !== 0 && (
-                monthOverMonthChange > 0 
-                  ? <ArrowUpRight className="w-4 h-4 text-destructive" />
-                  : <ArrowDownRight className="w-4 h-4 text-success" />
-              )}
+          
+          <div className="bg-card rounded-xl border border-border p-5 shadow-soft">
+            <div className="flex items-center justify-between mb-3">
+              <div className={cn(
+                "w-10 h-10 rounded-lg flex items-center justify-center",
+                monthOverMonthChange > 0 ? "bg-destructive/10" : "bg-success/10"
+              )}>
+                {monthOverMonthChange > 0 
+                  ? <ArrowUpRight className="w-5 h-5 text-destructive" />
+                  : <ArrowDownRight className="w-5 h-5 text-success" />
+                }
+              </div>
+              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded-full">vs Last</span>
             </div>
             <p className={cn(
-              "text-2xl font-semibold",
-              monthOverMonthChange > 0 ? "text-destructive" : monthOverMonthChange < 0 ? "text-success" : "text-foreground"
+              "text-2xl font-bold",
+              monthOverMonthChange > 0 ? "text-destructive" : "text-success"
             )}>
               {monthOverMonthChange > 0 ? "+" : ""}{monthOverMonthChange.toFixed(0)}%
             </p>
+            <p className="text-xs text-muted-foreground mt-1">Month over month</p>
           </div>
         </div>
 
-        {/* Monthly Comparison Chart */}
-        <div className="bg-card rounded-lg border border-border shadow-soft p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Monthly Comparison</h3>
-              <p className="text-xs text-muted-foreground">Last 6 months spending</p>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Total:</span>
-              <span className="font-semibold text-foreground">
-                ${monthlyData.reduce((sum, m) => sum + m.total, 0).toFixed(0)}
-              </span>
-            </div>
-          </div>
-          
-          <div className="flex items-end justify-between gap-2 h-40">
-            {monthlyData.map((month, index) => {
-              const heightPercent = (month.total / maxMonthlyTotal) * 100;
-              const isCurrentMonth = index === monthlyData.length - 1;
-              const prevMonth = monthlyData[index - 1];
-              const change = prevMonth && prevMonth.total > 0 
-                ? ((month.total - prevMonth.total) / prevMonth.total * 100)
-                : 0;
-              
-              return (
-                <div key={`${month.month}-${month.year}`} className="flex-1 flex flex-col items-center gap-2 group relative">
-                  {/* Tooltip */}
-                  <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-foreground text-background text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-smooth whitespace-nowrap z-10">
-                    ${month.total.toFixed(0)} ({month.count} items)
-                    {change !== 0 && (
-                      <span className={cn("ml-1", change > 0 ? "text-red-300" : "text-green-300")}>
-                        {change > 0 ? "+" : ""}{change.toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="w-full bg-muted rounded-t-sm relative flex-1 flex items-end min-h-[80px]">
-                    <div
-                      className={cn(
-                        "w-full rounded-t-sm transition-all duration-300",
-                        isCurrentMonth ? "bg-primary" : "bg-primary/60",
-                        "hover:bg-primary"
-                      )}
-                      style={{ height: `${Math.max(heightPercent, 5)}%` }}
-                    />
-                  </div>
-                  <div className="text-center">
-                    <span className={cn(
-                      "text-xs block",
-                      isCurrentMonth ? "font-medium text-foreground" : "text-muted-foreground"
-                    )}>
-                      {month.month}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      ${month.total >= 1000 ? `${(month.total / 1000).toFixed(1)}k` : month.total.toFixed(0)}
-                    </span>
-                  </div>
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Charts */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Monthly Comparison */}
+            <div className="bg-card rounded-xl border border-border shadow-soft p-5">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">Monthly Overview</h3>
+                  <p className="text-xs text-muted-foreground">Last 6 months spending trends</p>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Today's Expenses */}
-        <div className="bg-card rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Today's Expenses</h3>
-              <p className="text-xs text-muted-foreground">{todayExpenses.length} transactions</p>
+                <div className="text-right">
+                  <p className="text-lg font-bold text-foreground">
+                    ${monthlyData.reduce((sum, m) => sum + m.total, 0).toFixed(0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                </div>
+              </div>
+              
+              <div className="flex items-end gap-3 h-48">
+                {monthlyData.map((month, index) => {
+                  const heightPercent = (month.total / maxMonthlyTotal) * 100;
+                  const isCurrentMonth = index === monthlyData.length - 1;
+                  const prevMonth = monthlyData[index - 1];
+                  const change = prevMonth && prevMonth.total > 0 
+                    ? ((month.total - prevMonth.total) / prevMonth.total * 100)
+                    : 0;
+                  
+                  return (
+                    <div key={`${month.month}-${month.year}`} className="flex-1 flex flex-col items-center group relative">
+                      {/* Tooltip */}
+                      <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-foreground text-background text-xs px-3 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-smooth whitespace-nowrap z-10 shadow-lg">
+                        <p className="font-semibold">${month.total.toFixed(0)}</p>
+                        <p className="text-[10px] opacity-80">{month.count} transactions</p>
+                        {change !== 0 && (
+                          <p className={cn("text-[10px]", change > 0 ? "text-red-300" : "text-green-300")}>
+                            {change > 0 ? "↑" : "↓"} {Math.abs(change).toFixed(0)}%
+                          </p>
+                        )}
+                      </div>
+                      
+                      <div className="w-full bg-muted rounded-lg relative flex-1 flex items-end overflow-hidden">
+                        <div
+                          className={cn(
+                            "w-full rounded-lg transition-all duration-500 ease-out",
+                            isCurrentMonth 
+                              ? "bg-primary" 
+                              : "bg-primary/40 group-hover:bg-primary/60"
+                          )}
+                          style={{ height: `${Math.max(heightPercent, 8)}%` }}
+                        />
+                      </div>
+                      <div className="text-center mt-2">
+                        <span className={cn(
+                          "text-xs block font-medium",
+                          isCurrentMonth ? "text-foreground" : "text-muted-foreground"
+                        )}>
+                          {month.month}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+
+            {/* Category Breakdown */}
+            <div className="bg-card rounded-xl border border-border shadow-soft p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <PieChart className="w-5 h-5 text-muted-foreground" />
+                <h3 className="text-base font-semibold text-foreground">Category Breakdown</h3>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Visual representation */}
+                <div className="flex flex-wrap gap-2 justify-center items-center py-4">
+                  {categoryTotals.slice(0, 5).map((cat, index) => {
+                    const size = Math.max(40, Math.min(80, (cat.total / totalSpent) * 200));
+                    return (
+                      <div
+                        key={cat.name}
+                        className={cn(
+                          "rounded-full flex items-center justify-center text-white text-xs font-medium transition-all hover:scale-110",
+                          cat.color
+                        )}
+                        style={{ width: size, height: size }}
+                        title={`${cat.name}: $${cat.total.toFixed(0)}`}
+                      >
+                        <cat.icon className="w-4 h-4" />
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                {/* List */}
+                <div className="space-y-3">
+                  {categoryTotals.map((cat) => (
+                    <div key={cat.name} className="flex items-center gap-3">
+                      <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0", cat.color)}>
+                        <cat.icon className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-foreground">{cat.name}</span>
+                          <span className="text-sm font-medium text-foreground">${cat.total.toFixed(0)}</span>
+                        </div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full transition-all", cat.color)}
+                            style={{ width: `${(cat.total / totalSpent) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - Transactions */}
+          <div className="space-y-6">
+            {/* Add Button */}
             <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
               <DialogTrigger asChild>
-                <Button size="sm" className="gap-2" onClick={resetForm}>
-                  <Plus className="w-4 h-4" />
+                <Button className="w-full gap-2 h-12" onClick={resetForm}>
+                  <Plus className="w-5 h-5" />
                   Add Expense
                 </Button>
               </DialogTrigger>
@@ -347,7 +445,7 @@ export default function Expenses() {
                           <SelectItem key={cat.name} value={cat.name}>
                             <div className="flex items-center gap-2">
                               <div className={cn("w-4 h-4 rounded flex items-center justify-center", cat.color)}>
-                                <cat.icon className="w-2.5 h-2.5 text-primary-foreground" />
+                                <cat.icon className="w-2.5 h-2.5 text-white" />
                               </div>
                               {cat.name}
                             </div>
@@ -363,49 +461,116 @@ export default function Expenses() {
                 </div>
               </DialogContent>
             </Dialog>
-          </div>
-          {todayExpenses.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-muted-foreground">No expenses today</p>
-              <p className="text-sm text-muted-foreground mt-1">Add your first expense</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {todayExpenses.map((expense) => {
-                const cat = categories.find(c => c.name === expense.category);
-                return (
-                  <div key={expense.id} className="flex items-center gap-3 sm:gap-4 p-4 hover:bg-muted/30 transition-smooth group">
-                    <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0", cat?.color || "bg-muted")}>
-                      {cat && <cat.icon className="w-5 h-5 text-primary-foreground" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{expense.description}</p>
-                      <p className="text-xs text-muted-foreground">{expense.category}</p>
-                    </div>
-                    <p className="text-sm font-semibold text-foreground whitespace-nowrap">-${expense.amount.toFixed(2)}</p>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                        onClick={() => startEdit(expense)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteExpense(expense.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+
+            {/* Today's Quick View */}
+            <div className="bg-card rounded-xl border border-border shadow-soft overflow-hidden">
+              <div className="p-4 border-b border-border bg-muted/30">
+                <h3 className="text-sm font-semibold text-foreground">Today's Expenses</h3>
+                <p className="text-xs text-muted-foreground">{todayExpenses.length} transactions • ${todayTotal.toFixed(2)}</p>
+              </div>
+              
+              {todayExpenses.length === 0 ? (
+                <div className="p-6 text-center">
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                    <Receipt className="w-6 h-6 text-muted-foreground" />
                   </div>
-                );
-              })}
+                  <p className="text-sm text-muted-foreground">No expenses today</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border max-h-64 overflow-y-auto">
+                  {todayExpenses.map((expense) => {
+                    const cat = categories.find(c => c.name === expense.category);
+                    return (
+                      <div key={expense.id} className="flex items-center gap-3 p-3 hover:bg-muted/30 transition-smooth group">
+                        <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0", cat?.color || "bg-muted")}>
+                          {cat && <cat.icon className="w-4 h-4 text-white" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{expense.description}</p>
+                          <p className="text-xs text-muted-foreground">{expense.category}</p>
+                        </div>
+                        <p className="text-sm font-semibold text-foreground">-${expense.amount.toFixed(2)}</p>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            onClick={() => startEdit(expense)}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => deleteExpense(expense.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+
+            {/* All Expenses with Filter */}
+            <div className="bg-card rounded-xl border border-border shadow-soft overflow-hidden">
+              <div className="p-4 border-b border-border bg-muted/30 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-foreground">All Expenses</h3>
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="w-32 h-8 text-xs">
+                    <Filter className="w-3 h-3 mr-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat.name} value={cat.name}>{cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="divide-y divide-border max-h-80 overflow-y-auto">
+                {filteredExpenses.map((expense) => {
+                  const cat = categories.find(c => c.name === expense.category);
+                  return (
+                    <div key={expense.id} className="flex items-center gap-3 p-3 hover:bg-muted/30 transition-smooth group">
+                      <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0", cat?.color || "bg-muted")}>
+                        {cat && <cat.icon className="w-4 h-4 text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{expense.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(expense.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">-${expense.amount.toFixed(2)}</p>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          onClick={() => startEdit(expense)}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteExpense(expense.id)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Edit Modal */}
@@ -457,7 +622,7 @@ export default function Expenses() {
                       <SelectItem key={cat.name} value={cat.name}>
                         <div className="flex items-center gap-2">
                           <div className={cn("w-4 h-4 rounded flex items-center justify-center", cat.color)}>
-                            <cat.icon className="w-2.5 h-2.5 text-primary-foreground" />
+                            <cat.icon className="w-2.5 h-2.5 text-white" />
                           </div>
                           {cat.name}
                         </div>
@@ -473,77 +638,6 @@ export default function Expenses() {
             </div>
           </DialogContent>
         </Dialog>
-
-        {/* Category Breakdown */}
-        <div className="bg-card rounded-lg border border-border shadow-soft p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Spending by Category</h3>
-          <div className="space-y-3">
-            {categoryTotals.map((cat) => (
-              <div key={cat.name} className="flex items-center gap-3">
-                <div className={cn("w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0", cat.color)}>
-                  <cat.icon className="w-4 h-4 text-primary-foreground" />
-                </div>
-                <span className="text-sm font-medium text-foreground w-24">{cat.name}</span>
-                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={cn("h-full rounded-full", cat.color)}
-                    style={{ width: `${(cat.total / totalSpent) * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm font-medium text-foreground w-20 text-right">
-                  ${cat.total.toFixed(0)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* All Expenses */}
-        <div className="bg-card rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-sm font-semibold text-foreground">All Expenses</h3>
-          </div>
-          <div className="divide-y divide-border max-h-96 overflow-y-auto">
-            {expenses.map((expense) => {
-              const cat = categories.find(c => c.name === expense.category);
-              return (
-                <div key={expense.id} className="flex items-center gap-3 sm:gap-4 p-4 hover:bg-muted/30 transition-smooth group">
-                  <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0", cat?.color || "bg-muted")}>
-                    {cat && <cat.icon className="w-5 h-5 text-primary-foreground" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{expense.description}</p>
-                    <p className="text-xs text-muted-foreground">{expense.category}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold text-foreground">-${expense.amount.toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(expense.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </p>
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                      onClick={() => startEdit(expense)}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteExpense(expense.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
     </AppLayout>
   );
