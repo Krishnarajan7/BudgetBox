@@ -6,6 +6,7 @@ import { MoodChart } from "@/components/dashboard/MoodChart";
 import { WaterTracker } from "@/components/dashboard/WaterTracker";
 import { SleepTracker } from "@/components/dashboard/SleepTracker";
 import { ExpensesSummary } from "@/components/dashboard/ExpensesSummary";
+import { ActivityDonutChart } from "@/components/dashboard/ActivityDonutChart";
 import {
   CheckSquare,
   Target,
@@ -72,6 +73,7 @@ export default function Dashboard() {
 
         {/* Right Column */}
         <div className="space-y-6">
+          <ActivityDonutChart />
           <MoodChart />
           <WaterTracker />
           <SleepTracker />
