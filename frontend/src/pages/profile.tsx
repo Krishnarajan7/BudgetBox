@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DonutChart, DonutChartSegment } from "@/components/ui/donut-chart";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   User, 
   Camera, 
@@ -29,6 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+// Activity breakdown data for donut chart
+const profileActivityData: DonutChartSegment[] = [
+  { value: 156, color: "hsl(var(--primary))", label: "Tasks" },
+  { value: 89, color: "hsl(var(--success))", label: "Habits" },
+  { value: 234, color: "hsl(var(--info))", label: "Expenses" },
+  { value: 45, color: "hsl(var(--warning))", label: "Mood Logs" },
+];
 
 // Simulated user data
 const initialUserData = {
@@ -56,14 +66,20 @@ const statsData = {
   totalDays: 365,
 };
 
-// Achievements
+// Achievements - Personal tracking badges
 const achievements = [
-  { id: 1, name: "First Step", description: "Complete your first task", icon: CheckCircle2, unlocked: true, date: "Jan 15" },
-  { id: 2, name: "Week Warrior", description: "7-day streak", icon: Flame, unlocked: true, date: "Jan 22" },
-  { id: 3, name: "Money Tracker", description: "Log 50 expenses", icon: Award, unlocked: true, date: "Feb 10" },
-  { id: 4, name: "Habit Master", description: "30-day habit streak", icon: Trophy, unlocked: false, date: null },
-  { id: 5, name: "Centurion", description: "100 tasks completed", icon: Award, unlocked: true, date: "Mar 5" },
-  { id: 6, name: "Night Owl", description: "Log sleep for 30 days", icon: Clock, unlocked: false, date: null },
+  { id: 1, name: "First Step", description: "Complete your first task", icon: CheckCircle2, unlocked: true, date: "Jan 15", category: "tasks" },
+  { id: 2, name: "Week Warrior", description: "7-day streak", icon: Flame, unlocked: true, date: "Jan 22", category: "streak" },
+  { id: 3, name: "Money Tracker", description: "Log 50 expenses", icon: Award, unlocked: true, date: "Feb 10", category: "expenses" },
+  { id: 4, name: "Habit Master", description: "30-day habit streak", icon: Trophy, unlocked: false, date: null, category: "habits" },
+  { id: 5, name: "Centurion", description: "100 tasks completed", icon: Award, unlocked: true, date: "Mar 5", category: "tasks" },
+  { id: 6, name: "Night Owl", description: "Log sleep for 30 days", icon: Clock, unlocked: false, date: null, category: "sleep" },
+  { id: 7, name: "Hydration Hero", description: "Hit daily water goal 7 days in a row", icon: Zap, unlocked: true, date: "Feb 28", category: "water" },
+  { id: 8, name: "Ocean Drinker", description: "Log 100 liters of water", icon: Trophy, unlocked: false, date: null, category: "water" },
+  { id: 9, name: "Big Spender", description: "Track $1000+ in a month", icon: Award, unlocked: true, date: "Mar 15", category: "expenses" },
+  { id: 10, name: "Budget Master", description: "Stay under budget 3 months", icon: Star, unlocked: false, date: null, category: "expenses" },
+  { id: 11, name: "Mood Logger", description: "Log mood for 14 days straight", icon: TrendingUp, unlocked: true, date: "Feb 5", category: "mood" },
+  { id: 12, name: "Early Bird", description: "Sleep before 10pm 7 times", icon: Clock, unlocked: false, date: null, category: "sleep" },
 ];
 
 // Generate GitHub-style heatmap data (52 weeks / 12 months)
@@ -101,16 +117,104 @@ const generateYearHeatmapData = () => {
 const getHeatmapColor = (level: number) => {
   switch (level) {
     case 0: return "bg-muted";
-    case 1: return "bg-emerald-200 dark:bg-emerald-900";
-    case 2: return "bg-emerald-300 dark:bg-emerald-700";
-    case 3: return "bg-emerald-500 dark:bg-emerald-500";
-    case 4: return "bg-emerald-600 dark:bg-emerald-400";
+    case 1: return "bg-primary/20";
+    case 2: return "bg-primary/40";
+    case 3: return "bg-primary/70";
+    case 4: return "bg-primary";
     default: return "bg-muted";
   }
 };
 
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Profile Activity Donut Component
+function ProfileActivityDonut() {
+  const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
+  const totalValue = profileActivityData.reduce((sum, d) => sum + d.value, 0);
+
+  const activeSegment = profileActivityData.find(
+    (segment) => segment.label === hoveredSegment
+  );
+  
+  const displayValue = activeSegment?.value ?? totalValue;
+  const displayLabel = activeSegment?.label ?? "Total Logged";
+  const displayPercentage = activeSegment 
+    ? (activeSegment.value / totalValue) * 100 
+    : 100;
+
+  return (
+    <div className="bg-card rounded-xl border border-border shadow-soft p-5">
+      <h3 className="text-sm font-semibold text-foreground mb-4">Activity Breakdown</h3>
+      
+      <div className="flex flex-col items-center">
+        <DonutChart
+          data={profileActivityData}
+          size={160}
+          strokeWidth={22}
+          animationDuration={1}
+          animationDelayPerSegment={0.08}
+          highlightOnHover={true}
+          onSegmentHover={(segment) => setHoveredSegment(segment?.label ?? null)}
+          centerContent={
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={displayLabel}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.2, ease: "circOut" }}
+                className="flex flex-col items-center justify-center text-center"
+              >
+                <p className="text-muted-foreground text-[10px] font-medium truncate max-w-[80px]">
+                  {displayLabel}
+                </p>
+                <p className="text-xl font-bold text-foreground">
+                  {displayValue}
+                </p>
+                {activeSegment && (
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {displayPercentage.toFixed(0)}%
+                  </p>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          }
+        />
+      </div>
+
+      <div className="flex flex-col space-y-1 mt-4 pt-3 border-t border-border">
+        {profileActivityData.map((segment, index) => (
+          <motion.div
+            key={segment.label}
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 1 + index * 0.1, duration: 0.3 }}
+            className={cn(
+              "flex items-center justify-between px-2 py-1 rounded-md transition-all duration-200 cursor-pointer",
+              hoveredSegment === segment.label && "bg-muted"
+            )}
+            onMouseEnter={() => setHoveredSegment(segment.label)}
+            onMouseLeave={() => setHoveredSegment(null)}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: segment.color }}
+              />
+              <span className="text-xs text-foreground">
+                {segment.label}
+              </span>
+            </div>
+            <span className="text-xs font-medium text-muted-foreground">
+              {segment.value}
+            </span>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Profile() {
   const [profile, setProfile] = useState(initialUserData);
@@ -515,23 +619,29 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">Total Habits</p>
-            <p className="text-xl font-semibold text-foreground">{statsData.totalHabits}</p>
-          </div>
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">Expenses Logged</p>
-            <p className="text-xl font-semibold text-foreground">{statsData.totalExpenses}</p>
-          </div>
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">Active Days</p>
-            <p className="text-xl font-semibold text-foreground">{statsData.activeDays}/{statsData.totalDays}</p>
-          </div>
-          <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
-            <p className="text-xs text-muted-foreground mb-1">This Month</p>
-            <p className="text-xl font-semibold text-success">+23%</p>
+        {/* Activity Breakdown Donut Chart + Quick Stats */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Donut Chart */}
+          <ProfileActivityDonut />
+          
+          {/* Quick Stats Grid */}
+          <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
+              <p className="text-xs text-muted-foreground mb-1">Total Habits</p>
+              <p className="text-xl font-semibold text-foreground">{statsData.totalHabits}</p>
+            </div>
+            <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
+              <p className="text-xs text-muted-foreground mb-1">Expenses Logged</p>
+              <p className="text-xl font-semibold text-foreground">{statsData.totalExpenses}</p>
+            </div>
+            <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
+              <p className="text-xs text-muted-foreground mb-1">Active Days</p>
+              <p className="text-xl font-semibold text-foreground">{statsData.activeDays}/{statsData.totalDays}</p>
+            </div>
+            <div className="bg-card rounded-lg border border-border p-4 shadow-soft">
+              <p className="text-xs text-muted-foreground mb-1">This Month</p>
+              <p className="text-xl font-semibold text-success">+23%</p>
+            </div>
           </div>
         </div>
       </div>
