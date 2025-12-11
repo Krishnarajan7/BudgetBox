@@ -7,6 +7,7 @@ import { WaterTracker } from "@/components/dashboard/WaterTracker";
 import { SleepTracker } from "@/components/dashboard/SleepTracker";
 import { ExpensesSummary } from "@/components/dashboard/ExpensesSummary";
 import { ActivityDonutChart } from "@/components/dashboard/ActivityDonutChart";
+import { DashboardCalendar } from "@/components/dashboard/DashboardCalendar";
 import {
   CheckSquare,
   Target,
@@ -64,18 +65,21 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-6">
         {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
           <TaskList />
           <HabitTracker />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <MoodChart />
+            <WaterTracker />
+          </div>
         </div>
 
         {/* Right Column */}
         <div className="space-y-6">
+          <DashboardCalendar />
           <ActivityDonutChart />
-          <MoodChart />
-          <WaterTracker />
           <SleepTracker />
           <ExpensesSummary />
         </div>
