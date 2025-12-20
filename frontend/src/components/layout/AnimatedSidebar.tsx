@@ -72,7 +72,7 @@ const staggerVariants = {
 };
 
 const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: CheckSquare, label: "Tasks", path: "/tasks" },
   { icon: Target, label: "Habits", path: "/habits" },
   { icon: Smile, label: "Mood", path: "/mood" },
@@ -87,7 +87,7 @@ export function AnimatedSidebar() {
   const currentPath = location.pathname;
 
   const isActive = (path: string) => {
-    if (path === "/") return currentPath === "/";
+    if (path === "/dashboard") return currentPath === "/dashboard";
     return currentPath.startsWith(path);
   };
 
@@ -224,7 +224,7 @@ export function AnimatedSidebar() {
                       </div>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild className="flex items-center gap-2">
-                        <Link to="/settings">
+                        <Link to="/profile">
                           <UserCircle className="h-4 w-4" /> Profile
                         </Link>
                       </DropdownMenuItem>

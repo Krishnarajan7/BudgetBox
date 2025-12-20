@@ -21,7 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { Link } from "react-router-dom";
 
 const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: CheckSquare, label: "Tasks", path: "/tasks" },
   { icon: Target, label: "Habits", path: "/habits" },
   { icon: Smile, label: "Mood", path: "/mood" },
