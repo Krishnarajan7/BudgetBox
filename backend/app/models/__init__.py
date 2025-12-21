@@ -8,4 +8,7 @@ from app.models.habit import Habit
 from app.models.habit_log import HabitLog
 from app.models.task import Task
 from app.models.task_log import TaskLog
+from app.models.food_nutrient_profile import FoodNutrientProfile
+from app.models.food_log import FoodLog
+
 

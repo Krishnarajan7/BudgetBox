@@ -17,3 +17,12 @@ class IncomeResponse(BaseModel):
     wallet_id: int
     category_id: int
     note: str | None = None
+    
+
+
+class IncomeUpdate(BaseModel):
+    amount: float | None = None
+    note: str | None = None
+    occurred_at: datetime | None = None
+    category_id: int | None = None
+    wallet_id: int | None = None

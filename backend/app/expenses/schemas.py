@@ -16,3 +16,10 @@ class ExpenseResponse(BaseModel):
     occurred_at: datetime
     category_id: int
     wallet_id: int
+
+class ExpenseUpdate(BaseModel):
+    amount: float | None = None
+    note: str | None = None
+    occurred_at: datetime | None = None
+    category_id: int | None = None
+    wallet_id: int | None = None

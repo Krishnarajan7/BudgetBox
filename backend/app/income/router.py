@@ -7,6 +7,9 @@ from app.core.database import get_db
 from app.auth.deps import get_current_user
 from app.models.user import User
 
+from app.income.schemas import IncomeUpdate
+from app.income.service import update_income
+
 router = APIRouter(prefix="/habits", tags=["habits"])
 
 
@@ -28,3 +31,19 @@ async def complete_today(
 ):
     log = await complete_habit_for_today(db, user.id, habit_id)
     return log
+
+
+@router.patch("/{income_id}")
+async def patch_income(
+    income_id: int,
+    data: IncomeUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    income = await update_income(db, user.id, income_id, data)
+    return {
+        "id": income.id,
+        "amount": float(income.amount),
+        "note": income.note,
+        "occurred_at": income.occurred_at,
+    }

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from datetime import date
+from typing import Optional
 
 
 class HabitCreate(BaseModel):
@@ -16,3 +17,8 @@ class HabitLogResponse(BaseModel):
     habit_id: int
     date: date
     completed: bool
+
+
+class HabitLogPatch(BaseModel):
+    date: Optional[date] = None
+    completed: Optional[bool] = None

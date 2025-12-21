@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,7 +14,22 @@ from app.auth.security import (
     hash_token,
 )
 
+from app.wallets.service import create_wallet
+from app.categories.service import create_category
+
+
 REFRESH_TOKEN_DAYS = 30
+
+DEFAULT_CATEGORIES = [
+    "Food",
+    "Transport",
+    "Rent",
+    "Utilities",
+    "Shopping",
+    "Entertainment",
+    "Health",
+    "Other",
+]
 
 
 async def register_user(
@@ -35,6 +51,17 @@ async def register_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    await create_wallet(
+        db=db,
+        user_id=user.id,
+        name="My Money",
+        balance=Decimal("0.00"),
+    )
+
+    for name in DEFAULT_CATEGORIES:
+        await create_category(db, user.id, name)
+
     return user
 
 

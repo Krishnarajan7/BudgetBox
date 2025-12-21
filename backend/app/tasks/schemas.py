@@ -14,3 +14,6 @@ class TaskResponse(BaseModel):
     description: str | None
     due_at: datetime | None
     is_active: bool
+
+class TaskLogPatch(BaseModel):
+    completed: bool

@@ -39,3 +39,41 @@ async def create_income(
     await db.refresh(income)
 
     return income
+
+
+async def update_income(
+    db,
+    user_id: int,
+    income_id: int,
+    data,
+):
+    result = await db.execute(
+        select(Transaction)
+        .where(
+            Transaction.id == income_id,
+            Transaction.user_id == user_id,
+            Transaction.type == TransactionType.INCOME,
+        )
+    )
+    income = result.scalar_one()
+
+    wallet = await db.get(Wallet, income.wallet_id)
+
+    old_amount = Decimal(income.amount)
+    new_amount = Decimal(data.amount) if data.amount is not None else old_amount
+
+    if data.amount is not None:
+        wallet.balance -= old_amount
+        wallet.balance += new_amount
+        income.amount = new_amount
+
+    if data.note is not None:
+        income.note = data.note
+
+    if data.occurred_at is not None:
+        income.occurred_at = data.occurred_at
+
+    await db.commit()
+    await db.refresh(income)
+
+    return income
