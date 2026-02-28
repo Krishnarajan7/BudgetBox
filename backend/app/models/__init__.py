@@ -10,5 +10,4 @@ from app.models.task import Task
 from app.models.task_log import TaskLog
 from app.models.food_nutrient_profile import FoodNutrientProfile
 from app.models.food_log import FoodLog
-
-
+from app.models.user_profile import UserProfile

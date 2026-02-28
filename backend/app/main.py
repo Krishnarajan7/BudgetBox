@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,9 @@ from app.core.exception_handlers import (
 )
 from app.core.errors import AppError
 
+# Routers
 from app.auth.router import router as auth_router
+from app.profile.router import router as profile_router
 from app.expenses.router import router as expenses_router
 from app.analytics.router import router as analytics_router
 from app.income.router import router as income_router
@@ -23,11 +26,21 @@ from app.categories.router import router as categories_router
 from app.nutrition.router import router as nutrition_router
 
 
-
-
 app = FastAPI(title=settings.app_name)
 
+# CORS (REQUIRED)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# Health / Root
 @app.get("/")
 async def root():
     return {
@@ -44,8 +57,9 @@ async def db_health(db: AsyncSession = Depends(get_db)):
         "result": result.scalar(),
     }
 
-
+# Routers
 app.include_router(auth_router)
+app.include_router(profile_router)   
 app.include_router(expenses_router)
 app.include_router(analytics_router)
 app.include_router(income_router)
@@ -55,11 +69,12 @@ app.include_router(wallets_router)
 app.include_router(categories_router)
 app.include_router(nutrition_router)
 
+# Exception Handlers
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
-
+# Shutdown
 @app.on_event("shutdown")
 async def shutdown():
     await engine.dispose()

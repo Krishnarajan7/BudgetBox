@@ -8,7 +8,7 @@ from alembic import context
 
 from app.core.config import settings
 from app.core.database import Base
-from app.models import user, wallet, category, transaction, budget, refresh_token, habit, habit_log, task_log, task
+from app.models import user, wallet, category, transaction, budget, refresh_token, habit, habit_log, task_log, task, food_nutrient_profile, food_log, user_profile  # noqa: F401
 
 config = context.config
 
