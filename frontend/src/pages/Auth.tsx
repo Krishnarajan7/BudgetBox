@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Mail, Lock, User, ArrowRight, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+import { login, register } from "@/api/auth.api";
+
 export default function Auth() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -22,18 +24,49 @@ export default function Auth() {
     e.preventDefault();
     setIsLoading(true);
 
-    // Simulate authentication
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      if (isSignUp) {
+        // 🔹 REGISTER
+        await register(formData.email, formData.password);
 
-    toast({
-      title: isSignUp ? "Account created" : "Welcome back",
-      description: isSignUp 
-        ? "Your account has been created successfully." 
-        : "You have been signed in successfully.",
-    });
+        toast({
+          title: "Account created",
+          description: "You can now sign in with your credentials.",
+        });
 
-    setIsLoading(false);
-    navigate("/dashboard");
+        // Switch to sign-in mode after successful registration
+        setIsSignUp(false);
+        // Clear form for better UX
+        setFormData({ name: "", email: formData.email, password: "" });
+      } else {
+        // 🔹 LOGIN
+        const data = await login(formData.email, formData.password);
+
+        // 🔐 STORE TOKENS
+        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+
+        toast({
+          title: "Welcome back",
+          description: "You have been signed in successfully.",
+        });
+
+        // Clear password field on successful login (security + UX)
+        setFormData({ ...formData, password: "" });
+
+        // Redirect to main protected page
+        navigate("/dashboard");
+      }
+    } catch (err: any) {
+      toast({
+        title: "Authentication failed",
+        description:
+          err?.response?.data?.detail || "Invalid email or password",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,36 +33,26 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Simulated user data
-const initialUserData = {
-  firstName: "Alex",
-  lastName: "Johnson",
-  email: "alex@example.com",
-  phone: "+1 (555) 123-4567",
-  location: "San Francisco, CA",
-  occupation: "Software Developer",
-  website: "https://alexjohnson.dev",
-  bio: "Passionate about productivity and personal growth. Tracking my habits and expenses to become a better version of myself.",
-  timezone: "America/Los_Angeles",
-  joinDate: "2024-01-15",
-  avatar: null,
-};
+import { useProfile } from "@/hooks/useProfile";
 
-// Stats data
-const statsData = {
-  currentStreak: 12,
-  longestStreak: 28,
-  totalTasks: 156,
-  totalHabits: 89,
-  totalExpenses: 234,
-  moodLogs: 45,
-  waterDays: 67,
-  sleepLogs: 82,
-  activeDays: 287,
-  totalDays: 365,
-};
+// Recommended: Create this type in src/types/profile.ts
+export interface Profile {
+  firstName: string;
+  lastName?: string;
+  email: string;
+  phone?: string;
+  location?: string;
+  occupation?: string;
+  website?: string;
+  bio?: string;
+  timezone?: string;
+  avatar?: string;
+  joinDate?: string;
+  created_at?: string;
+  createdAt?: string;
+}
 
-// GitHub-style achievements
+// Achievements (hardcoded for now – can be moved to backend later)
 const achievements = [
   { id: "first-task", name: "First Step", description: "Complete your first task", unlocked: true, icon: "🎯" },
   { id: "week-streak", name: "Week Warrior", description: "7-day tracking streak", unlocked: true, icon: "🔥" },
@@ -77,34 +67,6 @@ const achievements = [
   { id: "mood-14", name: "Mood Logger", description: "Log mood 14 days straight", unlocked: true, icon: "😊" },
   { id: "early-bird", name: "Early Bird", description: "Sleep before 10pm 7 times", unlocked: false, icon: "🐦" },
 ];
-
-// Generate GitHub-style heatmap data (52 weeks / 12 months)
-const generateYearHeatmapData = () => {
-  const data: { date: Date; level: number }[] = [];
-  const today = new Date();
-  const oneYearAgo = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
-  
-  const startDate = new Date(oneYearAgo);
-  startDate.setDate(startDate.getDate() - startDate.getDay());
-  
-  const current = new Date(startDate);
-  while (current <= today) {
-    const dayOfWeek = current.getDay();
-    const random = Math.random();
-    
-    let level = 0;
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      if (random > 0.6) level = Math.floor(Math.random() * 3) + 1;
-    } else {
-      if (random > 0.2) level = Math.floor(Math.random() * 4) + 1;
-    }
-    
-    data.push({ date: new Date(current), level });
-    current.setDate(current.getDate() + 1);
-  }
-  
-  return data;
-};
 
 const getHeatmapColor = (level: number) => {
   switch (level) {
@@ -121,10 +83,49 @@ const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function Profile() {
-  const [profile, setProfile] = useState(initialUserData);
-  const [isEditing, setIsEditing] = useState(false);
+  const {
+    profile,
+    stats,
+    activity,
+    loading,
+    saving,
+    saveProfile,
+  } = useProfile();
 
-  const heatmapData = useMemo(() => generateYearHeatmapData(), []);
+  const [isEditing, setIsEditing] = useState(false);
+  const [localProfile, setLocalProfile] = useState<Profile | null>(null);
+
+  // Sync local editable copy when profile loads/changes
+  useEffect(() => {
+    if (profile) {
+      setLocalProfile(profile);
+    }
+  }, [profile]);
+
+  // Fixed heatmap: fills every day in the last year with real data or 0
+  const heatmapData = useMemo(() => {
+    if (!activity || !Array.isArray(activity)) return [];
+
+    const map = new Map<string, number>(
+      activity.map((d: any) => [d.date, d.level ?? 0])
+    );
+
+    const data: { date: Date; level: number }[] = [];
+    const today = new Date();
+    const start = new Date();
+    start.setFullYear(today.getFullYear() - 1);
+    start.setDate(start.getDate() + 1); // inclusive
+
+    for (let d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+      const key = d.toISOString().slice(0, 10);
+      data.push({
+        date: new Date(d),
+        level: map.get(key) ?? 0,
+      });
+    }
+
+    return data;
+  }, [activity]);
 
   const weeks = useMemo(() => {
     const result: { date: Date; level: number }[][] = [];
@@ -160,7 +161,22 @@ export default function Profile() {
     return labels;
   }, [weeks]);
 
-  const memberSince = new Date(profile.joinDate).toLocaleDateString("en-US", { 
+  if (loading) {
+    return (
+      <AppLayout title="Profile">
+        <div className="p-10 text-center text-muted-foreground">
+          Loading profile...
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!profile || !stats || !localProfile) return null;
+
+  // Safe join date handling
+  const joinDateSource = profile.joinDate || profile.created_at || profile.createdAt || new Date().toISOString();
+  const memberSinceDate = new Date(joinDateSource);
+  const memberSinceText = memberSinceDate.toLocaleDateString("en-US", { 
     month: "long", 
     year: "numeric" 
   });
@@ -168,8 +184,13 @@ export default function Profile() {
   const totalContributions = heatmapData.reduce((sum, day) => sum + (day.level > 0 ? 1 : 0), 0);
   const unlockedCount = achievements.filter(a => a.unlocked).length;
 
-  const handleSave = () => {
-    setIsEditing(false);
+  const handleSave = async () => {
+    try {
+      await saveProfile(localProfile);
+      setIsEditing(false);
+    } catch (error) {
+      alert("Failed to save profile. Please try again.");
+    }
   };
 
   return (
@@ -196,9 +217,9 @@ export default function Profile() {
                 </div>
                 
                 <h2 className="text-xl font-semibold text-foreground">
-                  {profile.firstName} {profile.lastName}
+                  {profile.firstName} {profile.lastName || ""}
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">{profile.occupation}</p>
+                <p className="text-sm text-muted-foreground mt-1">{profile.occupation || "No occupation set"}</p>
                 
                 <Button 
                   variant="outline" 
@@ -239,7 +260,7 @@ export default function Profile() {
                 )}
                 <div className="flex items-center gap-3 text-sm">
                   <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-muted-foreground">Joined {memberSince}</span>
+                  <span className="text-muted-foreground">Joined {memberSinceText}</span>
                 </div>
               </div>
               
@@ -293,16 +314,16 @@ export default function Profile() {
                       <Label htmlFor="firstName">First Name</Label>
                       <Input 
                         id="firstName" 
-                        value={profile.firstName}
-                        onChange={(e) => setProfile({ ...profile, firstName: e.target.value })}
+                        value={localProfile.firstName || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, firstName: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="lastName">Last Name</Label>
                       <Input 
                         id="lastName" 
-                        value={profile.lastName}
-                        onChange={(e) => setProfile({ ...profile, lastName: e.target.value })}
+                        value={localProfile.lastName || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, lastName: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -310,8 +331,8 @@ export default function Profile() {
                       <Input 
                         id="email" 
                         type="email"
-                        value={profile.email}
-                        onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                        value={localProfile.email || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, email: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -319,24 +340,24 @@ export default function Profile() {
                       <Input 
                         id="phone" 
                         type="tel"
-                        value={profile.phone}
-                        onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                        value={localProfile.phone || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, phone: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="location">Location</Label>
                       <Input 
                         id="location" 
-                        value={profile.location}
-                        onChange={(e) => setProfile({ ...profile, location: e.target.value })}
+                        value={localProfile.location || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, location: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="occupation">Occupation</Label>
                       <Input 
                         id="occupation" 
-                        value={profile.occupation}
-                        onChange={(e) => setProfile({ ...profile, occupation: e.target.value })}
+                        value={localProfile.occupation || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, occupation: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
@@ -344,15 +365,15 @@ export default function Profile() {
                       <Input 
                         id="website" 
                         type="url"
-                        value={profile.website}
-                        onChange={(e) => setProfile({ ...profile, website: e.target.value })}
+                        value={localProfile.website || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, website: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="timezone">Timezone</Label>
                       <Select 
-                        value={profile.timezone} 
-                        onValueChange={(v) => setProfile({ ...profile, timezone: v })}
+                        value={localProfile.timezone || ""} 
+                        onValueChange={(v) => setLocalProfile({ ...localProfile, timezone: v })}
                       >
                         <SelectTrigger id="timezone">
                           <SelectValue />
@@ -373,13 +394,15 @@ export default function Profile() {
                       <Textarea 
                         id="bio" 
                         rows={3}
-                        value={profile.bio}
-                        onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
+                        value={localProfile.bio || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, bio: e.target.value })}
                       />
                     </div>
                   </div>
                   <div className="flex gap-3 pt-2">
-                    <Button onClick={handleSave}>Save changes</Button>
+                    <Button onClick={handleSave} disabled={saving}>
+                      {saving ? "Saving..." : "Save changes"}
+                    </Button>
                     <Button variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
                   </div>
                 </div>
@@ -462,10 +485,10 @@ export default function Profile() {
 
             {/* Stats Overview */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard icon={Flame} label="Day Streak" value={statsData.currentStreak} color="text-orange-500" bgColor="bg-orange-500/10" />
-              <StatCard icon={Award} label="Best Streak" value={statsData.longestStreak} color="text-primary" bgColor="bg-primary/10" />
-              <StatCard icon={CheckSquare} label="Tasks Done" value={statsData.totalTasks} color="text-green-500" bgColor="bg-green-500/10" />
-              <StatCard icon={Target} label="Habits" value={statsData.totalHabits} color="text-blue-500" bgColor="bg-blue-500/10" />
+              <StatCard icon={Flame} label="Day Streak" value={stats.currentStreak} color="text-orange-500" bgColor="bg-orange-500/10" />
+              <StatCard icon={Award} label="Best Streak" value={stats.longestStreak} color="text-primary" bgColor="bg-primary/10" />
+              <StatCard icon={CheckSquare} label="Tasks Done" value={stats.totalTasks} color="text-green-500" bgColor="bg-green-500/10" />
+              <StatCard icon={Target} label="Habits" value={stats.totalHabits} color="text-blue-500" bgColor="bg-blue-500/10" />
             </div>
 
             {/* All Achievements */}
@@ -503,12 +526,12 @@ export default function Profile() {
 
             {/* Activity Summary */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <MiniStatCard icon={CheckSquare} label="Tasks" value={statsData.totalTasks} />
-              <MiniStatCard icon={Target} label="Habits" value={statsData.totalHabits} />
-              <MiniStatCard icon={Wallet} label="Expenses" value={statsData.totalExpenses} />
-              <MiniStatCard icon={Smile} label="Mood Logs" value={statsData.moodLogs} />
-              <MiniStatCard icon={Droplets} label="Water Days" value={statsData.waterDays} />
-              <MiniStatCard icon={Moon} label="Sleep Logs" value={statsData.sleepLogs} />
+              <MiniStatCard icon={CheckSquare} label="Tasks" value={stats.totalTasks} />
+              <MiniStatCard icon={Target} label="Habits" value={stats.totalHabits} />
+              <MiniStatCard icon={Wallet} label="Expenses" value={stats.totalExpenses} />
+              <MiniStatCard icon={Smile} label="Mood Logs" value={stats.moodLogs} />
+              <MiniStatCard icon={Droplets} label="Water Days" value={stats.waterDays} />
+              <MiniStatCard icon={Moon} label="Sleep Logs" value={stats.sleepLogs} />
             </div>
           </div>
         </div>
@@ -517,9 +540,8 @@ export default function Profile() {
   );
 }
 
-// Stat Card Component
 function StatCard({ icon: Icon, label, value, color, bgColor }: { 
-  icon: React.ElementType; 
+  icon: any; 
   label: string; 
   value: number | string;
   color: string;
@@ -536,9 +558,8 @@ function StatCard({ icon: Icon, label, value, color, bgColor }: {
   );
 }
 
-// Mini Stat Card Component  
 function MiniStatCard({ icon: Icon, label, value }: { 
-  icon: React.ElementType; 
+  icon: any; 
   label: string; 
   value: number;
 }) {
