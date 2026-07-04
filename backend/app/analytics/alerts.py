@@ -3,12 +3,52 @@ from sqlalchemy import select, func, extract
 from datetime import date
 
 from app.models.transaction import Transaction, TransactionType
+from app.budgets.service import list_budgets_with_usage
+
+
+async def _budget_alerts(db: AsyncSession, user_id: int) -> list[dict]:
+    """Alerts derived from the user's Budget limits for the current month.
+
+    Any category with a budget that has hit >=80% usage gets a warning,
+    and >=100% usage gets an over-budget alert. These are more actionable
+    than the average-based alerts below, so they are returned first.
+    """
+    current_month = date.today().strftime("%Y-%m")
+    usage = await list_budgets_with_usage(db, user_id, current_month)
+
+    alerts = []
+    for item in usage:
+        percent = item["percent_used"]
+        if percent >= 100:
+            alerts.append(
+                {
+                    "type": "danger",
+                    "message": (
+                        f"You have exceeded your {item['category_name']} budget "
+                        f"for {item['month']} "
+                        f"({item['spent']:.2f} of {item['limit']:.2f})"
+                    ),
+                }
+            )
+        elif percent >= 80:
+            alerts.append(
+                {
+                    "type": "warning",
+                    "message": (
+                        f"You have used {percent:.0f}% of your "
+                        f"{item['category_name']} budget for {item['month']}"
+                    ),
+                }
+            )
+    return alerts
 
 
 async def expense_alerts(
     db: AsyncSession,
     user_id: int,
 ):
+    budget_based_alerts = await _budget_alerts(db, user_id)
+
     today = date.today()
     current_month = today.month
     current_year = today.year
@@ -69,4 +109,4 @@ async def expense_alerts(
             }
         )
 
-    return alerts
+    return budget_based_alerts + alerts

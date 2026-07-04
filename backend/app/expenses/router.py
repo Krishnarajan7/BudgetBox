@@ -44,7 +44,14 @@ async def list_expenses_endpoint(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    expenses = await list_expenses(db, user.id)
+    expenses = await list_expenses(
+        db,
+        user.id,
+        start_date=start_date,
+        end_date=end_date,
+        wallet_id=wallet_id,
+        category_id=category_id,
+    )
 
     return [
         {

@@ -2,6 +2,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.errors import AppError
 from app.models.wallet import Wallet
 
 
@@ -45,7 +46,9 @@ async def update_wallet(
             Wallet.user_id == user_id,
         )
     )
-    wallet = result.scalar_one()
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        raise AppError("WALLET_NOT_FOUND", "Wallet not found", 404)
 
     if name is not None:
         wallet.name = name
@@ -69,7 +72,9 @@ async def delete_wallet(
             Wallet.user_id == user_id,
         )
     )
-    wallet = result.scalar_one()
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        raise AppError("WALLET_NOT_FOUND", "Wallet not found", 404)
 
     await db.delete(wallet)
     await db.commit()

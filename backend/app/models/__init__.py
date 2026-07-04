@@ -11,3 +11,13 @@ from app.models.task_log import TaskLog
 from app.models.food_nutrient_profile import FoodNutrientProfile
 from app.models.food_log import FoodLog
 from app.models.user_profile import UserProfile
+from app.models.mood_entry import MoodEntry
+from app.models.water_log import WaterLog
+from app.models.sleep_entry import SleepEntry
+from app.models.note import Note
+from app.models.journal_entry import JournalEntry
+from app.models.asset import Asset
+from app.models.event import Event
+from app.models.vault_config import VaultConfig
+from app.models.vault_item import VaultItem
+from app.models.focus_session import FocusSession

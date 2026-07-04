@@ -14,13 +14,11 @@ from app.auth.security import (
     hash_token,
 )
 
-from app.wallets.service import create_wallet
-from app.categories.service import create_category
+from app.core.config import settings
+from app.models.wallet import Wallet
+from app.models.category import Category, CategoryType
 
-
-REFRESH_TOKEN_DAYS = 30
-
-DEFAULT_CATEGORIES = [
+DEFAULT_EXPENSE_CATEGORIES = [
     "Food",
     "Transport",
     "Rent",
@@ -28,6 +26,14 @@ DEFAULT_CATEGORIES = [
     "Shopping",
     "Entertainment",
     "Health",
+    "Other",
+]
+
+DEFAULT_INCOME_CATEGORIES = [
+    "Salary",
+    "Freelance",
+    "Investments",
+    "Gifts",
     "Other",
 ]
 
@@ -49,18 +55,27 @@ async def register_user(
     )
 
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    # Flush (without committing) so `user.id` is assigned and can be used
+    # as a foreign key for the wallet/categories below. Everything is
+    # committed together at the end so a mid-way failure leaves no
+    # partial registration data behind.
+    await db.flush()
 
-    await create_wallet(
-        db=db,
+    wallet = Wallet(
         user_id=user.id,
         name="My Money",
         balance=Decimal("0.00"),
     )
+    db.add(wallet)
 
-    for name in DEFAULT_CATEGORIES:
-        await create_category(db, user.id, name)
+    for name in DEFAULT_EXPENSE_CATEGORIES:
+        db.add(Category(user_id=user.id, name=name, type=CategoryType.EXPENSE))
+
+    for name in DEFAULT_INCOME_CATEGORIES:
+        db.add(Category(user_id=user.id, name=name, type=CategoryType.INCOME))
+
+    await db.commit()
+    await db.refresh(user)
 
     return user
 
@@ -85,7 +100,7 @@ async def authenticate_user(
         user_id=user.id,
         token_hash=hash_token(raw_refresh),
         expires_at=datetime.now(timezone.utc)
-        + timedelta(days=REFRESH_TOKEN_DAYS),
+        + timedelta(days=settings.refresh_token_expire_days),
     )
 
     db.add(refresh)

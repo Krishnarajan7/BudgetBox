@@ -5,13 +5,20 @@ from app.core.database import get_db
 from app.auth.deps import get_current_user
 from app.models.user import User
 
-from app.tasks.schemas import TaskCreate, TaskResponse, TaskLogPatch
+from app.tasks.schemas import (
+    TaskCreate,
+    TaskUpdate,
+    TaskResponse,
+    TaskLogPatch,
+    TaskLogResponse,
+)
 from app.tasks.service import (
     create_task,
     complete_task_for_today,
     task_insights,
     patch_task_log,
     list_tasks,
+    update_task,
     delete_task,
 )
 
@@ -32,7 +39,7 @@ async def create_task_endpoint(
     return await create_task(db, user.id, data)
 
 
-@router.post("/{task_id}/complete")
+@router.post("/{task_id}/complete", response_model=TaskLogResponse)
 async def complete_task_today(
     task_id: int,
     db: AsyncSession = Depends(get_db),
@@ -54,7 +61,7 @@ async def task_insights_endpoint(
     return await task_insights(db, user.id)
 
 
-@router.patch("/{task_id}/logs/today")
+@router.patch("/{task_id}/logs/today", response_model=TaskLogResponse)
 async def patch_today_task_log(
     task_id: int,
     data: TaskLogPatch,
@@ -69,13 +76,22 @@ async def patch_today_task_log(
     }
 
 
-
-@router.get("")
+@router.get("", response_model=list[TaskResponse])
 async def list_user_tasks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     return await list_tasks(db, user.id)
+
+
+@router.patch("/{task_id}", response_model=TaskResponse)
+async def update_task_endpoint(
+    task_id: int,
+    data: TaskUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await update_task(db, user.id, task_id, data)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -13,6 +13,7 @@ from app.models.food_nutrient_profile import FoodNutrientProfile
 
 from app.streaks.service import calculate_streak
 from app.achievements.service import evaluate_achievements
+from app.achievements.definitions import ACHIEVEMENTS
 
 
 async def profile_stats(db, user_id: int):
@@ -63,6 +64,7 @@ async def profile_stats(db, user_id: int):
 
     total_categories = await db.scalar(
         select(func.count(Category.id))
+        .where(Category.user_id == user_id)
     ) or 0
 
     total_food_logs = await db.scalar(
@@ -92,5 +94,5 @@ async def profile_stats(db, user_id: int):
     return {
         **stats,
         "achievements_unlocked": len(unlocked_achievements),
-        "total_achievements": len(unlocked_achievements),
+        "total_achievements": len(ACHIEVEMENTS),
     }

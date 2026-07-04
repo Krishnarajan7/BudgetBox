@@ -17,14 +17,14 @@ class ProfileResponse(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    first_name: str
-    last_name: str
+    first_name: str | None = None
+    last_name: str | None = None
     phone: str | None = None
     location: str | None = None
     occupation: str | None = None
     website: str | None = None
     bio: str | None = None
-    timezone: str
+    timezone: str | None = None
     avatar_url: str | None = None
 
 

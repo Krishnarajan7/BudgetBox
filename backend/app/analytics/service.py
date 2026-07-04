@@ -24,7 +24,8 @@ async def summary_by_period(
         )
         .where(
             Transaction.user_id == user_id,
-            Transaction.occurred_at.between(start_date, end_date),
+            Transaction.occurred_at >= start_date,
+            Transaction.occurred_at < end_date + timedelta(days=1),
         )
         .group_by(Transaction.type)
     )

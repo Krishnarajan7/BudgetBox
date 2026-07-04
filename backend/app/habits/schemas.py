@@ -22,3 +22,8 @@ class HabitLogResponse(BaseModel):
 class HabitLogPatch(BaseModel):
     date: Optional[date] = None
     completed: Optional[bool] = None
+
+
+class HabitUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None

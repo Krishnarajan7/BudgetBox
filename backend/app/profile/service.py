@@ -45,7 +45,16 @@ async def update_profile(db, user, data) -> ProfileResponse:
     profile = result.scalar_one_or_none()
 
     if not profile:
-        raise AppError("Profile not found", 404)
+        # Consistent with get_profile: auto-create the row on first write too,
+        # so PUT /profile before any GET /profile still succeeds.
+        profile = UserProfile(
+            user_id=user.id,
+            first_name="",
+            last_name="",
+            timezone="UTC",
+            join_date=date.today(),
+        )
+        db.add(profile)
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -76,7 +85,7 @@ async def get_join_date(db, user) -> date:
     join_date = result.scalar_one_or_none()
 
     if not join_date:
-        raise AppError("Profile not found", 404)
+        raise AppError("PROFILE_NOT_FOUND", "Profile not found", 404)
 
     return join_date
 

@@ -13,6 +13,9 @@ class Task(Base):
     description: Mapped[str | None] = mapped_column(String(500))
     due_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    priority: Mapped[str] = mapped_column(
+        String(20), server_default="medium", default="medium"
+    )
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now()
