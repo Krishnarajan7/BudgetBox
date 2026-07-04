@@ -15,12 +15,9 @@ import {
   Mail,
   Edit2,
   ExternalLink,
-  Droplets,
-  Moon,
   Wallet,
   Target,
   CheckSquare,
-  Smile,
   Flame,
   Award
 } from "lucide-react";
@@ -34,23 +31,7 @@ import {
 } from "@/components/ui/select";
 
 import { useProfile } from "@/hooks/useProfile";
-
-// Recommended: Create this type in src/types/profile.ts
-export interface Profile {
-  firstName: string;
-  lastName?: string;
-  email: string;
-  phone?: string;
-  location?: string;
-  occupation?: string;
-  website?: string;
-  bio?: string;
-  timezone?: string;
-  avatar?: string;
-  joinDate?: string;
-  created_at?: string;
-  createdAt?: string;
-}
+import { ProfileData, ProfileUpdatePayload } from "@/api/profile.api";
 
 // Achievements (hardcoded for now – can be moved to backend later)
 const achievements = [
@@ -82,6 +63,16 @@ const getHeatmapColor = (level: number) => {
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Backend returns raw activity counts per day (e.g. {"2026-07-04": 3}).
+// Bucket those counts into 0-4 intensity levels for the heatmap coloring.
+const getIntensityLevel = (count: number) => {
+  if (count <= 0) return 0;
+  if (count === 1) return 1;
+  if (count === 2) return 2;
+  if (count <= 4) return 3;
+  return 4;
+};
+
 export default function Profile() {
   const {
     profile,
@@ -93,7 +84,7 @@ export default function Profile() {
   } = useProfile();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [localProfile, setLocalProfile] = useState<Profile | null>(null);
+  const [localProfile, setLocalProfile] = useState<ProfileData | null>(null);
 
   // Sync local editable copy when profile loads/changes
   useEffect(() => {
@@ -104,10 +95,10 @@ export default function Profile() {
 
   // Fixed heatmap: fills every day in the last year with real data or 0
   const heatmapData = useMemo(() => {
-    if (!activity || !Array.isArray(activity)) return [];
+    if (!activity) return [];
 
     const map = new Map<string, number>(
-      activity.map((d: any) => [d.date, d.level ?? 0])
+      Object.entries(activity).map(([date, count]) => [date, getIntensityLevel(count)])
     );
 
     const data: { date: Date; level: number }[] = [];
@@ -173,20 +164,32 @@ export default function Profile() {
 
   if (!profile || !stats || !localProfile) return null;
 
-  // Safe join date handling
-  const joinDateSource = profile.joinDate || profile.created_at || profile.createdAt || new Date().toISOString();
-  const memberSinceDate = new Date(joinDateSource);
-  const memberSinceText = memberSinceDate.toLocaleDateString("en-US", { 
-    month: "long", 
-    year: "numeric" 
+  const memberSinceDate = new Date(profile.join_date);
+  const memberSinceText = memberSinceDate.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric"
   });
 
   const totalContributions = heatmapData.reduce((sum, day) => sum + (day.level > 0 ? 1 : 0), 0);
   const unlockedCount = achievements.filter(a => a.unlocked).length;
 
   const handleSave = async () => {
+    if (!localProfile) return;
     try {
-      await saveProfile(localProfile);
+      // Only send the fields the backend's ProfileUpdate schema accepts.
+      // Notably `email` is not editable server-side, so it's excluded here.
+      const payload: ProfileUpdatePayload = {
+        first_name: localProfile.first_name,
+        last_name: localProfile.last_name,
+        phone: localProfile.phone,
+        location: localProfile.location,
+        occupation: localProfile.occupation,
+        website: localProfile.website,
+        bio: localProfile.bio,
+        timezone: localProfile.timezone,
+        avatar_url: localProfile.avatar_url,
+      };
+      await saveProfile(payload);
       setIsEditing(false);
     } catch (error) {
       alert("Failed to save profile. Please try again.");
@@ -205,8 +208,8 @@ export default function Profile() {
               <div className="flex flex-col items-center text-center">
                 <div className="relative mb-4">
                   <div className="w-32 h-32 rounded-full bg-muted border-4 border-background shadow-lg flex items-center justify-center overflow-hidden">
-                    {profile.avatar ? (
-                      <img src={profile.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                    {profile.avatar_url ? (
+                      <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
                       <User className="w-16 h-16 text-muted-foreground" />
                     )}
@@ -215,9 +218,9 @@ export default function Profile() {
                     <Camera className="w-4 h-4" />
                   </button>
                 </div>
-                
+
                 <h2 className="text-xl font-semibold text-foreground">
-                  {profile.firstName} {profile.lastName || ""}
+                  {profile.first_name} {profile.last_name || ""}
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1">{profile.occupation || "No occupation set"}</p>
                 
@@ -312,27 +315,28 @@ export default function Profile() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="firstName">First Name</Label>
-                      <Input 
-                        id="firstName" 
-                        value={localProfile.firstName || ""}
-                        onChange={(e) => setLocalProfile({ ...localProfile, firstName: e.target.value })}
+                      <Input
+                        id="firstName"
+                        value={localProfile.first_name || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, first_name: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="lastName">Last Name</Label>
-                      <Input 
-                        id="lastName" 
-                        value={localProfile.lastName || ""}
-                        onChange={(e) => setLocalProfile({ ...localProfile, lastName: e.target.value })}
+                      <Input
+                        id="lastName"
+                        value={localProfile.last_name || ""}
+                        onChange={(e) => setLocalProfile({ ...localProfile, last_name: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="email">Email</Label>
-                      <Input 
-                        id="email" 
+                      <Input
+                        id="email"
                         type="email"
                         value={localProfile.email || ""}
-                        onChange={(e) => setLocalProfile({ ...localProfile, email: e.target.value })}
+                        disabled
+                        title="Email cannot be changed here"
                       />
                     </div>
                     <div className="space-y-2">
@@ -485,10 +489,24 @@ export default function Profile() {
 
             {/* Stats Overview */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard icon={Flame} label="Day Streak" value={stats.currentStreak} color="text-orange-500" bgColor="bg-orange-500/10" />
-              <StatCard icon={Award} label="Best Streak" value={stats.longestStreak} color="text-primary" bgColor="bg-primary/10" />
-              <StatCard icon={CheckSquare} label="Tasks Done" value={stats.totalTasks} color="text-green-500" bgColor="bg-green-500/10" />
-              <StatCard icon={Target} label="Habits" value={stats.totalHabits} color="text-blue-500" bgColor="bg-blue-500/10" />
+              <StatCard
+                icon={Flame}
+                label="Task Streak"
+                value={stats.task_streak.current_streak}
+                subLabel={`Best: ${stats.task_streak.longest_streak}`}
+                color="text-orange-500"
+                bgColor="bg-orange-500/10"
+              />
+              <StatCard
+                icon={Award}
+                label="Habit Streak"
+                value={stats.habit_streak.current_streak}
+                subLabel={`Best: ${stats.habit_streak.longest_streak}`}
+                color="text-primary"
+                bgColor="bg-primary/10"
+              />
+              <StatCard icon={CheckSquare} label="Tasks Done" value={stats.total_tasks_completed} color="text-green-500" bgColor="bg-green-500/10" />
+              <StatCard icon={Target} label="Habits Done" value={stats.total_habits_completed} color="text-blue-500" bgColor="bg-blue-500/10" />
             </div>
 
             {/* All Achievements */}
@@ -525,13 +543,17 @@ export default function Profile() {
             </div>
 
             {/* Activity Summary */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              <MiniStatCard icon={CheckSquare} label="Tasks" value={stats.totalTasks} />
-              <MiniStatCard icon={Target} label="Habits" value={stats.totalHabits} />
-              <MiniStatCard icon={Wallet} label="Expenses" value={stats.totalExpenses} />
-              <MiniStatCard icon={Smile} label="Mood Logs" value={stats.moodLogs} />
-              <MiniStatCard icon={Droplets} label="Water Days" value={stats.waterDays} />
-              <MiniStatCard icon={Moon} label="Sleep Logs" value={stats.sleepLogs} />
+            {/* Mood/water/sleep cards removed: backend does not expose those
+                counters (see app/profile/stats_service.py) — showing them
+                would just be fake data. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <MiniStatCard icon={CheckSquare} label="Tasks Done" value={stats.total_tasks_completed} />
+              <MiniStatCard icon={Target} label="Habits Done" value={stats.total_habits_completed} />
+              <MiniStatCard
+                icon={Wallet}
+                label="Expenses"
+                value={`$${stats.total_expenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+              />
             </div>
           </div>
         </div>
@@ -540,10 +562,11 @@ export default function Profile() {
   );
 }
 
-function StatCard({ icon: Icon, label, value, color, bgColor }: { 
-  icon: any; 
-  label: string; 
+function StatCard({ icon: Icon, label, value, subLabel, color, bgColor }: {
+  icon: any;
+  label: string;
   value: number | string;
+  subLabel?: string;
   color: string;
   bgColor: string;
 }) {
@@ -554,14 +577,17 @@ function StatCard({ icon: Icon, label, value, color, bgColor }: {
       </div>
       <p className="text-2xl font-semibold text-foreground">{value}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+      {subLabel && (
+        <p className="text-[10px] text-muted-foreground/70 mt-0.5">{subLabel}</p>
+      )}
     </div>
   );
 }
 
-function MiniStatCard({ icon: Icon, label, value }: { 
-  icon: any; 
-  label: string; 
-  value: number;
+function MiniStatCard({ icon: Icon, label, value }: {
+  icon: any;
+  label: string;
+  value: number | string;
 }) {
   return (
     <div className="bg-card rounded-lg border border-border p-3 flex items-center gap-3">

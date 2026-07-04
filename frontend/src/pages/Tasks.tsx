@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Check, Plus, Trash2, Calendar, Flag, Pencil, X } from "lucide-react";
+import { Check, Plus, Trash2, Calendar, Pencil, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -18,44 +19,88 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  completeTask,
+  createTask,
+  deleteTask,
+  listTasks,
+  patchTaskLogToday,
+  updateTask as updateTaskApi,
+  type TaskResponse,
+} from "@/api/tasks.api";
 
+type Priority = "low" | "medium" | "high";
+
+// UI-level task shape, derived directly from the backend's TaskResponse
+// (`completed` and `priority` are now returned by GET /tasks).
 interface Task {
-  id: string;
+  id: number;
   title: string;
   completed: boolean;
-  priority: "low" | "medium" | "high";
+  priority: Priority;
   dueDate?: string;
 }
 
-const initialTasks: Task[] = [
-  { id: "1", title: "Review project proposal", completed: true, priority: "high", dueDate: "2024-12-05" },
-  { id: "2", title: "Update documentation", completed: false, priority: "medium", dueDate: "2024-12-06" },
-  { id: "3", title: "Schedule team meeting", completed: false, priority: "high", dueDate: "2024-12-05" },
-  { id: "4", title: "Send weekly report", completed: false, priority: "low", dueDate: "2024-12-07" },
-  { id: "5", title: "Fix navigation bug", completed: true, priority: "medium" },
-  { id: "6", title: "Prepare presentation slides", completed: false, priority: "high", dueDate: "2024-12-08" },
-];
-
-const priorityStyles = {
+const priorityStyles: Record<Priority, string> = {
   low: "bg-muted text-muted-foreground",
   medium: "bg-warning/10 text-warning-foreground",
   high: "bg-destructive/10 text-destructive",
 };
 
-const priorityDot = {
+const priorityDot: Record<Priority, string> = {
   low: "bg-muted-foreground",
   medium: "bg-warning",
   high: "bg-destructive",
 };
 
+// Uses local date components (not toISOString, which is UTC) so "today"
+// matches the user's wall-clock date regardless of timezone offset.
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// Converts an ISO due_at timestamp from the backend into a plain
+// YYYY-MM-DD string using local date parts, for the <input type="date">
+// and for same-day comparisons against "today".
+function isoToLocalDateString(iso: string | null): string | undefined {
+  if (!iso) return undefined;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return toLocalDateString(d);
+}
+
 export default function Tasks() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const queryClient = useQueryClient();
+
+  const {
+    data: rawTasks,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
+    queryKey: ["tasks"],
+    queryFn: listTasks,
+  });
+
+  const tasks: Task[] = useMemo(() => {
+    return (rawTasks ?? []).map((t: TaskResponse) => ({
+      id: t.id,
+      title: t.title,
+      completed: t.completed,
+      priority: t.priority,
+      dueDate: isoToLocalDateString(t.due_at),
+    }));
+  }, [rawTasks]);
+
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [formData, setFormData] = useState({
     title: "",
-    priority: "medium" as "low" | "medium" | "high",
+    priority: "medium" as Priority,
     dueDate: "",
   });
 
@@ -64,35 +109,93 @@ export default function Tasks() {
     setEditingTask(null);
   };
 
-  const toggleTask = (id: string) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  const invalidateTasks = () =>
+    queryClient.invalidateQueries({ queryKey: ["tasks"] });
+
+  const createMutation = useMutation({
+    mutationFn: (vars: {
+      title: string;
+      due_at?: string | null;
+      priority: Priority;
+    }) =>
+      createTask({
+        title: vars.title,
+        due_at: vars.due_at,
+        priority: vars.priority,
+      }),
+    onSuccess: () => {
+      invalidateTasks();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteTask(id),
+    onSuccess: () => {
+      invalidateTasks();
+    },
+  });
+
+  // Edits update the existing task in place via PATCH /tasks/{task_id},
+  // preserving its id and log history.
+  const editMutation = useMutation({
+    mutationFn: (vars: {
+      id: number;
+      title: string;
+      due_at?: string | null;
+      priority: Priority;
+    }) =>
+      updateTaskApi(vars.id, {
+        title: vars.title,
+        due_at: vars.due_at,
+        priority: vars.priority,
+      }),
+    onSuccess: () => {
+      invalidateTasks();
+    },
+  });
+
+  // Toggling complete/incomplete. Completing twice is safe server-side
+  // (complete_task_for_today just returns the existing log), but
+  // un-completing requires the logs/today PATCH endpoint since /complete
+  // has no way to express "not completed".
+  const toggleMutation = useMutation({
+    mutationFn: (vars: { id: number; nextCompleted: boolean }) =>
+      vars.nextCompleted
+        ? completeTask(vars.id)
+        : patchTaskLogToday(vars.id, false),
+    onSuccess: () => {
+      invalidateTasks();
+    },
+  });
+
+  const toggleTask = (task: Task) => {
+    if (toggleMutation.isPending && toggleMutation.variables?.id === task.id) return;
+    toggleMutation.mutate({ id: task.id, nextCompleted: !task.completed });
   };
 
-  const deleteTask = (id: string) => {
-    setTasks(tasks.filter(t => t.id !== id));
+  const handleDeleteTask = (id: number) => {
+    deleteMutation.mutate(id);
   };
 
   const addTask = () => {
     if (!formData.title.trim()) return;
-    setTasks([...tasks, {
-      id: Date.now().toString(),
+    createMutation.mutate({
       title: formData.title,
-      completed: false,
+      due_at: formData.dueDate || null,
       priority: formData.priority,
-      dueDate: formData.dueDate || undefined,
-    }]);
+    });
     resetForm();
     setIsAddOpen(false);
   };
 
   const updateTask = () => {
     if (!editingTask || !formData.title.trim()) return;
-    setTasks(tasks.map(t => t.id === editingTask.id ? {
-      ...t,
+    editMutation.mutate({
+      id: editingTask.id,
       title: formData.title,
+      due_at: formData.dueDate || null,
       priority: formData.priority,
-      dueDate: formData.dueDate || undefined,
-    } : t));
+    });
     resetForm();
   };
 
@@ -105,14 +208,15 @@ export default function Tasks() {
     });
   };
 
-  const filteredTasks = tasks.filter(t => {
+  const filteredTasks = tasks.filter((t) => {
     if (filter === "active") return !t.completed;
     if (filter === "completed") return t.completed;
     return true;
   });
 
-  const completedCount = tasks.filter(t => t.completed).length;
-  const todayTasks = tasks.filter(t => t.dueDate === new Date().toISOString().split("T")[0]);
+  const completedCount = tasks.filter((t) => t.completed).length;
+  const today = toLocalDateString(new Date());
+  const todayTasks = tasks.filter((t) => t.dueDate === today);
 
   return (
     <AppLayout title="Tasks" subtitle="Manage your to-do list">
@@ -178,7 +282,7 @@ export default function Tasks() {
                     <label className="text-sm font-medium text-foreground mb-1.5 block">Priority</label>
                     <Select
                       value={formData.priority}
-                      onValueChange={(v) => setFormData({ ...formData, priority: v as any })}
+                      onValueChange={(v) => setFormData({ ...formData, priority: v as Priority })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -200,7 +304,13 @@ export default function Tasks() {
                   </div>
                 </div>
                 <div className="flex gap-2 pt-2">
-                  <Button onClick={addTask} className="flex-1">Add Task</Button>
+                  <Button
+                    onClick={addTask}
+                    className="flex-1"
+                    disabled={createMutation.isPending}
+                  >
+                    {createMutation.isPending ? "Adding..." : "Add Task"}
+                  </Button>
                   <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
                 </div>
               </div>
@@ -228,7 +338,7 @@ export default function Tasks() {
                   <label className="text-sm font-medium text-foreground mb-1.5 block">Priority</label>
                   <Select
                     value={formData.priority}
-                    onValueChange={(v) => setFormData({ ...formData, priority: v as any })}
+                    onValueChange={(v) => setFormData({ ...formData, priority: v as Priority })}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -250,7 +360,13 @@ export default function Tasks() {
                 </div>
               </div>
               <div className="flex gap-2 pt-2">
-                <Button onClick={updateTask} className="flex-1">Save Changes</Button>
+                <Button
+                  onClick={updateTask}
+                  className="flex-1"
+                  disabled={editMutation.isPending}
+                >
+                  {editMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
                 <Button variant="outline" onClick={resetForm}>Cancel</Button>
               </div>
             </div>
@@ -259,7 +375,22 @@ export default function Tasks() {
 
         {/* Task List */}
         <div className="bg-card rounded-lg border border-border shadow-soft">
-          {filteredTasks.length === 0 ? (
+          {isLoading ? (
+            <div className="p-12 text-center">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-muted-foreground" />
+              <p className="text-muted-foreground">Loading tasks...</p>
+            </div>
+          ) : isError ? (
+            <div className="p-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-3">
+                <AlertCircle className="w-6 h-6 text-destructive" />
+              </div>
+              <p className="text-destructive font-medium">Failed to load tasks</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {error instanceof Error ? error.message : "Please try again."}
+              </p>
+            </div>
+          ) : filteredTasks.length === 0 ? (
             <div className="p-12 text-center">
               <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
                 <Check className="w-6 h-6 text-muted-foreground" />
@@ -275,7 +406,8 @@ export default function Tasks() {
                   className="flex items-start sm:items-center gap-3 p-4 hover:bg-muted/30 transition-smooth group"
                 >
                   <button
-                    onClick={() => toggleTask(task.id)}
+                    onClick={() => toggleTask(task)}
+                    disabled={toggleMutation.isPending && toggleMutation.variables?.id === task.id}
                     className={cn(
                       "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-smooth flex-shrink-0 mt-0.5 sm:mt-0",
                       task.completed
@@ -328,7 +460,7 @@ export default function Tasks() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteTask(task.id)}
+                      onClick={() => handleDeleteTask(task.id)}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>

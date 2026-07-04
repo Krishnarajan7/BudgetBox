@@ -2,8 +2,9 @@ import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion } from "framer-motion";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { signOut, useCurrentUser } from "@/lib/authSession";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,6 +26,12 @@ import {
   Settings,
   LogOut,
   UserCircle,
+  Calendar,
+  BookOpen,
+  Timer,
+  PiggyBank,
+  TrendingUp,
+  Lock,
 } from "lucide-react";
 
 const sidebarVariants = {
@@ -77,13 +84,21 @@ const navItems = [
   { icon: Target, label: "Habits", path: "/habits" },
   { icon: Smile, label: "Mood", path: "/mood" },
   { icon: Wallet, label: "Expenses", path: "/expenses" },
+  { icon: PiggyBank, label: "Budgets", path: "/budgets" },
+  { icon: TrendingUp, label: "Net Worth", path: "/networth" },
+  { icon: Calendar, label: "Calendar", path: "/calendar" },
+  { icon: BookOpen, label: "Journal", path: "/journal" },
+  { icon: Timer, label: "Focus", path: "/focus" },
   { icon: Droplets, label: "Water", path: "/water" },
   { icon: Moon, label: "Sleep", path: "/sleep" },
+  { icon: Lock, label: "Vault", path: "/vault" },
 ];
 
 export function AnimatedSidebar() {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const location = useLocation();
+  const navigate = useNavigate();
+  const currentUser = useCurrentUser();
   const currentPath = location.pathname;
 
   const isActive = (path: string) => {
@@ -216,9 +231,11 @@ export function AnimatedSidebar() {
                           <AvatarFallback className="text-xs">U</AvatarFallback>
                         </Avatar>
                         <div className="flex flex-col text-left">
-                          <span className="text-sm font-medium">User</span>
+                          <span className="text-sm font-medium">
+                            {currentUser?.name ?? "User"}
+                          </span>
                           <span className="line-clamp-1 text-xs text-muted-foreground">
-                            user@example.com
+                            {currentUser?.email ?? "user@example.com"}
                           </span>
                         </div>
                       </div>
@@ -228,10 +245,11 @@ export function AnimatedSidebar() {
                           <UserCircle className="h-4 w-4" /> Profile
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild className="flex items-center gap-2">
-                        <Link to="/auth">
-                          <LogOut className="h-4 w-4" /> Sign out
-                        </Link>
+                      <DropdownMenuItem
+                        className="flex items-center gap-2"
+                        onClick={() => signOut(navigate)}
+                      >
+                        <LogOut className="h-4 w-4" /> Sign out
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

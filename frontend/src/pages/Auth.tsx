@@ -7,6 +7,7 @@ import { Mail, Lock, User, ArrowRight, Eye, EyeOff, ArrowLeft } from "lucide-rea
 import { useToast } from "@/hooks/use-toast";
 
 import { login, register } from "@/api/auth.api";
+import api from "@/api/axios";
 
 export default function Auth() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -29,15 +30,40 @@ export default function Auth() {
         // 🔹 REGISTER
         await register(formData.email, formData.password);
 
+        // 🔹 LOG IN so we have tokens to authorize the profile update
+        const data = await login(formData.email, formData.password);
+        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+
+        // 🔹 SAVE FULL NAME to the profile (register/login don't accept it)
+        const fullName = formData.name.trim();
+        const [firstName, ...rest] = fullName.split(/\s+/).filter(Boolean);
+        const lastName = rest.join(" ");
+
+        try {
+          // GET /profile first — it lazily creates the profile row, which
+          // PUT /profile requires to already exist.
+          await api.get("/profile");
+          await api.put("/profile", {
+            first_name: firstName || "",
+            last_name: lastName || "",
+            timezone: "UTC",
+          });
+        } catch (profileErr) {
+          // Account + session are already created; don't block sign-up on
+          // this best-effort profile update.
+          console.warn("Failed to save profile name", profileErr);
+        }
+
         toast({
           title: "Account created",
-          description: "You can now sign in with your credentials.",
+          description: "Welcome to BudgetBox!",
         });
 
-        // Switch to sign-in mode after successful registration
-        setIsSignUp(false);
-        // Clear form for better UX
-        setFormData({ name: "", email: formData.email, password: "" });
+        // Clear password field on successful login (security + UX)
+        setFormData({ ...formData, password: "" });
+
+        navigate("/dashboard");
       } else {
         // 🔹 LOGIN
         const data = await login(formData.email, formData.password);

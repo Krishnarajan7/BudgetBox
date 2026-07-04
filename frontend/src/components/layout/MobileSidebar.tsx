@@ -11,6 +11,12 @@ import {
   Menu,
   LogOut,
   UserCircle,
+  Calendar,
+  BookOpen,
+  Timer,
+  PiggyBank,
+  TrendingUp,
+  Lock,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -18,7 +24,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { signOut, useCurrentUser } from "@/lib/authSession";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -26,8 +33,14 @@ const navItems = [
   { icon: Target, label: "Habits", path: "/habits" },
   { icon: Smile, label: "Mood", path: "/mood" },
   { icon: Wallet, label: "Expenses", path: "/expenses" },
+  { icon: PiggyBank, label: "Budgets", path: "/budgets" },
+  { icon: TrendingUp, label: "Net Worth", path: "/networth" },
+  { icon: Calendar, label: "Calendar", path: "/calendar" },
+  { icon: BookOpen, label: "Journal", path: "/journal" },
+  { icon: Timer, label: "Focus", path: "/focus" },
   { icon: Droplets, label: "Water", path: "/water" },
   { icon: Moon, label: "Sleep", path: "/sleep" },
+  { icon: Lock, label: "Vault", path: "/vault" },
 ];
 
 const bottomItems = [
@@ -36,6 +49,8 @@ const bottomItems = [
 
 export function MobileSidebar() {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const currentUser = useCurrentUser();
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -91,8 +106,12 @@ export function MobileSidebar() {
               <AvatarFallback className="text-xs">U</AvatarFallback>
             </Avatar>
             <div className="flex flex-col">
-              <span className="text-sm font-medium text-foreground">User</span>
-              <span className="text-xs text-muted-foreground">user@example.com</span>
+              <span className="text-sm font-medium text-foreground">
+                {currentUser?.name ?? "User"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {currentUser?.email ?? "user@example.com"}
+              </span>
             </div>
           </div>
 
@@ -105,14 +124,17 @@ export function MobileSidebar() {
             <span>Profile</span>
           </Link>
 
-          <Link
-            to="/auth"
-            onClick={() => setOpen(false)}
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              signOut(navigate);
+            }}
             className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-smooth w-full"
           >
             <LogOut className="w-5 h-5 flex-shrink-0" />
             <span>Sign out</span>
-          </Link>
+          </button>
         </div>
       </SheetContent>
     </Sheet>

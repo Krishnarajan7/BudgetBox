@@ -18,7 +18,8 @@ import {
   MessageSquare,
   ChevronRight
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { signOut } from "@/lib/authSession";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/select";
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState({
     dailyReminders: true,
     weeklySummary: true,
@@ -231,12 +233,14 @@ export default function Settings() {
         </div>
 
         {/* Logout */}
-        <Link to="/auth">
-          <Button variant="outline" className="w-full gap-2">
-            <LogOut className="w-4 h-4" />
-            Sign Out
-          </Button>
-        </Link>
+        <Button
+          variant="outline"
+          className="w-full gap-2"
+          onClick={() => signOut(navigate)}
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </Button>
       </div>
     </AppLayout>
   );

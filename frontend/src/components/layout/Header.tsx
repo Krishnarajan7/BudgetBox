@@ -1,7 +1,8 @@
 import { Bell, Search, User, LogOut, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileSidebar } from "./MobileSidebar";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { signOut, useCurrentUser } from "@/lib/authSession";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +17,8 @@ interface HeaderProps {
 }
 
 export function Header({ title, subtitle }: HeaderProps) {
+  const navigate = useNavigate();
+  const currentUser = useCurrentUser();
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
@@ -57,8 +60,12 @@ export function Header({ title, subtitle }: HeaderProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48 bg-card border-border">
             <div className="px-2 py-1.5">
-              <p className="text-sm font-medium text-foreground">Alex Johnson</p>
-              <p className="text-xs text-muted-foreground">alex@example.com</p>
+              <p className="text-sm font-medium text-foreground">
+                {currentUser?.name ?? "User"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {currentUser?.email ?? "user@example.com"}
+              </p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
@@ -74,11 +81,12 @@ export function Header({ title, subtitle }: HeaderProps) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link to="/auth" className="flex items-center gap-2 cursor-pointer text-destructive">
-                <LogOut className="w-4 h-4" />
-                Sign out
-              </Link>
+            <DropdownMenuItem
+              className="flex items-center gap-2 cursor-pointer text-destructive"
+              onClick={() => signOut(navigate)}
+            >
+              <LogOut className="w-4 h-4" />
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

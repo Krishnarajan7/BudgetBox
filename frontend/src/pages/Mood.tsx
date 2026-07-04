@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Pencil, X } from "lucide-react";
+import { Trash2, Pencil, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -10,14 +11,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-interface MoodEntry {
-  id: string;
-  date: string;
-  mood: number;
-  emoji: string;
-  note?: string;
-}
+import { useToast } from "@/hooks/use-toast";
+import {
+  MoodEntry,
+  deleteMoodEntry,
+  listMoodEntries,
+  upsertMoodEntry,
+} from "@/api/wellness.api";
 
 const moodOptions = [
   { value: 1, emoji: "😢", label: "Terrible", color: "bg-destructive/20 border-destructive/30" },
@@ -27,52 +27,90 @@ const moodOptions = [
   { value: 5, emoji: "😄", label: "Great", color: "bg-success/20 border-success/30" },
 ];
 
-const initialEntries: MoodEntry[] = [
-  { id: "1", date: "2024-12-05", mood: 4, emoji: "😊", note: "Had a productive day at work" },
-  { id: "2", date: "2024-12-04", mood: 3, emoji: "😐", note: "Feeling a bit tired" },
-  { id: "3", date: "2024-12-03", mood: 5, emoji: "😄", note: "Great workout session!" },
-  { id: "4", date: "2024-12-02", mood: 4, emoji: "😊" },
-  { id: "5", date: "2024-12-01", mood: 2, emoji: "😔", note: "Stressful deadline" },
-];
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function emojiFor(mood: number): string {
+  return moodOptions.find((m) => m.value === mood)?.emoji || "😐";
+}
 
 export default function Mood() {
-  const [entries, setEntries] = useState<MoodEntry[]>(initialEntries);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [editingEntry, setEditingEntry] = useState<MoodEntry | null>(null);
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const todayEntry = entries.find(e => e.date === todayStr);
+  const todayStr = formatLocalDate(new Date());
+
+  const {
+    data: entries = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ["mood"],
+    queryFn: () => listMoodEntries(),
+  });
+
+  const todayEntry = entries.find((e) => e.date === todayStr);
+
+  const upsertMutation = useMutation({
+    mutationFn: (vars: { date: string; mood: number; note?: string }) =>
+      upsertMoodEntry(vars.date, { mood: vars.mood, note: vars.note }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mood"] });
+      resetEdit();
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't save mood",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (date: string) => deleteMoodEntry(date),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mood"] });
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't delete entry",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const logMood = () => {
-    if (selectedMood === null) return;
-    const moodOption = moodOptions.find(m => m.value === selectedMood);
-    const newEntry: MoodEntry = {
-      id: Date.now().toString(),
+    if (selectedMood === null || upsertMutation.isPending) return;
+    upsertMutation.mutate({
       date: todayStr,
       mood: selectedMood,
-      emoji: moodOption?.emoji || "😐",
-      note: note.trim() || undefined
-    };
-    setEntries([newEntry, ...entries.filter(e => e.date !== todayStr)]);
-    setSelectedMood(null);
-    setNote("");
+      note: note.trim() || undefined,
+    });
   };
 
   const updateEntry = () => {
-    if (!editingEntry || selectedMood === null) return;
-    const moodOption = moodOptions.find(m => m.value === selectedMood);
-    setEntries(entries.map(e => e.id === editingEntry.id ? {
-      ...e,
+    if (!editingEntry || selectedMood === null || upsertMutation.isPending) return;
+    upsertMutation.mutate({
+      date: editingEntry.date,
       mood: selectedMood,
-      emoji: moodOption?.emoji || e.emoji,
       note: note.trim() || undefined,
-    } : e));
-    resetEdit();
-  };
-
-  const deleteEntry = (id: string) => {
-    setEntries(entries.filter(e => e.id !== id));
+    });
   };
 
   const startEdit = (entry: MoodEntry) => {
@@ -87,10 +125,10 @@ export default function Mood() {
     setNote("");
   };
 
-  const avgMood = entries.length > 0 
-    ? (entries.reduce((sum, e) => sum + e.mood, 0) / entries.length).toFixed(1) 
+  const avgMood = entries.length > 0
+    ? (entries.reduce((sum, e) => sum + e.mood, 0) / entries.length).toFixed(1)
     : "0";
-  
+
   const moodCounts = moodOptions.map(opt => ({
     ...opt,
     count: entries.filter(e => e.mood === opt.value).length
@@ -132,8 +170,18 @@ export default function Mood() {
             rows={2}
           />
 
-          <Button onClick={logMood} disabled={selectedMood === null} className="w-full">
-            {todayEntry ? "Update Mood" : "Log Mood"}
+          <Button
+            onClick={logMood}
+            disabled={selectedMood === null || upsertMutation.isPending}
+            className="w-full"
+          >
+            {upsertMutation.isPending && !editingEntry ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : todayEntry ? (
+              "Update Mood"
+            ) : (
+              "Log Mood"
+            )}
           </Button>
         </div>
 
@@ -153,7 +201,7 @@ export default function Mood() {
           </div>
           <div className="bg-card rounded-lg border border-border p-4 shadow-soft text-center">
             <p className="text-xs text-muted-foreground mb-1">Today</p>
-            <p className="text-2xl">{todayEntry?.emoji || "—"}</p>
+            <p className="text-2xl">{todayEntry ? emojiFor(todayEntry.mood) : "—"}</p>
           </div>
         </div>
 
@@ -212,7 +260,17 @@ export default function Mood() {
                 rows={2}
               />
               <div className="flex gap-2">
-                <Button onClick={updateEntry} className="flex-1">Save Changes</Button>
+                <Button
+                  onClick={updateEntry}
+                  className="flex-1"
+                  disabled={selectedMood === null || upsertMutation.isPending}
+                >
+                  {upsertMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
                 <Button variant="outline" onClick={resetEdit}>Cancel</Button>
               </div>
             </div>
@@ -224,7 +282,22 @@ export default function Mood() {
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-semibold text-foreground">Mood History</h3>
           </div>
-          {entries.length === 0 ? (
+          {isLoading ? (
+            <div className="p-12 text-center">
+              <Loader2 className="w-6 h-6 text-muted-foreground animate-spin mx-auto mb-3" />
+              <p className="text-muted-foreground">Loading mood history…</p>
+            </div>
+          ) : isError ? (
+            <div className="p-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-3">
+                <AlertCircle className="w-6 h-6 text-destructive" />
+              </div>
+              <p className="text-muted-foreground">Couldn't load your mood history</p>
+              <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : entries.length === 0 ? (
             <div className="p-12 text-center">
               <p className="text-muted-foreground">No entries yet</p>
             </div>
@@ -236,7 +309,7 @@ export default function Mood() {
                     "w-10 h-10 rounded-lg flex items-center justify-center border",
                     moodOptions.find(m => m.value === entry.mood)?.color
                   )}>
-                    <span className="text-xl">{entry.emoji}</span>
+                    <span className="text-xl">{emojiFor(entry.mood)}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">
@@ -247,7 +320,7 @@ export default function Mood() {
                     )}
                   </div>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {parseLocalDate(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
                     <Button
@@ -262,9 +335,14 @@ export default function Mood() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteEntry(entry.id)}
+                      onClick={() => deleteMutation.mutate(entry.date)}
+                      disabled={deleteMutation.isPending && deleteMutation.variables === entry.date}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {deleteMutation.isPending && deleteMutation.variables === entry.date ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
                     </Button>
                   </div>
                 </div>

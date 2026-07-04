@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
-import { getProfile, updateProfile } from "@/api/profile.api";
+import {
+  getProfile,
+  updateProfile,
+  ProfileData,
+  ProfileStats,
+  ProfileActivity,
+  ProfileUpdatePayload,
+} from "@/api/profile.api";
 
 export function useProfile() {
-  const [profile, setProfile] = useState<any>(null);
-  const [stats, setStats] = useState<any>(null);
-  const [activity, setActivity] = useState<any[]>([]);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [stats, setStats] = useState<ProfileStats | null>(null);
+  const [activity, setActivity] = useState<ProfileActivity>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +30,7 @@ export function useProfile() {
     }
   };
 
-  const saveProfile = async (payload: any) => {
+  const saveProfile = async (payload: ProfileUpdatePayload) => {
     try {
       setSaving(true);
       const updated = await updateProfile(payload);

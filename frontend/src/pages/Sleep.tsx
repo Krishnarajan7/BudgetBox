@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Moon, Sun, Clock, TrendingUp, Calendar, Plus, Trash2, Pencil } from "lucide-react";
+import { Moon, Sun, Clock, TrendingUp, Calendar, Plus, Trash2, Pencil, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -18,43 +19,72 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import {
+  SleepEntry,
+  deleteSleepEntry,
+  listSleepEntries,
+  parseSleepHours,
+  upsertSleepEntry,
+} from "@/api/wellness.api";
 
-interface SleepEntry {
-  id: string;
-  date: string;
-  bedtime: string;
-  wakeTime: string;
-  hours: number;
-  quality: "poor" | "fair" | "good" | "great";
+type QualityKey = "poor" | "fair" | "good" | "great";
+
+// The backend stores quality as an optional 1-5 int (see
+// app/wellness/schemas.py::SleepUpsert). This UI only offers 4 buckets, so
+// they map onto scores 1-4; a stray 5 (e.g. logged by another client) falls
+// back to "great" rather than crashing.
+const qualityOptions: { value: QualityKey; label: string; color: string; score: number }[] = [
+  { value: "poor", label: "Poor", color: "bg-destructive/20 text-destructive", score: 1 },
+  { value: "fair", label: "Fair", color: "bg-warning/20 text-warning-foreground", score: 2 },
+  { value: "good", label: "Good", color: "bg-info/20 text-info", score: 3 },
+  { value: "great", label: "Great", color: "bg-success/20 text-success", score: 4 },
+];
+
+function scoreFromQuality(quality: QualityKey): number {
+  return qualityOptions.find(q => q.value === quality)?.score ?? 3;
 }
 
-const qualityOptions = [
-  { value: "poor", label: "Poor", color: "bg-destructive/20 text-destructive" },
-  { value: "fair", label: "Fair", color: "bg-warning/20 text-warning-foreground" },
-  { value: "good", label: "Good", color: "bg-info/20 text-info" },
-  { value: "great", label: "Great", color: "bg-success/20 text-success" },
-];
+function qualityFromScore(score: number | null | undefined): QualityKey | undefined {
+  if (score == null) return undefined;
+  const clamped = Math.min(4, Math.max(1, Math.round(score)));
+  return qualityOptions[clamped - 1].value;
+}
 
-const todayStr = new Date().toISOString().split("T")[0];
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-const initialEntries: SleepEntry[] = [
-  { id: "1", date: todayStr, bedtime: "23:00", wakeTime: "06:30", hours: 7.5, quality: "good" },
-  { id: "2", date: "2024-12-04", bedtime: "00:30", wakeTime: "06:30", hours: 6, quality: "poor" },
-  { id: "3", date: "2024-12-03", bedtime: "22:30", wakeTime: "06:30", hours: 8, quality: "great" },
-  { id: "4", date: "2024-12-02", bedtime: "23:30", wakeTime: "06:30", hours: 7, quality: "good" },
-  { id: "5", date: "2024-12-01", bedtime: "01:00", wakeTime: "06:30", hours: 5.5, quality: "poor" },
-  { id: "6", date: "2024-11-30", bedtime: "22:00", wakeTime: "07:00", hours: 9, quality: "great" },
-];
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
 
 export default function Sleep() {
-  const [entries, setEntries] = useState<SleepEntry[]>(initialEntries);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const todayStr = formatLocalDate(new Date());
+
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<SleepEntry | null>(null);
   const [formData, setFormData] = useState({
     date: todayStr,
     bedtime: "23:00",
     wakeTime: "07:00",
-    quality: "good" as SleepEntry["quality"],
+    quality: "good" as QualityKey,
+  });
+
+  const {
+    data: entries = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ["sleep"],
+    queryFn: () => listSleepEntries(),
   });
 
   const calculateHours = (bed: string, wake: string): number => {
@@ -70,67 +100,157 @@ export default function Sleep() {
     setEditingEntry(null);
   };
 
+  const upsertMutation = useMutation({
+    mutationFn: (vars: {
+      date: string;
+      hours: number;
+      quality: QualityKey;
+      bedtime: string;
+      wakeTime: string;
+    }) =>
+      upsertSleepEntry(vars.date, {
+        hours: vars.hours,
+        quality: scoreFromQuality(vars.quality),
+        bedtime: vars.bedtime,
+        wake_time: vars.wakeTime,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sleep"] });
+      resetForm();
+      setIsAddOpen(false);
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't save sleep entry",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (date: string) => deleteSleepEntry(date),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sleep"] });
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't delete entry",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const addEntry = () => {
-    const hours = calculateHours(formData.bedtime, formData.wakeTime);
-    const newEntry: SleepEntry = {
-      id: Date.now().toString(),
+    if (upsertMutation.isPending) return;
+    upsertMutation.mutate({
       date: formData.date,
+      hours: calculateHours(formData.bedtime, formData.wakeTime),
+      quality: formData.quality,
       bedtime: formData.bedtime,
       wakeTime: formData.wakeTime,
-      hours,
-      quality: formData.quality
-    };
-    setEntries([newEntry, ...entries.filter(e => e.date !== formData.date)]);
-    resetForm();
-    setIsAddOpen(false);
+    });
   };
 
   const updateEntry = () => {
-    if (!editingEntry) return;
-    const hours = calculateHours(formData.bedtime, formData.wakeTime);
-    setEntries(entries.map(e => e.id === editingEntry.id ? {
-      ...e,
+    if (!editingEntry || upsertMutation.isPending) return;
+    upsertMutation.mutate({
       date: formData.date,
+      hours: calculateHours(formData.bedtime, formData.wakeTime),
+      quality: formData.quality,
       bedtime: formData.bedtime,
       wakeTime: formData.wakeTime,
-      hours,
-      quality: formData.quality,
-    } : e));
-    resetForm();
+    });
   };
 
-  const deleteEntry = (id: string) => {
-    setEntries(entries.filter(e => e.id !== id));
+  const deleteEntry = (date: string) => {
+    deleteMutation.mutate(date);
   };
 
   const startEdit = (entry: SleepEntry) => {
     setEditingEntry(entry);
     setFormData({
       date: entry.date,
-      bedtime: entry.bedtime,
-      wakeTime: entry.wakeTime,
-      quality: entry.quality,
+      bedtime: entry.bedtime || "23:00",
+      wakeTime: entry.wake_time || "07:00",
+      quality: qualityFromScore(entry.quality) || "good",
     });
   };
 
-  const avgSleep = entries.length > 0 
-    ? (entries.reduce((sum, e) => sum + e.hours, 0) / entries.length).toFixed(1) 
+  const hoursOf = (entry: SleepEntry) => parseSleepHours(entry.hours);
+
+  const avgSleep = entries.length > 0
+    ? (entries.reduce((sum, e) => sum + hoursOf(e), 0) / entries.length).toFixed(1)
     : "0";
-  const bestNight = entries.length > 0 ? Math.max(...entries.map(e => e.hours)) : 0;
+  const bestNight = entries.length > 0 ? Math.max(...entries.map(hoursOf)) : 0;
   const todayEntry = entries.find(e => e.date === todayStr);
 
-  // Calculate average bedtime
-  const avgBedtimeMinutes = entries.length > 0 
-    ? entries.reduce((sum, e) => {
-        const [h, m] = e.bedtime.split(":").map(Number);
+  // Calculate average bedtime (only across entries that actually have one).
+  const entriesWithBedtime = entries.filter(e => !!e.bedtime);
+  const avgBedtimeMinutes = entriesWithBedtime.length > 0
+    ? entriesWithBedtime.reduce((sum, e) => {
+        const [h, m] = e.bedtime!.split(":").map(Number);
         let mins = h * 60 + m;
         if (h < 12) mins += 24 * 60; // Adjust for after midnight
         return sum + mins;
-      }, 0) / entries.length
+      }, 0) / entriesWithBedtime.length
     : 0;
   const avgBedtimeH = Math.floor((avgBedtimeMinutes % (24 * 60)) / 60);
   const avgBedtimeM = Math.floor(avgBedtimeMinutes % 60);
-  const avgBedtime = `${String(avgBedtimeH).padStart(2, "0")}:${String(avgBedtimeM).padStart(2, "0")}`;
+  const avgBedtime = entriesWithBedtime.length > 0
+    ? `${String(avgBedtimeH).padStart(2, "0")}:${String(avgBedtimeM).padStart(2, "0")}`
+    : "—";
+
+  const sleepFormFields = (
+    <div className="space-y-4 pt-4">
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
+        <Input
+          type="date"
+          value={formData.date}
+          onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-sm font-medium text-foreground mb-1.5 block">Bedtime</label>
+          <Input
+            type="time"
+            value={formData.bedtime}
+            onChange={(e) => setFormData({ ...formData, bedtime: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium text-foreground mb-1.5 block">Wake Time</label>
+          <Input
+            type="time"
+            value={formData.wakeTime}
+            onChange={(e) => setFormData({ ...formData, wakeTime: e.target.value })}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">Quality</label>
+        <Select
+          value={formData.quality}
+          onValueChange={(v) => setFormData({ ...formData, quality: v as QualityKey })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {qualityOptions.map((q) => (
+              <SelectItem key={q.value} value={q.value}>{q.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Total sleep: <span className="font-medium text-foreground">{calculateHours(formData.bedtime, formData.wakeTime)}h</span>
+      </p>
+    </div>
+  );
 
   return (
     <AppLayout title="Sleep" subtitle="Track your rest">
@@ -169,25 +289,40 @@ export default function Sleep() {
 
         {/* Today's Sleep / Log Button */}
         <div className="bg-card rounded-lg border border-border shadow-soft p-6">
-          {todayEntry ? (
+          {isLoading ? (
+            <div className="text-center py-6">
+              <Loader2 className="w-6 h-6 text-muted-foreground animate-spin mx-auto mb-3" />
+              <p className="text-muted-foreground">Loading sleep data…</p>
+            </div>
+          ) : isError ? (
+            <div className="text-center py-6">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-3">
+                <AlertCircle className="w-6 h-6 text-destructive" />
+              </div>
+              <p className="text-muted-foreground">Couldn't load your sleep data</p>
+              <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : todayEntry ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-sm font-semibold text-foreground mb-2">Last Night's Sleep</h3>
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <Moon className="w-5 h-5 text-primary" />
-                    <span className="text-lg font-medium text-foreground">{todayEntry.bedtime}</span>
+                    <span className="text-lg font-medium text-foreground">{todayEntry.bedtime || "—"}</span>
                   </div>
                   <span className="text-muted-foreground">→</span>
                   <div className="flex items-center gap-2">
                     <Sun className="w-5 h-5 text-warning" />
-                    <span className="text-lg font-medium text-foreground">{todayEntry.wakeTime}</span>
+                    <span className="text-lg font-medium text-foreground">{todayEntry.wake_time || "—"}</span>
                   </div>
                   <span className={cn(
                     "text-xs font-medium px-2 py-1 rounded-full capitalize ml-2",
-                    qualityOptions.find(q => q.value === todayEntry.quality)?.color
+                    qualityOptions.find(q => q.value === qualityFromScore(todayEntry.quality))?.color
                   )}>
-                    {todayEntry.hours}h • {todayEntry.quality}
+                    {hoursOf(todayEntry)}h{qualityFromScore(todayEntry.quality) ? ` • ${qualityFromScore(todayEntry.quality)}` : ""}
                   </span>
                 </div>
               </div>
@@ -211,56 +346,12 @@ export default function Sleep() {
                   <DialogHeader>
                     <DialogTitle>Log Sleep</DialogTitle>
                   </DialogHeader>
-                  <div className="space-y-4 pt-4">
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
-                      <Input
-                        type="date"
-                        value={formData.date}
-                        onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium text-foreground mb-1.5 block">Bedtime</label>
-                        <Input
-                          type="time"
-                          value={formData.bedtime}
-                          onChange={(e) => setFormData({ ...formData, bedtime: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-foreground mb-1.5 block">Wake Time</label>
-                        <Input
-                          type="time"
-                          value={formData.wakeTime}
-                          onChange={(e) => setFormData({ ...formData, wakeTime: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1.5 block">Quality</label>
-                      <Select
-                        value={formData.quality}
-                        onValueChange={(v) => setFormData({ ...formData, quality: v as any })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {qualityOptions.map((q) => (
-                            <SelectItem key={q.value} value={q.value}>{q.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Total sleep: <span className="font-medium text-foreground">{calculateHours(formData.bedtime, formData.wakeTime)}h</span>
-                    </p>
-                    <div className="flex gap-2 pt-2">
-                      <Button onClick={addEntry} className="flex-1">Save</Button>
-                      <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-                    </div>
+                  {sleepFormFields}
+                  <div className="flex gap-2 pt-2">
+                    <Button onClick={addEntry} className="flex-1" disabled={upsertMutation.isPending}>
+                      {upsertMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+                    </Button>
+                    <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -282,56 +373,12 @@ export default function Sleep() {
                 <DialogHeader>
                   <DialogTitle>Log Sleep</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-4 pt-4">
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
-                    <Input
-                      type="date"
-                      value={formData.date}
-                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1.5 block">Bedtime</label>
-                      <Input
-                        type="time"
-                        value={formData.bedtime}
-                        onChange={(e) => setFormData({ ...formData, bedtime: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-foreground mb-1.5 block">Wake Time</label>
-                      <Input
-                        type="time"
-                        value={formData.wakeTime}
-                        onChange={(e) => setFormData({ ...formData, wakeTime: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-1.5 block">Quality</label>
-                    <Select
-                      value={formData.quality}
-                      onValueChange={(v) => setFormData({ ...formData, quality: v as any })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {qualityOptions.map((q) => (
-                          <SelectItem key={q.value} value={q.value}>{q.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Total sleep: <span className="font-medium text-foreground">{calculateHours(formData.bedtime, formData.wakeTime)}h</span>
-                  </p>
-                  <div className="flex gap-2 pt-2">
-                    <Button onClick={addEntry} className="flex-1">Save</Button>
-                    <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-                  </div>
+                {sleepFormFields}
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={addEntry} className="flex-1" disabled={upsertMutation.isPending}>
+                    {upsertMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+                  </Button>
+                  <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -344,56 +391,12 @@ export default function Sleep() {
             <DialogHeader>
               <DialogTitle>Edit Sleep Entry</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 pt-4">
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Date</label>
-                <Input
-                  type="date"
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">Bedtime</label>
-                  <Input
-                    type="time"
-                    value={formData.bedtime}
-                    onChange={(e) => setFormData({ ...formData, bedtime: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">Wake Time</label>
-                  <Input
-                    type="time"
-                    value={formData.wakeTime}
-                    onChange={(e) => setFormData({ ...formData, wakeTime: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Quality</label>
-                <Select
-                  value={formData.quality}
-                  onValueChange={(v) => setFormData({ ...formData, quality: v as any })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {qualityOptions.map((q) => (
-                      <SelectItem key={q.value} value={q.value}>{q.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Total sleep: <span className="font-medium text-foreground">{calculateHours(formData.bedtime, formData.wakeTime)}h</span>
-              </p>
-              <div className="flex gap-2 pt-2">
-                <Button onClick={updateEntry} className="flex-1">Save Changes</Button>
-                <Button variant="outline" onClick={resetForm}>Cancel</Button>
-              </div>
+            {sleepFormFields}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={updateEntry} className="flex-1" disabled={upsertMutation.isPending}>
+                {upsertMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Changes"}
+              </Button>
+              <Button variant="outline" onClick={resetForm}>Cancel</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -401,33 +404,40 @@ export default function Sleep() {
         {/* Weekly Chart */}
         <div className="bg-card rounded-lg border border-border shadow-soft p-4">
           <h3 className="text-sm font-semibold text-foreground mb-4">This Week</h3>
-          <div className="flex items-end justify-between gap-1 sm:gap-2 h-40">
-            {entries.slice(0, 7).reverse().map((entry) => {
-              const heightPercent = (entry.hours / 10) * 100;
-              const isToday = entry.date === todayStr;
-              return (
-                <div key={entry.id} className="flex-1 flex flex-col items-center gap-1 sm:gap-2">
-                  <span className="text-[10px] sm:text-xs text-muted-foreground">{entry.hours}h</span>
-                  <div className="w-full bg-muted rounded-t-sm relative flex-1 flex items-end min-h-[80px]">
-                    <div
-                      className={cn(
-                        "w-full rounded-t-sm transition-smooth",
-                        entry.hours >= 8 ? "bg-success" : entry.hours >= 7 ? "bg-primary" : "bg-warning",
-                        isToday && "ring-2 ring-primary ring-offset-2"
-                      )}
-                      style={{ height: `${heightPercent}%` }}
-                    />
+          {isLoading ? (
+            <div className="h-40 flex items-center justify-center">
+              <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+            </div>
+          ) : (
+            <div className="flex items-end justify-between gap-1 sm:gap-2 h-40">
+              {entries.slice(0, 7).reverse().map((entry) => {
+                const hours = hoursOf(entry);
+                const heightPercent = (hours / 10) * 100;
+                const isToday = entry.date === todayStr;
+                return (
+                  <div key={entry.id} className="flex-1 flex flex-col items-center gap-1 sm:gap-2">
+                    <span className="text-[10px] sm:text-xs text-muted-foreground">{hours}h</span>
+                    <div className="w-full bg-muted rounded-t-sm relative flex-1 flex items-end min-h-[80px]">
+                      <div
+                        className={cn(
+                          "w-full rounded-t-sm transition-smooth",
+                          hours >= 8 ? "bg-success" : hours >= 7 ? "bg-primary" : "bg-warning",
+                          isToday && "ring-2 ring-primary ring-offset-2"
+                        )}
+                        style={{ height: `${heightPercent}%` }}
+                      />
+                    </div>
+                    <span className={cn(
+                      "text-[10px] sm:text-xs",
+                      isToday ? "font-medium text-foreground" : "text-muted-foreground"
+                    )}>
+                      {parseLocalDate(entry.date).toLocaleDateString("en-US", { weekday: "short" }).slice(0, 2)}
+                    </span>
                   </div>
-                  <span className={cn(
-                    "text-[10px] sm:text-xs",
-                    isToday ? "font-medium text-foreground" : "text-muted-foreground"
-                  )}>
-                    {new Date(entry.date).toLocaleDateString("en-US", { weekday: "short" }).slice(0, 2)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Sleep Log */}
@@ -435,48 +445,79 @@ export default function Sleep() {
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-semibold text-foreground">Sleep History</h3>
           </div>
-          <div className="divide-y divide-border max-h-80 overflow-y-auto">
-            {entries.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-3 sm:gap-4 p-4 hover:bg-muted/30 transition-smooth group">
-                <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
-                  <Moon className="w-5 h-5 text-accent-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">{entry.hours} hours</p>
-                  <p className="text-xs text-muted-foreground">
-                    {entry.bedtime} → {entry.wakeTime}
-                  </p>
-                </div>
-                <span className={cn(
-                  "text-xs font-medium px-2 py-1 rounded-full capitalize hidden sm:block",
-                  qualityOptions.find(q => q.value === entry.quality)?.color
-                )}>
-                  {entry.quality}
-                </span>
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                </span>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                    onClick={() => startEdit(entry)}
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => deleteEntry(entry.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
+          {isLoading ? (
+            <div className="p-12 text-center">
+              <Loader2 className="w-6 h-6 text-muted-foreground animate-spin mx-auto mb-3" />
+              <p className="text-muted-foreground">Loading sleep history…</p>
+            </div>
+          ) : isError ? (
+            <div className="p-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-3">
+                <AlertCircle className="w-6 h-6 text-destructive" />
               </div>
-            ))}
-          </div>
+              <p className="text-muted-foreground">Couldn't load your sleep history</p>
+              <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="p-12 text-center">
+              <p className="text-muted-foreground">No entries yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border max-h-80 overflow-y-auto">
+              {entries.map((entry) => {
+                const quality = qualityFromScore(entry.quality);
+                return (
+                  <div key={entry.id} className="flex items-center gap-3 sm:gap-4 p-4 hover:bg-muted/30 transition-smooth group">
+                    <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
+                      <Moon className="w-5 h-5 text-accent-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{hoursOf(entry)} hours</p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.bedtime || "—"} → {entry.wake_time || "—"}
+                      </p>
+                    </div>
+                    {quality && (
+                      <span className={cn(
+                        "text-xs font-medium px-2 py-1 rounded-full capitalize hidden sm:block",
+                        qualityOptions.find(q => q.value === quality)?.color
+                      )}>
+                        {quality}
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {parseLocalDate(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-smooth">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => startEdit(entry)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => deleteEntry(entry.date)}
+                        disabled={deleteMutation.isPending && deleteMutation.variables === entry.date}
+                      >
+                        {deleteMutation.isPending && deleteMutation.variables === entry.date ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>
