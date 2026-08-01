@@ -1,0 +1,19 @@
+# BudgetBox reverse proxy. Caddy terminates TLS (auto Let's Encrypt) and is the
+# only thing exposed; the app listens on loopback.
+#
+# Replace budget.example.com with your domain (an A record pointing at the VPS).
+
+budget.example.com {
+	encode zstd gzip
+
+	# The API never serves other origins; keep responses un-cacheable by proxies.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Cache-Control "no-store"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8000
+}

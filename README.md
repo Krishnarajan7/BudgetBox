@@ -1,2 +1,17 @@
-# BudgetBox
-BudgetBox is a personal finance and expense-tracking web application designed to help you understand where your money goes, visualize spending patterns, and make smarter financial decisions. Built as a personal project by Krish, BudgetBox provides clean analytics, monthly performance comparisons, and organized insights — all in one place.
+# budgetbox
+
+A new Flutter project.
+
+## Getting Started
+
+This project is a starting point for a Flutter application.
+
+A few resources to get you started if this is your first Flutter project:
+
+- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.

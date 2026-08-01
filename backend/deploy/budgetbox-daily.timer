@@ -1,0 +1,12 @@
+# /etc/systemd/system/budgetbox-daily.timer
+# 00:05 IST daily. Jobs are catch-up-idempotent, so missed runs self-heal
+# (Persistent=true also fires after downtime).
+[Unit]
+Description=Run BudgetBox daily jobs at 00:05 IST
+
+[Timer]
+OnCalendar=*-*-* 00:05:00 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

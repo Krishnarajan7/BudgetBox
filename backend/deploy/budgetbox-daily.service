@@ -1,0 +1,14 @@
+# /etc/systemd/system/budgetbox-daily.service
+[Unit]
+Description=BudgetBox daily catch-up jobs
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=budgetbox
+Group=budgetbox
+WorkingDirectory=/opt/budgetbox/backend
+EnvironmentFile=/etc/budgetbox/env
+ExecStart=/usr/local/bin/uv run budgetbox jobs daily
+# Optional: ping healthchecks.io on success so a silent box gets noticed.
+# ExecStartPost=/usr/bin/curl -fsS -m 10 https://hc-ping.com/YOUR-UUID

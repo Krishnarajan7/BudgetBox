@@ -1,0 +1,11 @@
+# /etc/litestream.yml — continuous WAL replication to object storage.
+# Bucket credentials come from the environment (see /etc/budgetbox/env):
+#   LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY
+dbs:
+  - path: /var/lib/budgetbox/budgetbox.db
+    replicas:
+      - type: s3
+        bucket: budgetbox-backups
+        path: litestream
+        endpoint: https://<accountid>.r2.cloudflarestorage.com # or B2/S3 endpoint
+        retention: 720h # 30 days of point-in-time restore

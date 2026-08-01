@@ -1,0 +1,25 @@
+# /etc/systemd/system/budgetbox.service
+[Unit]
+Description=BudgetBox API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=budgetbox
+Group=budgetbox
+WorkingDirectory=/opt/budgetbox/backend
+EnvironmentFile=/etc/budgetbox/env
+ExecStart=/usr/local/bin/uv run budgetbox serve
+Restart=on-failure
+RestartSec=3
+
+# Hardening: one process, one directory of state.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/budgetbox
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

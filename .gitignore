@@ -1,0 +1,44 @@
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# Local
+memory.txt
+.env
+*.env
+!*.env.example
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+**/xcuserdata/
+
+# macOS host
+macos/Pods/
+macos/Flutter/ephemeral/
+
+# Android
+android/.gradle/
+android/local.properties
+android/**/GeneratedPluginRegistrant.java
+
+# Symbols
+app.*.symbols
+app.*.map.json
+.claude
+CLAUDE.md
