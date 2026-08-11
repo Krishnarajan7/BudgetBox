@@ -3,12 +3,15 @@ from datetime import date
 from fastapi import APIRouter, Query
 
 from budgetbox.api.deps import SessionDep
+from budgetbox.core.time import today_ist
 from budgetbox.modules.transactions import service
 from budgetbox.modules.transactions.models import TxnType
 from budgetbox.modules.transactions.schemas import (
     ActivityOut,
+    PinnedBoard,
     PinnedIn,
     PinnedOut,
+    RecentAmount,
     SealOut,
     StampIn,
     TitleSuggestion,
@@ -60,6 +63,14 @@ def suggest_titles(
     return service.suggest_titles(session, q, limit=limit)
 
 
+@txns.get("/recent-amounts")
+def recent_amounts(
+    session: SessionDep, category_id: str, limit: int = Query(default=3, ge=1, le=10)
+) -> list[RecentAmount]:
+    """The amounts this category is usually written for — the add sheet's whisper."""
+    return service.recent_amounts(session, category_id, limit=limit)
+
+
 @txns.get("/{txn_id}")
 def get_txn(session: SessionDep, txn_id: str) -> TxnOut:
     return TxnOut.model_validate(service.get(session, txn_id))
@@ -83,9 +94,14 @@ def delete_txn(session: SessionDep, txn_id: str) -> None:
 
 @activities.get("")
 def recent_activities(
-    session: SessionDep, limit: int = Query(default=20, ge=1, le=100)
+    session: SessionDep,
+    limit: int = Query(default=20, ge=1, le=500),
+    txn_id: str | None = None,
 ) -> list[ActivityOut]:
-    return [ActivityOut.model_validate(a) for a in service.recent_activities(session, limit=limit)]
+    """The audit trail, newest first. `txn_id` narrows it to one entry's rewrites —
+    what the editor's 'rewritten twice · last on 12 Jul' whisper reads."""
+    rows = service.recent_activities(session, limit=limit, txn_id=txn_id)
+    return [service.activity_out(session, a) for a in rows]
 
 
 @activities.post("/{activity_id}/undo")
@@ -97,6 +113,13 @@ def undo_activity(session: SessionDep, activity_id: str) -> UndoResult:
 @pinned.get("")
 def list_pinned(session: SessionDep) -> list[PinnedOut]:
     return [PinnedOut.model_validate(p) for p in service.list_pinned(session)]
+
+
+@pinned.get("/board")
+def pinned_board(session: SessionDep) -> PinnedBoard:
+    """The pinned manager in one call: pins with their stamp counts, plus repeats
+    worth pinning that aren't pinned yet."""
+    return service.pinned_board(session, today=today_ist())
 
 
 @pinned.put("/{pinned_id}")
@@ -123,6 +146,12 @@ def seals_between(session: SessionDep, from_day: date, to_day: date) -> list[Sea
 @seals.put("/{day}")
 def seal_day(session: SessionDep, day: date) -> SealOut:
     return SealOut.model_validate(service.seal_day(session, day))
+
+
+@seals.delete("/{day}", status_code=204)
+def unseal_day(session: SessionDep, day: date) -> None:
+    """Reopen a closed page. Idempotent — an unsealed day unseals fine."""
+    service.unseal_day(session, day)
 
 
 for sub in (txns, activities, pinned, seals):

@@ -4,17 +4,23 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from budgetbox.core.errors import Invalid, NotFound
+from budgetbox.core.errors import Conflict, Invalid, NotFound
 from budgetbox.core.ids import new_id, require_uuid
 from budgetbox.core.money import Paise
-from budgetbox.core.time import ist_day_start, today_ist
+from budgetbox.core.time import ist_day_start, now_utc, today_ist
 from budgetbox.domain.pace import round_half_away_from_zero as round_like_dart
 from budgetbox.domain.periods import clamp_day
 from budgetbox.domain.recurrence import advance, occurrences_through
 from budgetbox.modules.accounts.models import Account
 from budgetbox.modules.categories.models import Category
 from budgetbox.modules.recurring.models import Recurring, RecurringKind
-from budgetbox.modules.recurring.schemas import DueItem, RecurringIn, RecurringOut, RecurringPatch
+from budgetbox.modules.recurring.schemas import (
+    DueItem,
+    RecurringIn,
+    RecurringOut,
+    RecurringPatch,
+    RecurringPaymentIn,
+)
 from budgetbox.modules.transactions import service as txn_service
 from budgetbox.modules.transactions.models import Txn, TxnType
 from budgetbox.modules.transactions.schemas import TxnIn
@@ -89,6 +95,42 @@ def deactivate(session: Session, recurring_id: str) -> Recurring:
     return row
 
 
+def pay(session: Session, recurring_id: str, txn_id: str, data: RecurringPaymentIn) -> Txn:
+    """Manually post one occurrence and advance its schedule exactly once.
+
+    The caller supplies the transaction UUID, making a lost-response retry safe.
+    Transaction creation and schedule advancement commit atomically.
+    """
+    row = get(session, recurring_id)
+    if not row.active:
+        raise Invalid("cannot pay an inactive recurring item")
+    existing = session.get(Txn, txn_id)
+    if existing is not None and existing.recurring_id != row.id:
+        raise Conflict("transaction id is already used by another ledger entry")
+    txn, created = txn_service.upsert(
+        session,
+        txn_id,
+        TxnIn(
+            amount_paise=data.amount_paise or row.amount_paise,
+            type=TxnType.EXPENSE,
+            account_id=row.account_id,
+            category_id=row.category_id,
+            title=row.title,
+            note=data.note,
+            at=data.at or now_utc(),
+        ),
+        recurring_id=row.id,
+        commit=False,
+    )
+    if created:
+        row.last_materialized_due = row.next_due
+        row.next_due = advance(row.next_due, row.every_months, row.day_of_month)
+    # Commit on retries too: PUT may correct the payment payload while the
+    # recurring schedule must still advance only for the original creation.
+    session.commit()
+    return txn
+
+
 def upcoming(session: Session, *, until: dt.date) -> list[DueItem]:
     """Next due per active recurring, for every due date through `until`."""
     items: list[DueItem] = []
@@ -110,6 +152,17 @@ def committed_monthly_paise(session: Session) -> Paise:
     total = 0
     for row in list_recurrings(session):
         total += round_like_dart(row.amount_paise / row.every_months)
+    return total
+
+
+def yearly_paise(session: Session, *, kind: RecurringKind | None = None) -> Paise:
+    """Yearly cost of everything on the shelf, cadences normalized: a monthly plan
+    counts twelve times, a yearly one once."""
+    total = 0
+    for row in list_recurrings(session):
+        if kind is not None and row.kind is not kind:
+            continue
+        total += row.amount_paise * (12 // row.every_months)
     return total
 
 

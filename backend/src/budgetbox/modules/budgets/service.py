@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from budgetbox.core.errors import Invalid, NotFound
 from budgetbox.core.ids import require_uuid
 from budgetbox.core.money import Paise
-from budgetbox.core.time import ist_day_start, today_ist
-from budgetbox.domain.pace import BudgetPace
+from budgetbox.core.time import day_key, ist_day_start, today_ist
+from budgetbox.domain.pace import BudgetPace, round_half_away_from_zero
 from budgetbox.domain.periods import (
     add_months,
     fy_end_exclusive,
@@ -16,7 +16,16 @@ from budgetbox.domain.periods import (
     month_start,
 )
 from budgetbox.modules.budgets.models import Budget, BudgetKind, BudgetPeriod, BudgetTxn
-from budgetbox.modules.budgets.schemas import BudgetIn, BudgetOut, BudgetPatch, BudgetView, PaceOut
+from budgetbox.modules.budgets.schemas import (
+    BudgetIn,
+    BudgetOut,
+    BudgetPatch,
+    BudgetSuggestion,
+    BudgetTrail,
+    BudgetView,
+    MonthSpend,
+    PaceOut,
+)
 from budgetbox.modules.categories.models import Category
 from budgetbox.modules.categories.schemas import CategoryOut
 from budgetbox.modules.recurring import service as recurring_service
@@ -81,6 +90,79 @@ def remove_txn(session: Session, budget_id: str, txn_id: str) -> None:
         session.commit()
 
 
+def rebalance(
+    session: Session, budget_ids: list[str], *, month: dt.date | None = None
+) -> list[Budget]:
+    """Atomically redistribute the selected limits in proportion to actual spend.
+
+    Limits are whole rupees and remain positive. The final budget receives the
+    rounding remainder, so the total allocation never drifts.
+    """
+    if len(set(budget_ids)) != len(budget_ids):
+        raise Invalid("budget_ids must be unique")
+    selected = [get(session, budget_id) for budget_id in budget_ids]
+    if any(b.period is not BudgetPeriod.MONTH or b.kind is not BudgetKind.ALL for b in selected):
+        raise Invalid("rebalance only supports automatic monthly budgets")
+
+    ref = month or today_ist()
+    spends = [_spent(session, budget, _window(budget, ref)) for budget in selected]
+    total_limit = sum(b.limit_paise for b in selected)
+    total_spent = sum(spends)
+    minimum = 100  # ₹1: the database intentionally forbids zero-value budgets.
+    if total_spent <= 0:
+        raise Invalid("cannot rebalance before any selected budget has spending")
+    if total_limit < minimum * len(selected):
+        raise Invalid("combined limit is too small to keep every budget positive")
+
+    distributable = total_limit - minimum * len(selected)
+    assigned = 0
+    for index, (budget, spent) in enumerate(zip(selected, spends, strict=True)):
+        if index == len(selected) - 1:
+            share = total_limit - assigned
+        else:
+            weighted = minimum + distributable * spent / total_spent
+            share = max(minimum, round_half_away_from_zero(weighted / 100) * 100)
+            # Preserve at least the minimum for every row still to be assigned.
+            remaining = len(selected) - index - 1
+            share = min(share, total_limit - assigned - remaining * minimum)
+        budget.limit_paise = share
+        assigned += share
+    session.commit()
+    return selected
+
+
+def suggestions(session: Session, *, months: int) -> list[BudgetSuggestion]:
+    """Average expense spend by category over the previous complete months."""
+    current = month_start(today_ist())
+    start_year, start_month = add_months(current.year, current.month, -months)
+    start = dt.date(start_year, start_month, 1)
+    rows = session.execute(
+        select(Txn.category_id, func.coalesce(func.sum(Txn.amount_paise), 0))
+        .where(
+            Txn.type == TxnType.EXPENSE,
+            Txn.category_id.is_not(None),
+            Txn.at >= ist_day_start(start),
+            Txn.at < ist_day_start(current),
+        )
+        .group_by(Txn.category_id)
+    )
+    out: list[BudgetSuggestion] = []
+    for category_id, total in rows:
+        average = round_half_away_from_zero(total / months)
+        suggested = round_half_away_from_zero(average / 10_000) * 10_000  # nearest ₹100
+        if suggested <= 0:
+            continue
+        out.append(
+            BudgetSuggestion(
+                category_id=category_id,
+                suggested_limit_paise=suggested,
+                average_spent_paise=average,
+                months=months,
+            )
+        )
+    return sorted(out, key=lambda item: (-item.suggested_limit_paise, item.category_id))
+
+
 # --- pace ---------------------------------------------------------------------
 
 
@@ -139,6 +221,77 @@ def _effective_limit(
     prev_window = (prev_start, window[0])
     prev_spent = _spent(session, budget, prev_window)
     return budget.limit_paise + (budget.limit_paise - prev_spent)
+
+
+def trail(
+    session: Session, budget_id: str, *, month: dt.date | None = None, months: int = 6
+) -> BudgetTrail:
+    """One budget's history and this period's climb. `months` prior months plus the
+    current one feed the sparkline; the streak counts only complete months."""
+    budget = get(session, budget_id)
+    today = today_ist()
+    ref = month or today
+    current = month_start(ref)
+
+    history: list[MonthSpend] = []
+    for back in range(months, -1, -1):
+        year, mon = add_months(current.year, current.month, -back)
+        first = dt.date(year, mon, 1)
+        window = (first, month_end_exclusive(first))
+        spent = _spent(session, budget, window)
+        history.append(
+            MonthSpend(
+                month=f"{year:04d}-{mon:02d}",
+                spent_paise=spent,
+                # Zero spend is not evidence of restraint: it breaks the streak.
+                held=0 < spent <= budget.limit_paise,
+            )
+        )
+
+    running = 0
+    for entry in reversed(history[:-1]):  # the current month is still being lived
+        if not entry.held:
+            break
+        running += 1
+
+    window = _window(budget, ref)
+    elapsed, _total = _elapsed_total(window, today)
+    cumulative: list[int] = []
+    even: list[int] = []
+    if window is not None and elapsed > 0:
+        start, end = window
+        rows = session.execute(
+            select(Txn.at, Txn.amount_paise).where(
+                Txn.type == TxnType.EXPENSE,
+                Txn.at >= ist_day_start(start),
+                Txn.at < ist_day_start(end),
+                *(
+                    [Txn.category_id == budget.category_id]
+                    if budget.category_id is not None
+                    else []
+                ),
+            )
+        )
+        per_day = [0] * elapsed
+        for at, amount in rows:
+            index = (day_key(at) - start).days
+            if 0 <= index < elapsed:
+                per_day[index] += amount
+        total_days = (end - start).days
+        running_total = 0
+        for index, amount in enumerate(per_day, start=1):
+            running_total += amount
+            cumulative.append(running_total)
+            even.append(round_half_away_from_zero(budget.limit_paise * index / total_days))
+
+    return BudgetTrail(
+        budget_id=budget.id,
+        limit_paise=budget.limit_paise,
+        months=history,
+        held_months_running=running,
+        daily_cumulative_paise=cumulative,
+        even_pace_paise=even,
+    )
 
 
 def pace_views(session: Session, *, month: dt.date | None = None) -> list[BudgetView]:

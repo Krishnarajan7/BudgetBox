@@ -1,9 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from budgetbox.api.deps import SessionDep
 from budgetbox.api.params import parse_month
 from budgetbox.modules.budgets import service
-from budgetbox.modules.budgets.schemas import BudgetIn, BudgetOut, BudgetPatch, BudgetView
+from budgetbox.modules.budgets.schemas import (
+    BudgetIn,
+    BudgetOut,
+    BudgetPatch,
+    BudgetSuggestion,
+    BudgetTrail,
+    BudgetView,
+    RebalanceIn,
+)
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
@@ -17,6 +25,31 @@ def list_budgets(session: SessionDep, include_archived: bool = False) -> list[Bu
 @router.get("/pace")
 def pace(session: SessionDep, month: str | None = None) -> list[BudgetView]:
     return service.pace_views(session, month=parse_month(month))
+
+
+@router.get("/suggestions")
+def suggestions(
+    session: SessionDep, months: int = Query(default=3, ge=1, le=24)
+) -> list[BudgetSuggestion]:
+    return service.suggestions(session, months=months)
+
+
+@router.post("/rebalance")
+def rebalance(session: SessionDep, data: RebalanceIn, month: str | None = None) -> list[BudgetOut]:
+    rows = service.rebalance(session, data.budget_ids, month=parse_month(month))
+    return [BudgetOut.model_validate(row) for row in rows]
+
+
+@router.get("/{budget_id}/trail")
+def trail(
+    session: SessionDep,
+    budget_id: str,
+    month: str | None = None,
+    months: int = Query(default=6, ge=1, le=24),
+) -> BudgetTrail:
+    """The sparkline, the 'held its line N months running' streak, and this
+    period's daily climb against an even pace — the budget row's whole case."""
+    return service.trail(session, budget_id, month=parse_month(month), months=months)
 
 
 @router.put("/{budget_id}")

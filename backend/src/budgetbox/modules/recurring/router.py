@@ -4,13 +4,17 @@ from fastapi import APIRouter
 
 from budgetbox.api.deps import SessionDep
 from budgetbox.core.time import today_ist
+from budgetbox.domain.periods import month_end_exclusive
 from budgetbox.modules.recurring import service
+from budgetbox.modules.recurring.models import RecurringKind
 from budgetbox.modules.recurring.schemas import (
     RecurringIn,
     RecurringOut,
     RecurringPatch,
+    RecurringPaymentIn,
     UpcomingOut,
 )
+from budgetbox.modules.transactions.schemas import TxnOut
 
 router = APIRouter(prefix="/recurring", tags=["recurring"])
 
@@ -23,11 +27,25 @@ def list_recurrings(session: SessionDep, include_inactive: bool = False) -> list
 
 @router.get("/upcoming")
 def upcoming(session: SessionDep, until: date | None = None) -> UpcomingOut:
-    horizon = until or (today_ist() + timedelta(days=30))
+    today = today_ist()
+    horizon = until or (today + timedelta(days=30))
     return UpcomingOut(
         items=service.upcoming(session, until=horizon),
         committed_monthly_paise=service.committed_monthly_paise(session),
+        committed_unpaid_paise=service.committed_due_between(
+            session, today, month_end_exclusive(today)
+        ),
+        yearly_paise=service.yearly_paise(session),
+        yearly_bill_paise=service.yearly_paise(session, kind=RecurringKind.BILL),
+        yearly_subscription_paise=service.yearly_paise(session, kind=RecurringKind.SUBSCRIPTION),
     )
+
+
+@router.put("/{recurring_id}/payments/{txn_id}")
+def pay_recurring(
+    session: SessionDep, recurring_id: str, txn_id: str, data: RecurringPaymentIn
+) -> TxnOut:
+    return TxnOut.model_validate(service.pay(session, recurring_id, txn_id, data))
 
 
 @router.put("/{recurring_id}")

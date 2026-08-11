@@ -49,9 +49,17 @@ curl -H "Authorization: Bearer bbx_..." localhost:8000/v1/ping
   can queue offline and retry blindly. Partial edits via `PATCH`.
 - Errors are RFC 9457 `application/problem+json` with stable
   `urn:budgetbox:problem:<slug>` types.
-- Derived read models are first-class: `/v1/summary/today`, `/v1/budgets/pace`,
-  `/v1/recurring/upcoming`, `/v1/goals`, `/v1/networth/{current,series}`,
-  `/v1/insights/month-story`, `/v1/focus/stats`, `/v1/changes?since=`.
+- Derived read models are first-class, and shaped by screen so the phone gets a
+  page in one call: `/v1/summary/{today,month,calendar}`, `/v1/budgets/pace`,
+  `/v1/budgets/{id}/trail`, `/v1/pinned/board`, `/v1/recurring/upcoming`,
+  `/v1/goals`, `/v1/networth/{current,series,accounts}`,
+  `/v1/insights/month-story`, `/v1/focus/stats`, `/v1/journal/month`,
+  `/v1/journal/{day}/facts`, `/v1/changes?since=`.
+- The add sheet's five-second path has its own memory endpoints:
+  `/v1/txns/suggest`, `/v1/txns/recent-amounts`, `/v1/categories/top`.
+- Plan workflows are server-side and atomic: `POST /v1/budgets/rebalance`,
+  `GET /v1/budgets/suggestions`, and retry-safe manual recurring payments at
+  `PUT /v1/recurring/{recurring_id}/payments/{txn_id}`.
 - `uv run budgetbox openapi` exports `openapi.json` — the contract for generating
   the Dart client when the screens are ready to wire.
 
@@ -67,6 +75,12 @@ curl -H "Authorization: Bearer bbx_..." localhost:8000/v1/ping
 - **Net worth history** is a rebuildable cache (`account_snapshots`): the last 90
   days re-derive every run; `budgetbox jobs rebuild-snapshots` redoes all of it.
 - **Vault is zero-knowledge**: opaque nonce+cipher blobs only, never logged.
+- **Sealing a day is a ritual, not a ledger fact.** `PUT /v1/seals/{day}` closes a
+  page and `DELETE` reopens it; both are idempotent and neither leaves a trace,
+  because taking it back is allowed to cost nothing.
+- **The book stays quiet without evidence.** Conditional story pages, the journal's
+  mood-against-money line and the "held its line N months running" streak all
+  return null/zero rather than a guess: a blank month is silence, not restraint.
 
 ## VPS runbook (Ubuntu-ish)
 

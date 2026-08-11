@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from budgetbox.core.ids import new_id
 from budgetbox.jobs.daily import run_daily
-from tests.integration.helpers import balance, make_account
+from tests.integration.helpers import balance, make_account, make_txn
 
 
 def make_recurring(
@@ -114,6 +114,68 @@ def test_deactivated_recurring_is_not_materialized(app: FastAPI, client: TestCli
     client.delete(f"/v1/recurring/{recurring_id}")
     run_daily(app.state.session_factory)
     assert client.get("/v1/txns").json()["items"] == []
+
+
+@time_machine.travel("2026-07-15T10:00:00+05:30")
+def test_manual_payment_is_idempotent_and_advances_once(app: FastAPI, client: TestClient) -> None:
+    account_id = make_account(client)
+    recurring_id = make_recurring(client, account_id, day_of_month=20)
+    txn_id = new_id()
+    body = {
+        "amount_paise": 14_500_00,
+        "at": "2026-07-18T09:30:00+05:30",
+        "note": "Paid early after discount",
+    }
+
+    first = client.put(f"/v1/recurring/{recurring_id}/payments/{txn_id}", json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["id"] == txn_id
+    assert first.json()["recurring_id"] == recurring_id
+    assert first.json()["amount_paise"] == 14_500_00
+
+    recurring = client.get("/v1/recurring").json()[0]
+    assert recurring["last_materialized_due"] == "2026-07-20"
+    assert recurring["next_due"] == "2026-08-20"
+
+    retry = client.put(f"/v1/recurring/{recurring_id}/payments/{txn_id}", json=body)
+    assert retry.status_code == 200
+    assert len(client.get("/v1/txns").json()["items"]) == 1
+    assert client.get("/v1/recurring").json()[0]["next_due"] == "2026-08-20"
+
+    corrected = {**body, "amount_paise": 14_000_00}
+    assert (
+        client.put(f"/v1/recurring/{recurring_id}/payments/{txn_id}", json=corrected).json()[
+            "amount_paise"
+        ]
+        == 14_000_00
+    )
+    assert client.get(f"/v1/txns/{txn_id}").json()["amount_paise"] == 14_000_00
+    assert client.get("/v1/recurring").json()[0]["next_due"] == "2026-08-20"
+
+    # The daily catch-up cannot duplicate the manually paid July occurrence.
+    assert run_daily(app.state.session_factory) is True
+    assert len(client.get("/v1/txns").json()["items"]) == 1
+
+
+def test_manual_payment_rejects_inactive_recurring(client: TestClient) -> None:
+    account_id = make_account(client)
+    recurring_id = make_recurring(client, account_id)
+    client.delete(f"/v1/recurring/{recurring_id}")
+    resp = client.put(f"/v1/recurring/{recurring_id}/payments/{new_id()}", json={})
+    assert resp.status_code == 422
+
+
+def test_manual_payment_rejects_transaction_id_collision(client: TestClient) -> None:
+    account_id = make_account(client)
+    recurring_id = make_recurring(client, account_id)
+    next_due = client.get("/v1/recurring").json()[0]["next_due"]
+    txn_id = make_txn(client, account_id)
+    resp = client.put(
+        f"/v1/recurring/{recurring_id}/payments/{txn_id}",
+        json={"at": "2026-07-15T10:00:00+05:30"},
+    )
+    assert resp.status_code == 409
+    assert client.get("/v1/recurring").json()[0]["next_due"] == next_due
 
 
 @time_machine.travel("2026-07-15T10:00:00+05:30")

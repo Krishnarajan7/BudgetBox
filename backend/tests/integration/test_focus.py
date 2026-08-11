@@ -9,6 +9,12 @@ from fastapi.testclient import TestClient
 from budgetbox.core.ids import new_id
 
 
+def tally(stats: dict[str, Any]) -> dict[str, Any]:
+    """Just the month's headline figures; the grids and the all-time record have
+    their own tests."""
+    return {k: stats[k] for k in ("total_minutes", "sessions", "best_day", "best_day_minutes")}
+
+
 def make_session(
     client: TestClient,
     *,
@@ -89,7 +95,7 @@ def test_stats_count_only_completed_work_sessions(client: TestClient) -> None:
     make_session(client, started_at="2026-06-30T09:00:00+05:30", minutes=200)  # other month
 
     stats = client.get("/v1/focus/stats").json()
-    assert stats == {
+    assert tally(stats) == {
         "total_minutes": 50,
         "sessions": 1,
         "best_day": "2026-07-02",
@@ -106,7 +112,7 @@ def test_best_day_sums_the_day_and_breaks_ties_to_the_earlier_one(client: TestCl
     make_session(client, started_at="2026-07-09T09:00:00+05:30", minutes=60)  # tie, later day
     make_session(client, started_at="2026-07-11T09:00:00+05:30", minutes=30)
 
-    assert client.get("/v1/focus/stats").json() == {
+    assert tally(client.get("/v1/focus/stats").json()) == {
         "total_minutes": 150,
         "sessions": 4,
         "best_day": "2026-07-05",
@@ -116,7 +122,7 @@ def test_best_day_sums_the_day_and_breaks_ties_to_the_earlier_one(client: TestCl
 
 @time_machine.travel("2026-07-15T10:00:00+05:30")
 def test_empty_month_and_input_guards(client: TestClient) -> None:
-    assert client.get("/v1/focus/stats?month=2026-01").json() == {
+    assert tally(client.get("/v1/focus/stats?month=2026-01").json()) == {
         "total_minutes": 0,
         "sessions": 0,
         "best_day": None,
@@ -132,3 +138,43 @@ def test_empty_month_and_input_guards(client: TestClient) -> None:
         json={"started_at": "2026-07-15T10:00:00+05:30", "minutes": 601, "kind": "work"},
     )
     assert too_long.status_code == 422
+
+
+@time_machine.travel("2026-07-15T10:00:00+05:30")  # a Wednesday
+def test_stats_carry_the_day_grid_and_the_week_bars(client: TestClient) -> None:
+    make_session(client, started_at="2026-07-13T09:00:00+05:30", minutes=40)  # Monday
+    make_session(client, started_at="2026-07-15T09:00:00+05:30", minutes=25)  # Wednesday
+    make_session(client, started_at="2026-07-15T11:00:00+05:30", minutes=20, completed=False)
+    make_session(client, started_at="2026-07-06T09:00:00+05:30", minutes=90)  # last week
+
+    stats = client.get("/v1/focus/stats").json()
+    assert stats["day_minutes"] == [
+        {"date": "2026-07-06", "minutes": 90},
+        {"date": "2026-07-13", "minutes": 40},
+        {"date": "2026-07-15", "minutes": 25},
+    ]
+    assert stats["week_minutes"] == [40, 0, 25, 0, 0, 0, 0]  # Mon…Sun
+    # Today's tally counts the sitting he walked away from: the minutes were sat.
+    assert stats["today_work_minutes"] == 45
+
+
+@time_machine.travel("2026-07-15T10:00:00+05:30")
+def test_record_is_all_time_and_counts_only_finished_work(client: TestClient) -> None:
+    make_session(client, started_at="2025-02-10T09:00:00+05:30", minutes=90)
+    make_session(client, started_at="2026-07-13T09:00:00+05:30", minutes=50)
+    make_session(client, started_at="2026-07-13T14:00:00+05:30", minutes=55)
+    make_session(client, started_at="2026-07-14T09:00:00+05:30", minutes=30)
+    make_session(client, started_at="2026-07-14T14:00:00+05:30", minutes=200, completed=False)
+    make_session(client, started_at="2026-07-14T18:00:00+05:30", minutes=200, kind="rest")
+
+    record = client.get("/v1/focus/stats").json()["record"]
+    assert record["total_minutes"] == 225
+    assert record["sessions"] == 4
+    assert record["longest_minutes"] == 90
+    assert record["longest_at"].startswith("2025-02-10")
+    assert record["best_day"] == "2026-07-13"
+    assert record["best_day_minutes"] == 105
+    # The 13th and 14th run up to yesterday; today is grace, not a break.
+    assert record["streak_days"] == 2
+    # A past month's stats still report the same all-time record.
+    assert client.get("/v1/focus/stats?month=2026-01").json()["record"] == record

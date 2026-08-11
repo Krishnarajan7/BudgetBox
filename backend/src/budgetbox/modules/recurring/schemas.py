@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import Field
 
-from budgetbox.api.schemas import APIModel, PositivePaise, StrictPaise
+from budgetbox.api.schemas import APIModel, Instant, PositivePaise, StrictPaise
 from budgetbox.modules.recurring.models import RecurringKind
 
 
@@ -57,3 +57,16 @@ class UpcomingOut(APIModel):
     # Committed spend hero: every active recurring normalized to a per-month figure
     # (yearly plans counted at 1/12 a month).
     committed_monthly_paise: StrictPaise
+    # What the rest of *this* month has already promised away: charges still due
+    # before the month turns. The honest number behind "already spoken for".
+    committed_unpaid_paise: StrictPaise
+    # The shelf's yearly cost, cadences normalized (a yearly plan counts once).
+    yearly_paise: StrictPaise
+    yearly_bill_paise: StrictPaise
+    yearly_subscription_paise: StrictPaise
+
+
+class RecurringPaymentIn(APIModel):
+    amount_paise: PositivePaise | None = None
+    at: Instant | None = None
+    note: str | None = None

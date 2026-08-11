@@ -1,0 +1,17 @@
+# /etc/systemd/system/budgetbox-backup.service
+[Unit]
+Description=BudgetBox nightly backup (snapshot + readable archive + offsite)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=budgetbox
+Group=budgetbox
+WorkingDirectory=/opt/budgetbox/backend
+EnvironmentFile=/etc/budgetbox/env
+ExecStart=/opt/budgetbox/backend/deploy/backup.sh
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/var/lib/budgetbox
+PrivateTmp=true

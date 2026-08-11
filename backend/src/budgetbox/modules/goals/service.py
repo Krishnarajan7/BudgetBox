@@ -1,3 +1,4 @@
+import datetime as dt
 import math
 
 from sqlalchemy import func, select
@@ -5,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from budgetbox.core.errors import NotFound
 from budgetbox.core.ids import new_id, require_uuid
-from budgetbox.core.time import now_utc, today_ist
+from budgetbox.core.time import day_key, ist_day_start, now_utc, today_ist
 from budgetbox.domain.periods import add_months, clamp_day
 from budgetbox.modules.goals.models import Goal
 from budgetbox.modules.goals.schemas import ContributeIn, GoalIn, GoalOut, GoalPatch, GoalView
@@ -43,6 +44,26 @@ def patch(session: Session, goal_id: str, data: GoalPatch) -> Goal:
     return row
 
 
+_RHYTHM_MONTHS = 6
+
+
+def _rhythm(session: Session, goal_id: str, today: dt.date) -> list[bool]:
+    """Which of the last six months saw a contribution, oldest first."""
+    first_year, first_month = add_months(today.year, today.month, -(_RHYTHM_MONTHS - 1))
+    window_start = dt.date(first_year, first_month, 1)
+    months = {
+        day_key(at).replace(day=1)
+        for (at,) in session.execute(
+            select(Txn.at).where(Txn.goal_id == goal_id, Txn.at >= ist_day_start(window_start))
+        )
+    }
+    out: list[bool] = []
+    for back in range(_RHYTHM_MONTHS - 1, -1, -1):
+        year, month = add_months(today.year, today.month, -back)
+        out.append(dt.date(year, month, 1) in months)
+    return out
+
+
 def _view(session: Session, goal: Goal) -> GoalView:
     done, count = session.execute(
         select(func.coalesce(func.sum(Txn.amount_paise), 0), func.count(Txn.id)).where(
@@ -51,10 +72,10 @@ def _view(session: Session, goal: Goal) -> GoalView:
     ).one()
     remaining = max(goal.target_paise - done, 0)
     reached = done >= goal.target_paise
+    today = today_ist()
     eta = None
     if not reached and goal.monthly_paise and goal.monthly_paise > 0:
         months = math.ceil(remaining / goal.monthly_paise)
-        today = today_ist()
         year, month = add_months(today.year, today.month, months)
         eta = clamp_day(year, month, today.day)
     return GoalView(
@@ -65,6 +86,7 @@ def _view(session: Session, goal: Goal) -> GoalView:
         fraction=min(done / goal.target_paise, 1.0),
         reached=reached,
         eta=eta,
+        rhythm=_rhythm(session, goal.id, today),
     )
 
 

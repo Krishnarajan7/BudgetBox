@@ -97,6 +97,16 @@ def current(session: Session) -> tuple[Paise, Paise, Paise]:
     return assets - liabilities, assets, liabilities
 
 
+def peak(points: list[tuple[dt.date, Paise]]) -> tuple[dt.date, Paise] | None:
+    """The high-water mark of a series. Ties go to the earlier day — the first time
+    he reached it is the one that counts."""
+    best: tuple[dt.date, Paise] | None = None
+    for day, value in points:
+        if best is None or value > best[1]:
+            best = (day, value)
+    return best
+
+
 def range_start(range_key: str, today: dt.date) -> dt.date | None:
     match range_key:
         case "1m":

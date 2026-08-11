@@ -1,0 +1,12 @@
+# /etc/systemd/system/budgetbox-backup.timer
+# 00:30 IST, after the daily catch-up job at 00:05 has settled.
+[Unit]
+Description=Run the BudgetBox backup nightly
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 Asia/Kolkata
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

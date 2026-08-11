@@ -45,6 +45,9 @@ class GoalView(APIModel):
     fraction: float
     reached: bool
     eta: date | None
+    # The last six calendar months, oldest first: did anything go in that month?
+    # The rhythm cells on the goals page — showing up beats showing up big.
+    rhythm: list[bool]
 
 
 class ContributeIn(APIModel):

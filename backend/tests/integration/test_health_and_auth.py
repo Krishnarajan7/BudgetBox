@@ -46,3 +46,20 @@ def test_revoke_unknown_token_raises(app: FastAPI) -> None:
 
     with app.state.session_factory() as s, pytest.raises(NotFound):
         token_service.revoke(s, "no-such-id")
+
+
+def test_malformed_id_on_write_is_refused_not_a_crash(client: TestClient) -> None:
+    """A bad client-minted id is the phone's mistake, not the server falling over.
+
+    This distinction is load-bearing: the app's outbox treats 5xx as "still
+    owed, keep retrying" and 4xx as "parked". A 500 here would spin a poisoned
+    write forever.
+    """
+    resp = client.put("/v1/accounts/not-a-uuid", json={"name": "X", "kind": "cash"})
+    assert resp.status_code == 422
+    assert resp.headers["content-type"] == "application/problem+json"
+    assert resp.json()["type"] == "urn:budgetbox:problem:invalid"
+
+
+def test_malformed_id_on_read_is_a_miss(client: TestClient) -> None:
+    assert client.get("/v1/txns/not-a-uuid").status_code == 404

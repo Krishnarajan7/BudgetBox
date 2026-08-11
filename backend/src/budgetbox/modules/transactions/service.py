@@ -3,7 +3,7 @@ snapshot in the same transaction, and undo replays the inverse. Balances are nev
 written — they derive from anchors + this ledger (see accounts.service)."""
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
@@ -12,7 +12,8 @@ from budgetbox.api.pagination import decode_cursor, encode_cursor
 from budgetbox.core.errors import Conflict, Invalid, NotFound
 from budgetbox.core.ids import new_id, require_uuid
 from budgetbox.core.money import Paise
-from budgetbox.core.time import ist_day_start, now_utc
+from budgetbox.core.time import day_key, ist_day_start, now_utc, today_ist
+from budgetbox.domain.insights import streak_days
 from budgetbox.modules.accounts.models import Account
 from budgetbox.modules.categories.models import Category
 from budgetbox.modules.transactions.models import (
@@ -24,7 +25,14 @@ from budgetbox.modules.transactions.models import (
     TxnType,
 )
 from budgetbox.modules.transactions.schemas import (
+    ActivityOut,
+    CategoryUse,
+    PinnedBoard,
     PinnedIn,
+    PinnedOut,
+    PinnedSuggestion,
+    PinnedUse,
+    RecentAmount,
     TitleSuggestion,
     TxnIn,
     TxnOut,
@@ -122,7 +130,12 @@ def get(session: Session, txn_id: str) -> Txn:
 
 
 def upsert(
-    session: Session, txn_id: str, data: TxnIn, *, recurring_id: str | None = None
+    session: Session,
+    txn_id: str,
+    data: TxnIn,
+    *,
+    recurring_id: str | None = None,
+    commit: bool = True,
 ) -> tuple[Txn, bool]:
     """PUT semantics; a blind retry of the same payload is a no-op, which is what
     lets the phone queue writes offline and resend safely. Returns (row, created)."""
@@ -136,7 +149,8 @@ def upsert(
         session.add(row)
         session.flush()
         _log(session, txn_id, ActivityAction.CREATED, _snapshot(row))
-        session.commit()
+        if commit:
+            session.commit()
         return row, True
 
     if all(getattr(row, f) == getattr(data, f) for f in _TXN_FIELDS):
@@ -146,7 +160,8 @@ def upsert(
         setattr(row, field, getattr(data, field))
     _validate_shape(session, row)
     _log(session, txn_id, ActivityAction.EDITED, before)
-    session.commit()
+    if commit:
+        session.commit()
     return row, False
 
 
@@ -202,9 +217,49 @@ def undo(session: Session, activity_id: str) -> tuple[ActivityAction, Txn | None
     return action, result
 
 
-def recent_activities(session: Session, *, limit: int = 20) -> list[Activity]:
+def recent_activities(
+    session: Session, *, limit: int = 20, txn_id: str | None = None
+) -> list[Activity]:
     stmt = select(Activity).order_by(Activity.at.desc(), Activity.id.desc()).limit(limit)
+    if txn_id is not None:
+        stmt = stmt.where(Activity.txn_id == txn_id)
     return list(session.scalars(stmt))
+
+
+def activity_out(session: Session, row: Activity) -> ActivityOut:
+    """The log line the activity page draws: the snapshot's own words and figure,
+    plus whether replaying the inverse would actually work right now."""
+    try:
+        snapshot = TxnOut.model_validate(json.loads(row.snapshot)["txn"])
+    except (ValueError, KeyError):  # a snapshot from an older schema: still a line
+        return ActivityOut(
+            id=row.id,
+            txn_id=row.txn_id,
+            action=row.action,
+            at=row.at,
+            title=None,
+            amount_paise=None,
+            txn_type=None,
+            undoable=False,
+        )
+    exists = session.get(Txn, row.txn_id) is not None
+    match row.action:
+        case ActivityAction.CREATED:
+            undoable = exists
+        case ActivityAction.EDITED:
+            undoable = exists
+        case ActivityAction.DELETED:
+            undoable = not exists
+    return ActivityOut(
+        id=row.id,
+        txn_id=row.txn_id,
+        action=row.action,
+        at=row.at,
+        title=snapshot.title,
+        amount_paise=snapshot.amount_paise,
+        txn_type=snapshot.type,
+        undoable=undoable,
+    )
 
 
 # --- txn reads ----------------------------------------------------------------
@@ -258,10 +313,12 @@ def spent_between(session: Session, start: datetime, end: datetime) -> Paise:
 
 
 def suggest_titles(session: Session, q: str, *, limit: int = 6) -> list[TitleSuggestion]:
-    """Latest use of each matching title, carrying its category/account memory."""
+    """Latest use of each matching title, carrying its category/account memory.
+    Substring, not prefix: typing 'sar' has to find 'Hotel Saravana', which is how
+    the add sheet's ghost row behaves."""
     stmt = (
         select(Txn.title, Txn.category_id, Txn.account_id)
-        .where(Txn.title.ilike(f"{q}%"))
+        .where(Txn.title.ilike(f"%{q}%"))
         .order_by(Txn.at.desc())
         .limit(60)
     )
@@ -276,6 +333,86 @@ def suggest_titles(session: Session, q: str, *, limit: int = 6) -> list[TitleSug
         if len(out) >= limit:
             break
     return out
+
+
+def recent_amounts(session: Session, category_id: str, *, limit: int = 3) -> list[RecentAmount]:
+    """'usually ₹40' — the amounts this category is most often written for, over its
+    last 60 entries. Ranked by how often, ties to the more recent figure."""
+    stmt = (
+        select(Txn.amount_paise)
+        .where(Txn.type == TxnType.EXPENSE, Txn.category_id == category_id)
+        .order_by(Txn.at.desc())
+        .limit(60)
+    )
+    counts: dict[Paise, int] = {}
+    first_seen: dict[Paise, int] = {}
+    for index, (amount,) in enumerate(session.execute(stmt)):
+        counts[amount] = counts.get(amount, 0) + 1
+        first_seen.setdefault(amount, index)
+    ranked = sorted(counts, key=lambda a: (-counts[a], first_seen[a]))
+    return [RecentAmount(amount_paise=a, count=counts[a]) for a in ranked[:limit]]
+
+
+def top_category_ids(session: Session, *, days: int = 90, limit: int = 5) -> list[CategoryUse]:
+    """His most-written expense categories, most frequent first — the add sheet's
+    chips. A window, not all time: the book follows what he does now."""
+    since = ist_day_start(today_ist() - timedelta(days=days))
+    stmt = (
+        select(Txn.category_id, func.count(Txn.id))
+        .where(Txn.type == TxnType.EXPENSE, Txn.category_id.is_not(None), Txn.at >= since)
+        .group_by(Txn.category_id)
+        .order_by(func.count(Txn.id).desc(), Txn.category_id)
+        .limit(limit)
+    )
+    return [
+        CategoryUse(category_id=cid, count=count)
+        for cid, count in session.execute(stmt)
+        if cid is not None
+    ]
+
+
+def money_by_day(session: Session, from_day: date, to_day: date) -> dict[date, tuple[Paise, Paise]]:
+    """(spent, earned) per IST day inside [from_day, to_day). Transfers move money
+    between his own pockets, so they are neither."""
+    stmt = select(Txn.at, Txn.type, Txn.amount_paise).where(
+        Txn.at >= ist_day_start(from_day),
+        Txn.at < ist_day_start(to_day),
+        Txn.type != TxnType.TRANSFER,
+    )
+    out: dict[date, tuple[Paise, Paise]] = {}
+    for at, type_, amount in session.execute(stmt):
+        day = day_key(at)
+        spent, earned = out.get(day, (0, 0))
+        if type_ is TxnType.EXPENSE:
+            out[day] = (spent + amount, earned)
+        else:
+            out[day] = (spent, earned + amount)
+    return out
+
+
+def quiet_days(session: Session, *, today: date, lookback: int = 7) -> list[date]:
+    """Days in the last week with nothing written down, most recent first. Today is
+    never quiet — the day isn't over."""
+    start = today - timedelta(days=lookback)
+    spent_on = {day for day, (spent, _) in money_by_day(session, start, today).items() if spent > 0}
+    return [d for i in range(1, lookback + 1) if (d := today - timedelta(days=i)) not in spent_on]
+
+
+def largest_income_day(session: Session, from_day: date, to_day: date) -> int | None:
+    """Day-of-month the biggest paycheque landed on — what the plans page calls
+    salary day when nothing was configured."""
+    stmt = (
+        select(Txn.at)
+        .where(
+            Txn.type == TxnType.INCOME,
+            Txn.at >= ist_day_start(from_day),
+            Txn.at < ist_day_start(to_day),
+        )
+        .order_by(Txn.amount_paise.desc(), Txn.at)
+        .limit(1)
+    )
+    at = session.scalar(stmt)
+    return None if at is None else day_key(at).day
 
 
 # --- pinned (one-tap repeats) -------------------------------------------------
@@ -328,6 +465,77 @@ def stamp_pinned(session: Session, pinned_id: str, at: datetime | None = None) -
     return txn
 
 
+def _use_key(title: str, amount_paise: Paise) -> tuple[str, Paise]:
+    return title.strip().lower(), amount_paise
+
+
+def pinned_board(
+    session: Session, *, today: date, window_days: int = 90, min_repeats: int = 3, limit: int = 3
+) -> PinnedBoard:
+    """The pinned manager in one call: every pin with how often it has actually been
+    stamped, plus repeats that have earned a pin and don't have one."""
+    pins = list_pinned(session)
+
+    counts: dict[tuple[str, Paise], int] = {}
+    last_at: dict[tuple[str, Paise], datetime] = {}
+    rows = session.execute(
+        select(Txn.title, Txn.amount_paise, Txn.at).where(Txn.type == TxnType.EXPENSE)
+    )
+    for title, amount, at in rows:
+        key = _use_key(title, amount)
+        counts[key] = counts.get(key, 0) + 1
+        if key not in last_at or at > last_at[key]:
+            last_at[key] = at
+
+    items = [
+        PinnedUse(
+            pinned=PinnedOut.model_validate(p),
+            use_count=counts.get(_use_key(p.title, p.amount_paise), 0),
+            last_used_at=last_at.get(_use_key(p.title, p.amount_paise)),
+        )
+        for p in pins
+    ]
+
+    pinned_titles = {p.title.strip().lower() for p in pins}
+    since = ist_day_start(today - timedelta(days=window_days))
+    repeats = session.execute(
+        select(Txn.title, func.count(Txn.id))
+        .where(
+            Txn.type == TxnType.EXPENSE,
+            Txn.category_id.is_not(None),
+            Txn.at >= since,
+        )
+        .group_by(Txn.title)
+        .having(func.count(Txn.id) >= min_repeats)
+        .order_by(func.count(Txn.id).desc(), Txn.title)
+        .limit(12)
+    )
+    suggestions: list[PinnedSuggestion] = []
+    for title, count in repeats:
+        if title.strip().lower() in pinned_titles:
+            continue
+        latest = session.scalars(
+            select(Txn)
+            .where(Txn.title == title, Txn.category_id.is_not(None))
+            .order_by(Txn.at.desc())
+            .limit(1)
+        ).first()
+        if latest is None or latest.category_id is None:
+            continue
+        suggestions.append(
+            PinnedSuggestion(
+                title=latest.title,
+                amount_paise=latest.amount_paise,
+                category_id=latest.category_id,
+                account_id=latest.account_id,
+                count=count,
+            )
+        )
+        if len(suggestions) >= limit:
+            break
+    return PinnedBoard(items=items, suggestions=suggestions)
+
+
 # --- day seals ----------------------------------------------------------------
 
 
@@ -339,6 +547,22 @@ def seal_day(session: Session, day: date) -> DaySeal:
         session.add(row)
         session.commit()
     return row
+
+
+def unseal_day(session: Session, day: date) -> None:
+    """Reopen a closed page. Idempotent, and it leaves no scar: sealing is a ritual,
+    not a ledger fact, so there is nothing to keep once he takes it back."""
+    row = session.get(DaySeal, day)
+    if row is not None:
+        session.delete(row)
+        session.commit()
+
+
+def seal_streak_days(session: Session, today: date) -> int:
+    """Evenings closed in a row, counting back from today (or yesterday, when today
+    isn't sealed yet)."""
+    sealed = set(session.scalars(select(DaySeal.date)))
+    return streak_days(sealed, today)
 
 
 def seals_between(session: Session, from_day: date, to_day: date) -> list[DaySeal]:

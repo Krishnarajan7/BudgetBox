@@ -153,6 +153,85 @@
         "title": "AccountPatch",
         "type": "object"
       },
+      "AccountSpark": {
+        "additionalProperties": false,
+        "description": "One Worth row: the balance, when it was last confirmed, and the memory behind\nits sparkline and long-press history sheet.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "balance_paise": {
+            "title": "Balance Paise",
+            "type": "integer"
+          },
+          "high_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Paise"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AccountKind"
+          },
+          "low_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Paise"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "readings": {
+            "title": "Readings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id",
+          "name",
+          "kind",
+          "balance_paise",
+          "as_of",
+          "points",
+          "low_paise",
+          "high_paise",
+          "readings"
+        ],
+        "title": "AccountSpark",
+        "type": "object"
+      },
       "ActivityAction": {
         "enum": [
           "created",
@@ -168,6 +247,18 @@
           "action": {
             "$ref": "#/components/schemas/ActivityAction"
           },
+          "amount_paise": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Paise"
+          },
           "at": {
             "format": "date-time",
             "title": "At",
@@ -177,16 +268,45 @@
             "title": "Id",
             "type": "string"
           },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
           "txn_id": {
             "title": "Txn Id",
             "type": "string"
+          },
+          "txn_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxnType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "undoable": {
+            "title": "Undoable",
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "txn_id",
           "action",
-          "at"
+          "at",
+          "title",
+          "amount_paise",
+          "txn_type",
+          "undoable"
         ],
         "title": "ActivityOut",
         "type": "object"
@@ -216,6 +336,50 @@
           "balance_paise"
         ],
         "title": "AnchorIn",
+        "type": "object"
+      },
+      "BudgetHeldOut": {
+        "additionalProperties": false,
+        "properties": {
+          "budget_id": {
+            "title": "Budget Id",
+            "type": "string"
+          },
+          "limit_paise": {
+            "title": "Limit Paise",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spare_paise": {
+            "title": "Spare Paise",
+            "type": "integer"
+          },
+          "spare_year_paise": {
+            "title": "Spare Year Paise",
+            "type": "integer"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          },
+          "usage": {
+            "title": "Usage",
+            "type": "number"
+          }
+        },
+        "required": [
+          "budget_id",
+          "name",
+          "limit_paise",
+          "spent_paise",
+          "spare_paise",
+          "spare_year_paise",
+          "usage"
+        ],
+        "title": "BudgetHeldOut",
         "type": "object"
       },
       "BudgetIn": {
@@ -412,6 +576,85 @@
         "title": "BudgetStatus",
         "type": "string"
       },
+      "BudgetSuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "average_spent_paise": {
+            "title": "Average Spent Paise",
+            "type": "integer"
+          },
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
+          "months": {
+            "title": "Months",
+            "type": "integer"
+          },
+          "suggested_limit_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Suggested Limit Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category_id",
+          "suggested_limit_paise",
+          "average_spent_paise",
+          "months"
+        ],
+        "title": "BudgetSuggestion",
+        "type": "object"
+      },
+      "BudgetTrail": {
+        "additionalProperties": false,
+        "description": "The evidence behind one budget row: what the last months actually cost (the\nsparkline), whether the line has been held and for how long, and the daily\ncumulative climb against an even pace.",
+        "properties": {
+          "budget_id": {
+            "title": "Budget Id",
+            "type": "string"
+          },
+          "daily_cumulative_paise": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Daily Cumulative Paise",
+            "type": "array"
+          },
+          "even_pace_paise": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Even Pace Paise",
+            "type": "array"
+          },
+          "held_months_running": {
+            "title": "Held Months Running",
+            "type": "integer"
+          },
+          "limit_paise": {
+            "title": "Limit Paise",
+            "type": "integer"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MonthSpend"
+            },
+            "title": "Months",
+            "type": "array"
+          }
+        },
+        "required": [
+          "budget_id",
+          "limit_paise",
+          "months",
+          "held_months_running",
+          "daily_cumulative_paise",
+          "even_pace_paise"
+        ],
+        "title": "BudgetTrail",
+        "type": "object"
+      },
       "BudgetView": {
         "additionalProperties": false,
         "properties": {
@@ -464,6 +707,56 @@
           "pace"
         ],
         "title": "BudgetView",
+        "type": "object"
+      },
+      "CalendarWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "charge_total_paise": {
+            "title": "Charge Total Paise",
+            "type": "integer"
+          },
+          "charges": {
+            "items": {
+              "$ref": "#/components/schemas/DueItem"
+            },
+            "title": "Charges",
+            "type": "array"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayMoney"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "from_day": {
+            "format": "date",
+            "title": "From Day",
+            "type": "string"
+          },
+          "to_day": {
+            "format": "date",
+            "title": "To Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_day",
+          "to_day",
+          "days",
+          "charges",
+          "charge_total_paise",
+          "events"
+        ],
+        "title": "CalendarWindow",
         "type": "object"
       },
       "CategoryIn": {
@@ -611,6 +904,52 @@
         "title": "CategoryPatch",
         "type": "object"
       },
+      "CategorySlice": {
+        "additionalProperties": false,
+        "description": "Where it went. A null category is the uncategorised pile, not a total.",
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category_id",
+          "spent_paise"
+        ],
+        "title": "CategorySlice",
+        "type": "object"
+      },
+      "CategoryUse": {
+        "additionalProperties": false,
+        "properties": {
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category_id",
+          "count"
+        ],
+        "title": "CategoryUse",
+        "type": "object"
+      },
       "ChangesOut": {
         "additionalProperties": false,
         "properties": {
@@ -698,6 +1037,117 @@
           "paise"
         ],
         "title": "DayAmount",
+        "type": "object"
+      },
+      "DayFacts": {
+        "additionalProperties": false,
+        "description": "What the rest of the box already knows about a day, so the page arrives\nhalf-written.",
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "focus_minutes": {
+            "title": "Focus Minutes",
+            "type": "integer"
+          },
+          "notes_count": {
+            "title": "Notes Count",
+            "type": "integer"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          },
+          "txn_count": {
+            "title": "Txn Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "spent_paise",
+          "txn_count",
+          "focus_minutes",
+          "notes_count"
+        ],
+        "title": "DayFacts",
+        "type": "object"
+      },
+      "DayMinutes": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "minutes"
+        ],
+        "title": "DayMinutes",
+        "type": "object"
+      },
+      "DayMoney": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "earned_paise": {
+            "title": "Earned Paise",
+            "type": "integer"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "spent_paise",
+          "earned_paise"
+        ],
+        "title": "DayMoney",
+        "type": "object"
+      },
+      "DayTotal": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "earned_paise": {
+            "title": "Earned Paise",
+            "type": "integer"
+          },
+          "entry_count": {
+            "title": "Entry Count",
+            "type": "integer"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "spent_paise",
+          "earned_paise",
+          "entry_count"
+        ],
+        "title": "DayTotal",
         "type": "object"
       },
       "DueItem": {
@@ -1105,6 +1555,67 @@
         "title": "FocusPatch",
         "type": "object"
       },
+      "FocusRecord": {
+        "additionalProperties": false,
+        "description": "All-time, completed work only: what the best of it has ever looked like.",
+        "properties": {
+          "best_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Day"
+          },
+          "best_day_minutes": {
+            "title": "Best Day Minutes",
+            "type": "integer"
+          },
+          "longest_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longest At"
+          },
+          "longest_minutes": {
+            "title": "Longest Minutes",
+            "type": "integer"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          },
+          "streak_days": {
+            "title": "Streak Days",
+            "type": "integer"
+          },
+          "total_minutes": {
+            "title": "Total Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_minutes",
+          "sessions",
+          "longest_minutes",
+          "longest_at",
+          "best_day",
+          "best_day_minutes",
+          "streak_days"
+        ],
+        "title": "FocusRecord",
+        "type": "object"
+      },
       "GoalIn": {
         "additionalProperties": false,
         "properties": {
@@ -1162,6 +1673,52 @@
         ],
         "title": "GoalKind",
         "type": "string"
+      },
+      "GoalMovedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "goal_id": {
+            "title": "Goal Id",
+            "type": "string"
+          },
+          "months_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Months Left"
+          },
+          "moved_paise": {
+            "title": "Moved Paise",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "boolean"
+          },
+          "remaining_paise": {
+            "title": "Remaining Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "goal_id",
+          "name",
+          "moved_paise",
+          "reached",
+          "remaining_paise",
+          "months_left"
+        ],
+        "title": "GoalMovedOut",
+        "type": "object"
       },
       "GoalOut": {
         "additionalProperties": false,
@@ -1339,6 +1896,13 @@
           "remaining_paise": {
             "title": "Remaining Paise",
             "type": "integer"
+          },
+          "rhythm": {
+            "items": {
+              "type": "boolean"
+            },
+            "title": "Rhythm",
+            "type": "array"
           }
         },
         "required": [
@@ -1348,7 +1912,8 @@
           "remaining_paise",
           "fraction",
           "reached",
-          "eta"
+          "eta",
+          "rhythm"
         ],
         "title": "GoalView",
         "type": "object"
@@ -1391,6 +1956,64 @@
           }
         },
         "title": "JournalIn",
+        "type": "object"
+      },
+      "JournalMonth": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/JournalOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "mood_dots": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Mood Dots",
+            "type": "array"
+          },
+          "mood_money": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MoodMoneyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pages_written": {
+            "title": "Pages Written",
+            "type": "integer"
+          },
+          "streak_days": {
+            "title": "Streak Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "entries",
+          "mood_dots",
+          "pages_written",
+          "streak_days",
+          "mood_money"
+        ],
+        "title": "JournalMonth",
         "type": "object"
       },
       "JournalOut": {
@@ -1437,6 +2060,30 @@
         "title": "JournalOut",
         "type": "object"
       },
+      "MonthSpend": {
+        "additionalProperties": false,
+        "properties": {
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "spent_paise",
+          "held"
+        ],
+        "title": "MonthSpend",
+        "type": "object"
+      },
       "MonthStoryOut": {
         "additionalProperties": false,
         "properties": {
@@ -1450,12 +2097,32 @@
               }
             ]
           },
+          "budget_held": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetHeldOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "flows": {
             "items": {
               "$ref": "#/components/schemas/FlowOut"
             },
             "title": "Flows",
             "type": "array"
+          },
+          "goal_moved": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalMovedOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "income_paise": {
             "title": "Income Paise",
@@ -1476,6 +2143,16 @@
           "quiet_days": {
             "title": "Quiet Days",
             "type": "integer"
+          },
+          "quietest_week": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuietWeekOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "spent_paise": {
             "title": "Spent Paise",
@@ -1505,9 +2182,186 @@
           "biggest_day",
           "quiet_days",
           "flows",
-          "vs_last_month"
+          "vs_last_month",
+          "quietest_week",
+          "budget_held",
+          "goal_moved"
         ],
         "title": "MonthStoryOut",
+        "type": "object"
+      },
+      "MonthSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "biggest_expense": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxnOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "biggest_expense_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Biggest Expense Share"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySlice"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "day_totals": {
+            "items": {
+              "$ref": "#/components/schemas/DayTotal"
+            },
+            "title": "Day Totals",
+            "type": "array"
+          },
+          "elapsed_days": {
+            "title": "Elapsed Days",
+            "type": "integer"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "entry_count": {
+            "title": "Entry Count",
+            "type": "integer"
+          },
+          "heaviest_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heaviest Day"
+          },
+          "heaviest_day_paise": {
+            "title": "Heaviest Day Paise",
+            "type": "integer"
+          },
+          "in_paise": {
+            "title": "In Paise",
+            "type": "integer"
+          },
+          "kept_paise": {
+            "title": "Kept Paise",
+            "type": "integer"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "out_paise": {
+            "title": "Out Paise",
+            "type": "integer"
+          },
+          "quiet_days": {
+            "title": "Quiet Days",
+            "type": "integer"
+          },
+          "salary_day_of_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Salary Day Of Month"
+          },
+          "sealed_days": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Sealed Days",
+            "type": "array"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "total_days": {
+            "title": "Total Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "start",
+          "end",
+          "in_paise",
+          "out_paise",
+          "kept_paise",
+          "entry_count",
+          "elapsed_days",
+          "total_days",
+          "quiet_days",
+          "heaviest_day",
+          "heaviest_day_paise",
+          "day_totals",
+          "categories",
+          "biggest_expense",
+          "biggest_expense_share",
+          "sealed_days",
+          "salary_day_of_month"
+        ],
+        "title": "MonthSummary",
+        "type": "object"
+      },
+      "MoodMoneyOut": {
+        "additionalProperties": false,
+        "description": "Whether rough days or bright ones cost more. Null on the month view when\nthere isn't enough to say \u2014 the book would rather stay quiet than guess.",
+        "properties": {
+          "bright_avg_paise": {
+            "title": "Bright Avg Paise",
+            "type": "integer"
+          },
+          "bright_days": {
+            "title": "Bright Days",
+            "type": "integer"
+          },
+          "rough_avg_paise": {
+            "title": "Rough Avg Paise",
+            "type": "integer"
+          },
+          "rough_days": {
+            "title": "Rough Days",
+            "type": "integer"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rough_days",
+          "bright_days",
+          "rough_avg_paise",
+          "bright_avg_paise",
+          "verdict"
+        ],
+        "title": "MoodMoneyOut",
         "type": "object"
       },
       "NamedAmount": {
@@ -1775,6 +2629,31 @@
         "title": "PaceOut",
         "type": "object"
       },
+      "PinnedBoard": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PinnedUse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/PinnedSuggestion"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "suggestions"
+        ],
+        "title": "PinnedBoard",
+        "type": "object"
+      },
       "PinnedIn": {
         "additionalProperties": false,
         "properties": {
@@ -1862,6 +2741,144 @@
           "updated_at"
         ],
         "title": "PinnedOut",
+        "type": "object"
+      },
+      "PinnedSuggestion": {
+        "additionalProperties": false,
+        "description": "A repeat that has earned a pin and doesn't have one yet.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "category_id": {
+            "title": "Category Id",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "amount_paise",
+          "category_id",
+          "account_id",
+          "count"
+        ],
+        "title": "PinnedSuggestion",
+        "type": "object"
+      },
+      "PinnedUse": {
+        "additionalProperties": false,
+        "description": "A pin and how often it has actually been stamped \u2014 'stamped 14 times'.\nMatched on title + amount, so a hand-typed repeat counts as the same stroke.",
+        "properties": {
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "pinned": {
+            "$ref": "#/components/schemas/PinnedOut"
+          },
+          "use_count": {
+            "title": "Use Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pinned",
+          "use_count",
+          "last_used_at"
+        ],
+        "title": "PinnedUse",
+        "type": "object"
+      },
+      "QuietWeekOut": {
+        "additionalProperties": false,
+        "description": "Only present when the month had a quiet week worth pointing at.",
+        "properties": {
+          "end_day": {
+            "title": "End Day",
+            "type": "integer"
+          },
+          "projected_paise": {
+            "title": "Projected Paise",
+            "type": "integer"
+          },
+          "spent_paise": {
+            "title": "Spent Paise",
+            "type": "integer"
+          },
+          "start_day": {
+            "title": "Start Day",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_day",
+          "end_day",
+          "spent_paise",
+          "projected_paise"
+        ],
+        "title": "QuietWeekOut",
+        "type": "object"
+      },
+      "RebalanceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "budget_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 2,
+            "title": "Budget Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "budget_ids"
+        ],
+        "title": "RebalanceIn",
+        "type": "object"
+      },
+      "RecentAmount": {
+        "additionalProperties": false,
+        "description": "'usually \u20b940' \u2014 a figure this category keeps being written for.",
+        "properties": {
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "count"
+        ],
+        "title": "RecentAmount",
         "type": "object"
       },
       "RecurringIn": {
@@ -2140,6 +3157,48 @@
         "title": "RecurringPatch",
         "type": "object"
       },
+      "RecurringPaymentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Paise"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "RecurringPaymentIn",
+        "type": "object"
+      },
       "SealOut": {
         "additionalProperties": false,
         "properties": {
@@ -2164,6 +3223,78 @@
       "SeriesOut": {
         "additionalProperties": false,
         "properties": {
+          "all_time_peak_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Time Peak Date"
+          },
+          "all_time_peak_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Time Peak Paise"
+          },
+          "delta_paise": {
+            "title": "Delta Paise",
+            "type": "integer"
+          },
+          "first_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Paise"
+          },
+          "last_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Paise"
+          },
+          "peak_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Date"
+          },
+          "peak_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Paise"
+          },
           "points": {
             "items": {
               "$ref": "#/components/schemas/SeriesPoint"
@@ -2178,7 +3309,14 @@
         },
         "required": [
           "range",
-          "points"
+          "points",
+          "first_paise",
+          "last_paise",
+          "delta_paise",
+          "peak_paise",
+          "peak_date",
+          "all_time_peak_paise",
+          "all_time_peak_date"
         ],
         "title": "SeriesOut",
         "type": "object"
@@ -2256,20 +3394,45 @@
             "title": "Best Day Minutes",
             "type": "integer"
           },
+          "day_minutes": {
+            "items": {
+              "$ref": "#/components/schemas/DayMinutes"
+            },
+            "title": "Day Minutes",
+            "type": "array"
+          },
+          "record": {
+            "$ref": "#/components/schemas/FocusRecord"
+          },
           "sessions": {
             "title": "Sessions",
+            "type": "integer"
+          },
+          "today_work_minutes": {
+            "title": "Today Work Minutes",
             "type": "integer"
           },
           "total_minutes": {
             "title": "Total Minutes",
             "type": "integer"
+          },
+          "week_minutes": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Week Minutes",
+            "type": "array"
           }
         },
         "required": [
           "total_minutes",
           "sessions",
           "best_day",
-          "best_day_minutes"
+          "best_day_minutes",
+          "day_minutes",
+          "week_minutes",
+          "today_work_minutes",
+          "record"
         ],
         "title": "StatsOut",
         "type": "object"
@@ -2316,6 +3479,10 @@
       "TodaySummary": {
         "additionalProperties": false,
         "properties": {
+          "committed_paise": {
+            "title": "Committed Paise",
+            "type": "integer"
+          },
           "day": {
             "format": "date",
             "title": "Day",
@@ -2328,12 +3495,28 @@
             "title": "Pinned",
             "type": "array"
           },
+          "quiet_days": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Quiet Days",
+            "type": "array"
+          },
+          "seal_streak_days": {
+            "title": "Seal Streak Days",
+            "type": "integer"
+          },
           "sealed": {
             "title": "Sealed",
             "type": "boolean"
           },
           "spent_today_paise": {
             "title": "Spent Today Paise",
+            "type": "integer"
+          },
+          "spent_yesterday_paise": {
+            "title": "Spent Yesterday Paise",
             "type": "integer"
           },
           "today_txns": {
@@ -2376,12 +3559,16 @@
         "required": [
           "day",
           "sealed",
+          "seal_streak_days",
           "spent_today_paise",
+          "spent_yesterday_paise",
           "window_start",
           "window_end",
           "window_spent_paise",
           "window_elapsed_days",
           "window_total_days",
+          "committed_paise",
+          "quiet_days",
           "pinned",
           "today_txns",
           "upcoming"
@@ -2760,17 +3947,37 @@
             "title": "Committed Monthly Paise",
             "type": "integer"
           },
+          "committed_unpaid_paise": {
+            "title": "Committed Unpaid Paise",
+            "type": "integer"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/DueItem"
             },
             "title": "Items",
             "type": "array"
+          },
+          "yearly_bill_paise": {
+            "title": "Yearly Bill Paise",
+            "type": "integer"
+          },
+          "yearly_paise": {
+            "title": "Yearly Paise",
+            "type": "integer"
+          },
+          "yearly_subscription_paise": {
+            "title": "Yearly Subscription Paise",
+            "type": "integer"
           }
         },
         "required": [
           "items",
-          "committed_monthly_paise"
+          "committed_monthly_paise",
+          "committed_unpaid_paise",
+          "yearly_paise",
+          "yearly_bill_paise",
+          "yearly_subscription_paise"
         ],
         "title": "UpcomingOut",
         "type": "object"
@@ -3187,6 +4394,7 @@
     },
     "/v1/activities": {
       "get": {
+        "description": "The audit trail, newest first. `txn_id` narrows it to one entry's rewrites \u2014\nwhat the editor's 'rewritten twice \u00b7 last on 12 Jul' whisper reads.",
         "operationId": "recent_activities_v1_activities_get",
         "parameters": [
           {
@@ -3195,10 +4403,26 @@
             "required": false,
             "schema": {
               "default": 20,
-              "maximum": 100,
+              "maximum": 500,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "txn_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Txn Id"
             }
           }
         ],
@@ -3396,6 +4620,128 @@
         ]
       }
     },
+    "/v1/budgets/rebalance": {
+      "post": {
+        "operationId": "rebalance_v1_budgets_rebalance_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebalanceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BudgetOut"
+                  },
+                  "title": "Response Rebalance V1 Budgets Rebalance Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rebalance",
+        "tags": [
+          "budgets"
+        ]
+      }
+    },
+    "/v1/budgets/suggestions": {
+      "get": {
+        "operationId": "suggestions_v1_budgets_suggestions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "months",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "maximum": 24,
+              "minimum": 1,
+              "title": "Months",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BudgetSuggestion"
+                  },
+                  "title": "Response Suggestions V1 Budgets Suggestions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Suggestions",
+        "tags": [
+          "budgets"
+        ]
+      }
+    },
     "/v1/budgets/{budget_id}": {
       "patch": {
         "operationId": "patch_budget_v1_budgets__budget_id__patch",
@@ -3503,6 +4849,82 @@
           }
         ],
         "summary": "Upsert Budget",
+        "tags": [
+          "budgets"
+        ]
+      }
+    },
+    "/v1/budgets/{budget_id}/trail": {
+      "get": {
+        "description": "The sparkline, the 'held its line N months running' streak, and this\nperiod's daily climb against an even pace \u2014 the budget row's whole case.",
+        "operationId": "trail_v1_budgets__budget_id__trail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "budget_id",
+            "required": true,
+            "schema": {
+              "title": "Budget Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "in": "query",
+            "name": "months",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 24,
+              "minimum": 1,
+              "title": "Months",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetTrail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Trail",
         "tags": [
           "budgets"
         ]
@@ -3651,6 +5073,73 @@
           }
         ],
         "summary": "List Categories",
+        "tags": [
+          "categories"
+        ]
+      }
+    },
+    "/v1/categories/top": {
+      "get": {
+        "description": "Most-written expense categories over the trailing window \u2014 the add sheet's\nchip order, so the five-second entry starts on the right chip.",
+        "operationId": "top_categories_v1_categories_top_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 90,
+              "maximum": 730,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryUse"
+                  },
+                  "title": "Response Top Categories V1 Categories Top Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Top Categories",
         "tags": [
           "categories"
         ]
@@ -4050,11 +5539,13 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "The full txn ledger as CSV."
           }
         },
         "security": [
@@ -4674,6 +6165,61 @@
         ]
       }
     },
+    "/v1/journal/month": {
+      "get": {
+        "description": "The month's pages, mood grid, streak, and the mood-against-money whisper.",
+        "operationId": "month_view_v1_journal_month_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalMonth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Month View",
+        "tags": [
+          "journal"
+        ]
+      }
+    },
     "/v1/journal/{day}": {
       "delete": {
         "operationId": "delete_entry_v1_journal__day__delete",
@@ -4814,6 +6360,110 @@
         "summary": "Upsert Entry",
         "tags": [
           "journal"
+        ]
+      }
+    },
+    "/v1/journal/{day}/facts": {
+      "get": {
+        "description": "What the rest of the box knows about the day \u2014 money out, focus sat, notes\nwritten. Answers even for a blank page, which is the point.",
+        "operationId": "day_facts_v1_journal__day__facts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayFacts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Day Facts",
+        "tags": [
+          "journal"
+        ]
+      }
+    },
+    "/v1/networth/accounts": {
+      "get": {
+        "description": "Every Worth row in one call: balance, as-of cue, and its recent readings.",
+        "operationId": "account_sparks_v1_networth_accounts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "points",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 2,
+              "title": "Points",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountSpark"
+                  },
+                  "title": "Response Account Sparks V1 Networth Accounts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Account Sparks",
+        "tags": [
+          "networth"
         ]
       }
     },
@@ -5131,6 +6781,33 @@
           }
         ],
         "summary": "List Pinned",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
+    "/v1/pinned/board": {
+      "get": {
+        "description": "The pinned manager in one call: pins with their stamp counts, plus repeats\nworth pinning that aren't pinned yet.",
+        "operationId": "pinned_board_v1_pinned_board_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedBoard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pinned Board",
         "tags": [
           "ledger"
         ]
@@ -5560,6 +7237,72 @@
         ]
       }
     },
+    "/v1/recurring/{recurring_id}/payments/{txn_id}": {
+      "put": {
+        "operationId": "pay_recurring_v1_recurring__recurring_id__payments__txn_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recurring_id",
+            "required": true,
+            "schema": {
+              "title": "Recurring Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "txn_id",
+            "required": true,
+            "schema": {
+              "title": "Txn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecurringPaymentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TxnOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Pay Recurring",
+        "tags": [
+          "recurring"
+        ]
+      }
+    },
     "/v1/seals": {
       "get": {
         "operationId": "seals_between_v1_seals_get",
@@ -5623,6 +7366,46 @@
       }
     },
     "/v1/seals/{day}": {
+      "delete": {
+        "description": "Reopen a closed page. Idempotent \u2014 an unsealed day unseals fine.",
+        "operationId": "unseal_day_v1_seals__day__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Unseal Day",
+        "tags": [
+          "ledger"
+        ]
+      },
       "put": {
         "operationId": "seal_day_v1_seals__day__put",
         "parameters": [
@@ -5758,6 +7541,120 @@
         "summary": "Set Setting",
         "tags": [
           "settings"
+        ]
+      }
+    },
+    "/v1/summary/calendar": {
+      "get": {
+        "description": "The calendar's money layer over [from_day, to_day): per-day spend, committed\ncharges laid over the grid, and event occurrences.",
+        "operationId": "calendar_v1_summary_calendar_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from_day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "From Day",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_day",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "To Day",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarWindow"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Calendar",
+        "tags": [
+          "summary"
+        ]
+      }
+    },
+    "/v1/summary/month": {
+      "get": {
+        "description": "The Book's month: in/out/kept, the heat grid, where it went, and the entry\nthat carried the most weight.",
+        "operationId": "month_v1_summary_month_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Month",
+        "tags": [
+          "summary"
         ]
       }
     },
@@ -5946,6 +7843,70 @@
           }
         ],
         "summary": "List Txns",
+        "tags": [
+          "ledger"
+        ]
+      }
+    },
+    "/v1/txns/recent-amounts": {
+      "get": {
+        "description": "The amounts this category is usually written for \u2014 the add sheet's whisper.",
+        "operationId": "recent_amounts_v1_txns_recent_amounts_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "title": "Category Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecentAmount"
+                  },
+                  "title": "Response Recent Amounts V1 Txns Recent Amounts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recent Amounts",
         "tags": [
           "ledger"
         ]

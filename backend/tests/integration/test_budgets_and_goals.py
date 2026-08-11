@@ -21,6 +21,16 @@ def make_budget(client: TestClient, **overrides: object) -> str:
     return budget_id
 
 
+def make_expense_category(client: TestClient, name: str) -> str:
+    category_id = new_id()
+    resp = client.put(
+        f"/v1/categories/{category_id}",
+        json={"name": name, "icon": "circle", "kind": "expense"},
+    )
+    assert resp.status_code == 200, resp.text
+    return category_id
+
+
 def the_view(client: TestClient, budget_id: str, month: str | None = None) -> dict:
     params = {"month": month} if month else {}
     views = client.get("/v1/budgets/pace", params=params).json()
@@ -130,6 +140,63 @@ def test_added_links_only_for_added_budgets(client: TestClient) -> None:
     txn_id = make_txn(client, account_id)
     resp = client.put(f"/v1/budgets/{budget_id}/txns/{txn_id}")
     assert resp.status_code == 422
+
+
+@time_machine.travel("2026-07-20T10:00:00+05:30")
+def test_rebalance_is_atomic_and_preserves_total(client: TestClient) -> None:
+    account_id = make_account(client)
+    food = expense_category(client)
+    travel = make_expense_category(client, "Travel")
+    food_budget = make_budget(client, category_id=food, limit_paise=10_000_00)
+    travel_budget = make_budget(client, name="Travel", category_id=travel, limit_paise=10_000_00)
+    make_txn(client, account_id, amount=3_000_00, category_id=food)
+    make_txn(client, account_id, amount=1_000_00, category_id=travel)
+
+    resp = client.post(
+        "/v1/budgets/rebalance",
+        json={"budget_ids": [food_budget, travel_budget]},
+    )
+    assert resp.status_code == 200, resp.text
+    limits = {row["id"]: row["limit_paise"] for row in resp.json()}
+    assert limits == {food_budget: 15_000_00, travel_budget: 5_000_00}
+    assert sum(limits.values()) == 20_000_00
+
+
+def test_rebalance_rejects_duplicate_ids_without_writes(client: TestClient) -> None:
+    budget_id = make_budget(client)
+    before = client.get("/v1/budgets").json()
+    resp = client.post("/v1/budgets/rebalance", json={"budget_ids": [budget_id, budget_id]})
+    assert resp.status_code == 422
+    assert client.get("/v1/budgets").json() == before
+
+
+@time_machine.travel("2026-08-15T10:00:00+05:30")
+def test_budget_suggestions_average_complete_months(client: TestClient) -> None:
+    account_id = make_account(client)
+    food = expense_category(client)
+    travel = make_expense_category(client, "Travel")
+    make_txn(client, account_id, amount=1_000_00, at="2026-05-10T10:00:00+05:30", category_id=food)
+    make_txn(client, account_id, amount=2_000_00, at="2026-06-10T10:00:00+05:30", category_id=food)
+    make_txn(
+        client,
+        account_id,
+        amount=1_550_00,
+        at="2026-07-10T10:00:00+05:30",
+        category_id=travel,
+    )
+    # Current, incomplete August must not influence the proposal.
+    make_txn(client, account_id, amount=99_999_00, at="2026-08-02T10:00:00+05:30", category_id=food)
+
+    got = client.get("/v1/budgets/suggestions", params={"months": 3}).json()
+    by_category = {row["category_id"]: row for row in got}
+    assert by_category[food] == {
+        "category_id": food,
+        "suggested_limit_paise": 1_000_00,
+        "average_spent_paise": 1_000_00,
+        "months": 3,
+    }
+    assert by_category[travel]["average_spent_paise"] == 516_67
+    assert by_category[travel]["suggested_limit_paise"] == 500_00
 
 
 @time_machine.travel("2026-07-10T10:00:00+05:30")
