@@ -171,8 +171,11 @@ void main() {
       // No PIN yet, so the face is honest about waiting for one.
       expect(find.text('waits on a PIN — set one and the face takes over'),
           findsOneWidget);
-      // The footer sits below the fold — scroll the box to its last line.
-      await tester.drag(find.byType(ListView), const Offset(0, -600));
+      // The footer sits below the fold — scroll until its last line shows,
+      // however many rows the box grows.
+      await tester.scrollUntilVisible(
+          find.text('home-cooked, for one · '), 200,
+          scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       expect(find.text('home-cooked, for one · '), findsOneWidget);
       expect(find.text(' entry · '), findsOneWidget);

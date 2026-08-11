@@ -47,7 +47,9 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
   final _income = TextEditingController(text: '92000');
   bool _editingIncome = false;
 
-  final List<_Acct> _accounts = [(id: 0, name: 'HDFC salary', kind: 'bank')];
+  // One neutral pocket so the first entry has somewhere to land — never a
+  // fictional bank. Real accounts are his to add, here or in Settings.
+  final List<_Acct> _accounts = [(id: 0, name: 'Cash', kind: 'cash')];
   int _nextAcct = 1;
   String? _pendingKind;
   final _acctName = TextEditingController();
@@ -62,6 +64,12 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
   final _limit = TextEditingController();
 
   bool _wantGoal = true;
+
+  // Consent, page by page. A CTA pressed means "write this down"; a skip
+  // means the book stays silent about it. Skipping everything must leave a
+  // book with nothing invented in it — that lesson cost a real install.
+  bool _budgetsOk = false;
+  bool _goalOk = false;
   final _goalName = TextEditingController(text: 'Ladakh');
   final _goalTarget = TextEditingController(text: '60000');
 
@@ -648,7 +656,10 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
   Widget _proposedBook(LedgerColors c) {
     final rows = _proposal;
     final kept = _keptPaise;
-    return _frame(c, cta: 'Looks about right', children: [
+    return _frame(c, cta: 'Looks about right', onCta: () {
+      _budgetsOk = true;
+      _next();
+    }, children: [
       _q(c, "Here's a starting budget, ${_name.trim().isEmpty ? 'then' : _name.trim()}."),
       _hint(
           c,
@@ -761,6 +772,10 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                     'That puts $_goalTitle in ${_monthYear(landing)}.';
     return _frame(c,
         cta: _wantGoal ? 'Keep this goal' : 'Move on',
+        onCta: () {
+          if (_wantGoal) _goalOk = true;
+          _next();
+        },
         children: [
           _q(c, 'Saving for something?'),
           _hint(c, 'One is plenty. Skippable — goals can wait.'),
@@ -848,7 +863,12 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
     final rows = _proposal;
     final kept = _keptPaise;
     final landing = _goalLanding;
-    final closing = _wantGoal
+    final goalOnReceipt = _goalOk && _wantGoal;
+    final closing = !_budgetsOk
+        ? 'A blank book, one pocket, your name on the cover. Everything else '
+            'can be added when it earns its place — Settings and Plans are '
+            'always open.'
+        : goalOnReceipt
         ? landing == null
             ? '$_goalTitle has no date on it yet — feed it when a month runs light.'
             : 'Hold this shape and $_goalTitle lands in ${_monthYear(landing)}.'
@@ -871,6 +891,13 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
           Column(
             children: [
               const RuleHeader('what you built'),
+              if (!_budgetsOk)
+                LedgerLine(
+                  title: 'One account',
+                  detail: _accounts.map((a) => a.name).join(' · '),
+                  last: true,
+                ),
+              if (_budgetsOk)
               LedgerLine(
                 title: 'Money in',
                 detail:
@@ -882,6 +909,7 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                   style: LedgerType.amount.copyWith(color: c.ink),
                 ),
               ),
+              if (_budgetsOk)
               LedgerLine(
                 title: 'Spoken for',
                 detail: '${rows.length} budgets',
@@ -892,6 +920,7 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                   style: LedgerType.amount.copyWith(color: c.ink),
                 ),
               ),
+              if (_budgetsOk)
               LedgerLine(
                 title: 'Kept aside',
                 detail: 'every month',
@@ -902,9 +931,9 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                   style: LedgerType.amountTotal
                       .copyWith(color: kept < 0 ? c.seal : c.jama),
                 ),
-                last: !_wantGoal,
+                last: !(_goalOk && _wantGoal),
               ),
-              if (_wantGoal)
+              if (_goalOk && _wantGoal)
                 LedgerLine(
                   title: _goalTitle,
                   detail:
@@ -965,17 +994,21 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
       );
     }
 
-    final cats = await db.select(db.categories).get();
-    for (final (name, _, limit) in _proposal) {
-      final cat = cats.where((x) => x.name == name).firstOrNull;
-      await budgetRepo.create(
-        name: name,
-        limitPaise: limit,
-        categoryId: cat?.id,
-      );
+    // Only what was consented to gets written. A skipped page is a page
+    // the book never saw — no invented budgets, no fictional goal.
+    if (_budgetsOk) {
+      final cats = await db.select(db.categories).get();
+      for (final (name, _, limit) in _proposal) {
+        final cat = cats.where((x) => x.name == name).firstOrNull;
+        await budgetRepo.create(
+          name: name,
+          limitPaise: limit,
+          categoryId: cat?.id,
+        );
+      }
     }
 
-    if (_wantGoal && _goalTargetPaise > 0) {
+    if (_goalOk && _wantGoal && _goalTargetPaise > 0) {
       final monthly = _goalMonthlyPaise;
       await goalRepo.create(
         name: _goalTitle,

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../tokens.dart';
 import '../typography.dart';
+import 'cat_mark.dart';
 import 'motion.dart';
 import 'pen_marks.dart';
 
@@ -431,5 +432,79 @@ class LedgerChip extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// One category's weight in the month: a name, a mono amount, and behind
+/// them a wash of the lightning drawn to the category's share of the
+/// heaviest line. Shared by Book's heat view, Today's compact door, and
+/// the Insights page.
+class WhereRow extends StatelessWidget {
+  const WhereRow({
+    super.key,
+    required this.label,
+    required this.iconKey,
+    required this.amount,
+    required this.frac,
+    required this.stagger,
+    required this.last,
+    this.onTap,
+  });
+
+  final String label;
+  final String? iconKey;
+  final String amount;
+
+  /// Bar length as a fraction of the heaviest category's.
+  final double frac;
+  final int stagger;
+  final bool last;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final total = 450 + 60 * stagger;
+    final row = Container(
+      decoration: last
+          ? null
+          : BoxDecoration(border: Border(bottom: BorderSide(color: c.rule))),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DrawIn(
+              duration: Duration(milliseconds: total),
+              builder: (context, t) {
+                final p = ((t * total - 60 * stagger) / 450).clamp(0.0, 1.0);
+                return FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: (frac.clamp(0.0, 1.0)) * p,
+                  child: ColoredBox(color: c.quill.withValues(alpha: 0.10)),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            child: Row(
+              children: [
+                CatMark(iconKey, size: 14),
+                const SizedBox(width: Gap.x2),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: LedgerType.bodyText.copyWith(color: c.ink),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(amount, style: LedgerType.amount.copyWith(color: c.ink)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return onTap == null ? row : Pressable(onTap: onTap, child: row);
   }
 }

@@ -63,8 +63,7 @@ void main() {
     await drain(tester);
   });
 
-  testWidgets('skipping everything still writes a usable book',
-      (tester) async {
+  testWidgets('skipping everything writes NOTHING invented', (tester) async {
     final db = await openRitual(tester);
 
     await tester.tap(find.text('skip all'));
@@ -72,14 +71,43 @@ void main() {
     await tester.tap(find.text('Open the book'));
     await tester.pumpAndSettle();
 
-    // The defaults are real: an account to write against, budgets to spend
-    // from, and a book that knows its ritual is done.
-    expect(await db.select(db.accounts).get(), isNotEmpty);
-    expect(await db.select(db.budgets).get(), isNotEmpty);
+    // One neutral pocket so the first entry has somewhere to land — and not
+    // one invented rupee beyond it. The fabricated HDFC-salary book on a
+    // real phone is the bug this test keeps dead.
+    final accounts = await db.select(db.accounts).get();
+    expect(accounts.map((a) => a.name), ['Cash']);
+    expect(await db.select(db.budgets).get(), isEmpty);
+    expect(await db.select(db.goals).get(), isEmpty);
     expect(await SettingsRepo(db).setupDone(), isTrue);
 
     // Skipped the lock, so the cover opens on a tap rather than a PIN.
     expect(await SettingsRepo(db).hasPin(), isFalse);
+    await drain(tester);
+  });
+
+  testWidgets('skipping just the goal page keeps the goal out of the book',
+      (tester) async {
+    final db = await openRitual(tester);
+
+    // Consent to everything up to the goal, then skip it.
+    for (final cta in [
+      'Write it in', 'Next', 'Next', 'Next', 'Looks about right',
+    ]) {
+      await tester.tap(find.text(cta));
+      await tester.pumpAndSettle();
+    }
+    await tester
+        .tap(find.text('skip — you can change this later in Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lock it down'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open the book'));
+    await tester.pumpAndSettle();
+
+    expect(await db.select(db.budgets).get(), isNotEmpty,
+        reason: 'budgets were consented to');
+    expect(await db.select(db.goals).get(), isEmpty,
+        reason: 'the goal was skipped');
     await drain(tester);
   });
 

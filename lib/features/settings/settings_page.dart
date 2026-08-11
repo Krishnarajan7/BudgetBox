@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' hide Column, Table;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -469,6 +470,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     MaterialPageRoute<void>(builder: (_) => const SetupFlow()),
                   ),
                 ),
+                _Row(
+                  'Erase this book',
+                  'this phone only — the server copy stays',
+                  onTap: _eraseBook,
+                  goesSomewhere: false,
+                ),
               ],
             ),
             const SizedBox(height: Gap.x8),
@@ -510,6 +517,67 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final engine = ref.read(syncEngineProvider)..reconfigure(next);
     setState(() => _server = next);
     if (next.wired) unawaited(engine.syncNow());
+  }
+
+  /// Burn it down and begin again — the reinstall, without the reinstall.
+  /// Local only: whatever the server holds is a separate decision.
+  Future<void> _eraseBook() async {
+    final sure = await showLedgerSheet<bool>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: Gap.x2),
+              Text(
+                'Erase this book?',
+                style: LedgerType.title.copyWith(fontSize: 20, color: c.ink),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Every entry, account, budget, goal, note and setting on this '
+                'phone — gone, and the setup ritual begins again. If the book '
+                'syncs to a server, that copy is untouched and can be brought '
+                'back through "I already have a book".',
+                style: LedgerType.bodyText
+                    .copyWith(fontSize: 13, color: c.inkFaint),
+              ),
+              const SizedBox(height: Gap.x4),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: c.seal),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Erase it all'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Keep the book'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (sure != true || !mounted) return;
+
+    // Stop the engine before the floor goes: nothing may sync mid-erase.
+    ref.read(syncEngineProvider).reconfigure(BbxConfig.none);
+    await ref.read(dbProvider).eraseBook();
+    if (!mounted) return;
+    HapticFeedback.heavyImpact();
+    Navigator.of(context).pushAndRemoveUntil(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, _, _) => const SetupFlow(real: true),
+        transitionsBuilder: (_, anim, _, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ),
+      (route) => false,
+    );
   }
 
   /// Set, change, or remove the four digits that close the book.

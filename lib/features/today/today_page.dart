@@ -20,6 +20,8 @@ import '../../data/repos/budget_math.dart';
 import '../../data/repos/goal_repo.dart';
 import '../../data/repos/recurring_repo.dart';
 import '../add/money_moves.dart' show quietDays, showCatchUpSheet;
+import '../book/book_page.dart' show whereItWent;
+import '../insights/insights_page.dart';
 
 /// The day's page: it greets, it counts, it knows what yesterday looked
 /// like and when salary lands, and at night it takes the stamp. The screen
@@ -177,6 +179,19 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             // month and what's about to charge, 'goal' leads with the saving,
             // 'truth' (or an unasked book) keeps the plain order.
             final monthModule = <Widget>[
+              if (monthLimit == 0)
+                LedgerCard(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                    child: Text(
+                      'No budget lines yet — the month runs unmeasured. '
+                      'Draw them in plans when you want a pace to keep.',
+                      style: LedgerType.bodyText
+                          .copyWith(fontSize: 13, color: c.inkFaint),
+                    ),
+                  ),
+                )
+              else
               LedgerCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -256,6 +271,10 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 ),
               ),
             ];
+            final whereModule = <Widget>[
+              if (expenses.isNotEmpty)
+                _WhereCard(expenses: expenses),
+            ];
             final heatModule = <Widget>[
               LedgerCard(
                 child: Column(
@@ -271,6 +290,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             final ordered = switch (_intent) {
               'leaks' => [
                   ...monthModule,
+                  ...whereModule,
                   ...upcomingModule,
                   ...goalModule,
                   ...heatModule,
@@ -278,11 +298,13 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               'goal' => [
                   ...goalModule,
                   ...monthModule,
+                  ...whereModule,
                   ...upcomingModule,
                   ...heatModule,
                 ],
               _ => [
                   ...monthModule,
+                  ...whereModule,
                   ...goalModule,
                   ...upcomingModule,
                   ...heatModule,
@@ -382,6 +404,74 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 
 /// The next two things the recurring shelf will ask for. Each line answers a
 /// tap with a small sheet that can stamp the charge as paid.
+/// The month's weight by category, in brief — and the way into the full
+/// story. Top four bars only: Today answers at a glance, Insights explains.
+class _WhereCard extends ConsumerWidget {
+  const _WhereCard({required this.expenses});
+
+  final List<Txn> expenses;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    final db = ref.watch(dbProvider);
+    return StreamBuilder<List<Category>>(
+      stream: db.select(db.categories).watch(),
+      builder: (context, snap) {
+        final cats = {
+          for (final cat in snap.data ?? const <Category>[]) cat.id: cat,
+        };
+        final slices = whereItWent(
+          [for (final t in expenses) (t.categoryId, t.amountPaise)],
+          top: 4,
+        );
+        if (slices.isEmpty) return const SizedBox.shrink();
+        return LedgerCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RuleHeader(
+                'where it went',
+                trailing: Pressable(
+                  onTap: () => Navigator.of(context).push(
+                    LedgerRoute<void>(builder: (_) => const InsightsPage()),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'the whole story',
+                        style: LedgerType.bodyStrong
+                            .copyWith(fontSize: 11, color: c.quill),
+                      ),
+                      const SizedBox(width: 3),
+                      PenArrow(size: 11, color: c.quill),
+                    ],
+                  ),
+                ),
+              ),
+              for (final (i, s) in slices.indexed)
+                WhereRow(
+                  key: ValueKey('tw-${s.isOther ? 'other' : s.categoryId}'),
+                  label: s.isOther
+                      ? 'everything else'
+                      : (cats[s.categoryId]?.name ?? 'unfiled'),
+                  iconKey: s.isOther ? null : cats[s.categoryId]?.icon,
+                  amount: Inr.format(s.paise),
+                  frac: slices.first.paise <= 0
+                      ? 0
+                      : s.paise / slices.first.paise,
+                  stagger: i,
+                  last: i == slices.length - 1,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// The month's verdict, stamped small: a hard-cornered chip in the status
 /// ink, washed faint behind. One glance, one colour, no gauge.
 class _VerdictChip extends StatelessWidget {

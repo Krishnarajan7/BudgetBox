@@ -103,6 +103,26 @@ class LedgerDb extends _$LedgerDb {
     ('up', 'Extra income'),
   ];
 
+  /// Burn the book — this device only.
+  ///
+  /// Children before parents so foreign keys never object, sync bookkeeping
+  /// included so a later re-wire starts honest (adopt, then pull — never a
+  /// queued delete-storm). Categories are re-seeded because an empty book
+  /// still needs words for money. The server copy, if one exists, is not
+  /// touched from here — by design.
+  Future<void> eraseBook() async {
+    await transaction(() async {
+      for (final table in <TableInfo<Table, Object?>>[
+        outbox, remoteIds, activities, balanceSnapshots, txns, pinneds,
+        budgets, recurrings, goals, daySeals, journalEntries, notes,
+        focusSessions, events, vaultItems, settings, categories, accounts,
+      ]) {
+        await delete(table).go();
+      }
+      await _seedCategories();
+    });
+  }
+
   Future<void> _seedCategories() async {
     await batch((b) {
       for (final (i, (icon, name)) in _expenseSeed.indexed) {

@@ -295,6 +295,24 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                       sealed: v.budget.id == sealId,
                     ),
                   ),
+                Pressable(
+                  onTap: () => _newBudget(context),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PenPlus(size: 13, color: c.quill),
+                        const SizedBox(width: Gap.x2),
+                        Text(
+                          'draw another line',
+                          style: LedgerType.bodyStrong
+                              .copyWith(fontSize: 13, color: c.quill),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 if (onNow) ...[
                   _suggestions(c, views),
                   const SizedBox(height: Gap.x4),
@@ -742,12 +760,18 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
         line: 'the monthly line, in rupees',
         cta: 'set the line',
         initial: view.pace.limitPaise ~/ 100,
+        // Zero from the retire affordance below is the signal to let go.
+        onRetire: () => Navigator.of(context).pop((0, null)),
       ),
     );
     if (result == null) return;
     final (rupees, _) = result;
     if (rupees > 0) {
       await ref.read(budgetRepoProvider).setLimit(view.budget.id, rupees * 100);
+    } else if (rupees == 0) {
+      // A line set to nothing is a line retired — the archive keeps its
+      // history without letting it govern another month.
+      await ref.read(budgetRepoProvider).archive(view.budget.id);
     }
   }
 }
@@ -1168,6 +1192,7 @@ class _GoalsTab extends ConsumerWidget {
           if (v.reached && stamped.length < 2) stamped.add(v.goal.id);
         }
 
+        final c = LedgerColors.of(context);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1181,6 +1206,24 @@ class _GoalsTab extends ConsumerWidget {
                   sealed: stamped.contains(v.goal.id),
                 ),
               ),
+            Pressable(
+              onTap: () => _newGoal(context, ref),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    PenPlus(size: 13, color: c.quill),
+                    const SizedBox(width: Gap.x2),
+                    Text(
+                      'name another thing',
+                      style: LedgerType.bodyStrong
+                          .copyWith(fontSize: 13, color: c.quill),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         );
       },
@@ -1394,11 +1437,69 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
                 icon: LedgerIcons.resolve('book'),
                 onTap: () => _entries(context),
               ),
+              const Spacer(),
+              // Letting a goal go is allowed to be easy — the archive keeps
+              // every contribution it ever took.
+              Pressable(
+                onTap: () => _letGo(context),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      vertical: Gap.x2, horizontal: Gap.x1),
+                  child: Text(
+                    'let it go',
+                    style: LedgerType.bodyText
+                        .copyWith(fontSize: 12, color: c.inkFaint),
+                  ),
+                ),
+              ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _letGo(BuildContext context) async {
+    final sure = await showLedgerSheet<bool>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: Gap.x2),
+              Text(
+                'Let ${widget.view.goal.name} go?',
+                style: LedgerType.title.copyWith(fontSize: 20, color: c.ink),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'It leaves the page, not the book — every rupee it took is '
+                'still written down.',
+                style: LedgerType.bodyText
+                    .copyWith(fontSize: 13, color: c.inkFaint),
+              ),
+              const SizedBox(height: Gap.x4),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Let it go'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Keep it'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (sure == true) {
+      await ref.read(goalRepoProvider).archive(widget.view.goal.id);
+    }
   }
 
   Future<void> _contribute(BuildContext context) async {
@@ -1670,12 +1771,16 @@ class _AmountSheet extends StatefulWidget {
     required this.cta,
     this.initial,
     this.accounts = const [],
+    this.onRetire,
   });
 
   final String title;
   final String line;
   final String cta;
   final int? initial;
+
+  /// When given, the sheet offers to retire the line entirely.
+  final VoidCallback? onRetire;
 
   /// When given, the sheet also asks which pocket the money comes from.
   final List<Account> accounts;
@@ -1758,6 +1863,21 @@ class _AmountSheetState extends State<_AmountSheet> {
                 onStamped: () =>
                     Navigator.of(context).pop((_rupees, _account?.id)),
               ),
+              if (widget.onRetire != null)
+                Center(
+                  child: Pressable(
+                    onTap: widget.onRetire,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: Gap.x3, horizontal: Gap.x4),
+                      child: Text(
+                        'retire this line',
+                        style: LedgerType.bodyStrong
+                            .copyWith(fontSize: 12, color: c.seal),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
