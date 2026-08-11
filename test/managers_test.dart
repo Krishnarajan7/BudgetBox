@@ -90,6 +90,46 @@ void main() {
         expect(c.sortOrder, i);
       }
     });
+
+    test('pulses read this month, the last six, and the quiet lines',
+        () async {
+      final txns = TxnRepo(db);
+      final accountId =
+          await AccountRepo(db).create(name: 'Cash', kind: AccountKind.cash);
+      final food = await byName('Food & chai');
+      final now = DateTime.now();
+
+      await txns.addExpense(
+        amountPaise: 12000,
+        accountId: accountId,
+        title: 'Chai',
+        categoryId: food.id,
+        at: DateTime(now.year, now.month, 1, 9),
+      );
+      await txns.addExpense(
+        amountPaise: 8000,
+        accountId: accountId,
+        title: 'Idli',
+        categoryId: food.id,
+        at: DateTime(now.year, now.month - 2, 3, 9),
+      );
+
+      final pulses = await store.pulses(now: now);
+      final food_ = pulses[food.id]!;
+      expect(food_.monthPaise, 12000, reason: 'only this month counts');
+      expect(food_.months.length, 6);
+      expect(food_.months.last, 12000);
+      expect(food_.months[3], 8000);
+      expect(food_.hasTrend, isTrue);
+      expect(food_.quiet, isFalse);
+      expect(food_.quietLabel, isNull);
+
+      // A line nothing was ever filed under says so.
+      expect(pulses[(await byName('Getting around')).id], isNull);
+      expect(CategoryPulse.none.quiet, isTrue);
+      expect(CategoryPulse.none.quietLabel, 'unused');
+      expect(CategoryPulse.none.hasTrend, isFalse);
+    });
   });
 
   group('Accounts', () {

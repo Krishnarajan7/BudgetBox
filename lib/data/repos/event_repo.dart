@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/dates.dart';
 import '../db.dart';
 import '../providers.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 
 final eventRepoProvider =
     Provider<EventRepo>((ref) => EventRepo(ref.watch(dbProvider)));
@@ -24,20 +26,29 @@ class EventRepo {
     EventRepeat repeat = EventRepeat.none,
     String? note,
   }) {
-    return _db.into(_db.events).insert(
-          EventsCompanion.insert(
-            title: title,
-            date: LedgerDates.dayKey(date),
-            timeMinutes: Value(timeMinutes),
-            repeat: Value(repeat),
-            note: Value(note),
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.events).insert(
+            EventsCompanion.insert(
+              title: title,
+              date: LedgerDates.dayKey(date),
+              timeMinutes: Value(timeMinutes),
+              repeat: Value(repeat),
+              note: Value(note),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.event, id);
+      return id;
+    });
   }
 
   Future<void> archive(int id) {
-    return (_db.update(_db.events)..where((e) => e.id.equals(id)))
-        .write(const EventsCompanion(archived: Value(true)));
+    return _db.transaction(() async {
+      await (_db.update(_db.events)..where((e) => e.id.equals(id)))
+          .write(const EventsCompanion(archived: Value(true)));
+      // EventIn carries no `archived`; taking an event off the calendar is a
+      // PATCH upstream.
+      await bbxSync.patch(SyncKinds.event, id, {'archived': true});
+    });
   }
 
   /// Every active event, anchor-dated. Occurrence math happens in memory.

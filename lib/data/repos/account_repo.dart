@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 
 import '../../core/dates.dart';
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 import 'txn_repo.dart';
 
 class AccountRepo {
@@ -30,24 +32,37 @@ class AccountRepo {
     required AccountKind kind,
     int openingBalancePaise = 0,
   }) {
-    return _db.into(_db.accounts).insert(
-          AccountsCompanion.insert(
-            name: name,
-            kind: kind,
-            balancePaise: Value(openingBalancePaise),
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.accounts).insert(
+            AccountsCompanion.insert(
+              name: name,
+              kind: kind,
+              balancePaise: Value(openingBalancePaise),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.account, id);
+      // Upstream a balance is derived, never stored, so the opening figure
+      // travels as a confirmed reading rather than a column.
+      if (openingBalancePaise != 0) {
+        await bbxSync.anchor(id, openingBalancePaise, DateTime.now());
+      }
+      return id;
+    });
   }
 
   /// "Update balance" on Worth: records the confirmed figure and refreshes
   /// the as-of date the staleness cue reads.
   Future<void> setBalance(int accountId, int balancePaise) async {
-    await (_db.update(_db.accounts)..where((a) => a.id.equals(accountId)))
-        .write(AccountsCompanion(
-      balancePaise: Value(balancePaise),
-      asOf: Value(DateTime.now()),
-    ));
-    await TxnRepo.snapshotToday(_db, accountId);
+    final at = DateTime.now();
+    await _db.transaction(() async {
+      await (_db.update(_db.accounts)..where((a) => a.id.equals(accountId)))
+          .write(AccountsCompanion(
+        balancePaise: Value(balancePaise),
+        asOf: Value(at),
+      ));
+      await TxnRepo.snapshotToday(_db, accountId);
+      await bbxSync.anchor(accountId, balancePaise, at);
+    });
   }
 
   /// The last [points] daily readings for an account, oldest first — the

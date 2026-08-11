@@ -12,11 +12,13 @@ import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/seal.dart';
+import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/budget_math.dart';
 import '../../data/repos/goal_repo.dart';
 import '../../data/repos/recurring_repo.dart';
+import '../add/money_moves.dart' show quietDays, showCatchUpSheet;
 
 /// The day's page: it greets, it counts, it knows what yesterday looked
 /// like and when salary lands, and at night it takes the stamp. The screen
@@ -28,9 +30,20 @@ class TodayPage extends ConsumerStatefulWidget {
   ConsumerState<TodayPage> createState() => _TodayPageState();
 }
 
+/// Small counts in the book's hand: 'three', not '3'.
+String _spelled(int n) {
+  const words = [
+    'two', 'three', 'four', 'five', 'six', 'seven',
+    'eight', 'nine', 'ten', 'eleven', 'twelve',
+  ];
+  return (n >= 2 && n <= 12) ? words[n - 2] : '$n';
+}
+
 class _TodayPageState extends ConsumerState<TodayPage> {
   String _name = 'Krish';
   int _salaryDay = 1;
+  String? _intent;
+  bool _yesterdaySealed = false;
   final Set<int> _seenTxnIds = {};
   bool _firstEmission = true;
 
@@ -42,12 +55,21 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 
   Future<void> _loadFacts() async {
     final settings = ref.read(settingsRepoProvider);
+    final db = ref.read(dbProvider);
     final name = await settings.name();
     final salaryDay = await settings.salaryDay();
+    final intent = await settings.intent();
+    final now = DateTime.now();
+    final yKey = LedgerDates.dayKey(DateTime(now.year, now.month, now.day - 1));
+    final ySeal = await (db.select(db.daySeals)
+          ..where((s) => s.date.equals(yKey)))
+        .getSingleOrNull();
     if (mounted) {
       setState(() {
         _name = name;
         _salaryDay = salaryDay;
+        _intent = intent;
+        _yesterdaySealed = ySeal != null;
       });
     }
   }
@@ -58,6 +80,16 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     if (h < 12) return 'good morning';
     if (h < 17) return 'good afternoon';
     return 'good evening';
+  }
+
+  /// One line that occasionally knows things: salary landing beats the date,
+  /// a closed yesterday gets a quiet nod, and most days it's just the date.
+  String _greetingLine(DateTime now) {
+    final base = '$_greeting, $_name';
+    if (now.day == _salaryDay) return '$base — salary lands to-day';
+    if (_daysToSalary(now) == 1) return '$base — salary lands to-morrow';
+    if (_yesterdaySealed) return '$base — yesterday is sealed';
+    return '$base — ${_dateLabel(now)}';
   }
 
   static String _dateLabel(DateTime d) {
@@ -140,13 +172,58 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               totalDays: LedgerDates.daysInMonth(now),
             );
 
+            // The modules, in the order setup promised: 'leaks' watches the
+            // month and what's about to charge, 'goal' leads with the saving,
+            // 'truth' (or an unasked book) keeps the plain order.
+            final monthModule = <Widget>[
+              const RuleHeader('this month'),
+              DrawIn(
+                builder: (context, p) => PaceChart(
+                  daily: cumulative,
+                  elapsedDays: now.day,
+                  totalDays: LedgerDates.daysInMonth(now),
+                  progress: p,
+                ),
+              ),
+              _monthFooter(c, monthPaise, monthLimit, pace, now),
+            ];
+            const goalModule = <Widget>[_GoalStrip()];
+            const upcomingModule = <Widget>[
+              RuleHeader('coming up'),
+              _Upcoming(),
+            ];
+            final heatModule = <Widget>[
+              const RuleHeader('the month, day by day'),
+              _MonthHeat(expenses: expenses, monthTxns: month, now: now),
+            ];
+            final ordered = switch (_intent) {
+              'leaks' => [
+                  ...monthModule,
+                  ...upcomingModule,
+                  ...goalModule,
+                  ...heatModule,
+                ],
+              'goal' => [
+                  ...goalModule,
+                  ...monthModule,
+                  ...upcomingModule,
+                  ...heatModule,
+                ],
+              _ => [
+                  ...monthModule,
+                  ...goalModule,
+                  ...upcomingModule,
+                  ...heatModule,
+                ],
+            };
+
             return ListView(
               padding: const EdgeInsets.symmetric(horizontal: Gap.page),
               children: [
                 const LedgerAppBar(),
                 const SizedBox(height: Gap.x4),
                 Text(
-                  '$_greeting, $_name — ${_dateLabel(now)}',
+                  _greetingLine(now),
                   style: LedgerType.label.copyWith(color: c.inkFaint),
                 ),
                 const SizedBox(height: 2),
@@ -162,21 +239,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 _reactiveSubline(c, today.length, todayPaise, yesterdayPaise),
                 const SizedBox(height: Gap.x3),
                 const _PinStrip(),
-                const RuleHeader('this month'),
-                DrawIn(
-                  builder: (context, p) => PaceChart(
-                    daily: cumulative,
-                    elapsedDays: now.day,
-                    totalDays: LedgerDates.daysInMonth(now),
-                    progress: p,
-                  ),
-                ),
-                _monthFooter(c, monthPaise, monthLimit, pace, now),
-                const _GoalStrip(),
-                const RuleHeader('coming up'),
-                const _Upcoming(),
-                const RuleHeader('the last fortnight'),
-                _MiniHeat(expenses: expenses, now: now),
+                ...ordered,
                 const RuleHeader("today's page"),
                 if (today.isEmpty)
                   InkIn(
@@ -194,7 +257,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 else
                   _TodayLines(today: today, freshIds: freshIds),
                 const SizedBox(height: Gap.x4),
-                const Center(child: _CloseDay()),
+                Center(child: _CloseDay(name: _name)),
                 const SizedBox(height: Gap.x6),
               ],
             );
@@ -262,12 +325,14 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                   '${Inr.format(-pace.remainingPaise)} past the line',
                 BudgetStatus.pending => 'waiting on bills',
               },
+              // Status ink stays off the seal here — the stamp is saved for
+              // the day-close and the one-tap ritual.
               style: LedgerType.bodyStrong.copyWith(
                 fontSize: 12,
                 color: switch (pace.status) {
                   BudgetStatus.onPace => c.jama,
                   BudgetStatus.projectedOver => c.warn,
-                  BudgetStatus.over => c.seal,
+                  BudgetStatus.over => c.warn,
                   BudgetStatus.pending => c.inkFaint,
                 },
               ),
@@ -284,6 +349,101 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   }
 }
 
+/// The next two things the recurring shelf will ask for. Each line answers a
+/// tap with a small sheet that can stamp the charge as paid.
+class _Upcoming extends ConsumerWidget {
+  const _Upcoming();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    return StreamBuilder<List<DueItem>>(
+      stream: ref.watch(recurringRepoProvider).watchUpcoming(),
+      builder: (context, snapshot) {
+        final next = (snapshot.data ?? const <DueItem>[]).take(2).toList();
+        if (next.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+            child: Text(
+              'Nothing due soon.',
+              style: LedgerType.bodyText
+                  .copyWith(fontSize: 13, color: c.inkFaint),
+            ),
+          );
+        }
+        return Column(
+          children: [
+            for (final (i, d) in next.indexed)
+              LedgerLine(
+                leading: LedgerDates.ddMmm(d.due),
+                title: d.recurring.title,
+                detail: 'the usual',
+                amount: Inr.format(d.recurring.amountPaise),
+                last: i == next.length - 1,
+                onTap: () => _paySheet(context, ref, d),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _paySheet(
+      BuildContext context, WidgetRef ref, DueItem d) async {
+    final recurring = ref.read(recurringRepoProvider);
+    final paid = await showLedgerSheet<bool>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return Padding(
+          padding:
+              const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: Gap.x2),
+              Text(
+                d.recurring.title,
+                style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'lands ${LedgerDates.ddMmm(d.due)} · ${Inr.format(d.recurring.amountPaise)}',
+                style: LedgerType.bodyText
+                    .copyWith(fontSize: 13, color: c.inkFaint),
+              ),
+              const SizedBox(height: Gap.x4),
+              Pressable(
+                onTap: () => Navigator.of(context).pop(true),
+                child: AbsorbPointer(
+                  child: FilledButton(
+                    onPressed: () {},
+                    child: Text(
+                      'Paid — stamp ${Inr.format(d.recurring.amountPaise)}',
+                    ),
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Not yet'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (paid == true) {
+      HapticFeedback.lightImpact();
+      // The written line inks itself onto today's page; the upcoming row
+      // steps aside as the stream moves on.
+      await recurring.markPaid(d.recurring);
+    }
+  }
+}
+
 /// The first unfinished goal, riding along under the month.
 class _GoalStrip extends ConsumerWidget {
   const _GoalStrip();
@@ -291,7 +451,7 @@ class _GoalStrip extends ConsumerWidget {
   static String _month(DateTime d) {
     const s = ['January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'];
-    return '${s[d.month - 1]}';
+    return s[d.month - 1];
   }
 
   @override
@@ -358,71 +518,130 @@ class _GoalStrip extends ConsumerWidget {
   }
 }
 
-/// Fourteen small days, spend-tinted, quiet ones pale — the month's texture
-/// at a glance.
-class _MiniHeat extends StatelessWidget {
-  const _MiniHeat({required this.expenses, required this.now});
+/// The month so far as the shared heat grid — spend-tinted cells, quiet ones
+/// pale. Hold a day to peek at what it wrote; a gap in the week offers the
+/// catch-up sheet, gently.
+class _MonthHeat extends StatelessWidget {
+  const _MonthHeat({
+    required this.expenses,
+    required this.monthTxns,
+    required this.now,
+  });
 
   final List<Txn> expenses;
+  final List<Txn> monthTxns;
   final DateTime now;
+
+  void _peek(BuildContext context, int day) {
+    HapticFeedback.selectionClick();
+    final d = DateTime(now.year, now.month, day);
+    final lines = expenses.where((t) => t.at.day == day).toList()
+      ..sort((a, b) => a.at.compareTo(b.at));
+    final total = lines.fold(0, (s, t) => s + t.amountPaise);
+    showLedgerSheet<void>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return Padding(
+          padding:
+              const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: Gap.x2),
+              Text(
+                LedgerDates.dayLabel(d),
+                style: LedgerType.label.copyWith(color: c.inkFaint),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                Inr.format(total),
+                style: LedgerType.heroAmount
+                    .copyWith(fontSize: 28, color: c.ink),
+              ),
+              const SizedBox(height: Gap.x2),
+              if (lines.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+                  child: Text(
+                    'a quiet day — nothing written',
+                    style: LedgerType.bodyText
+                        .copyWith(fontSize: 13, color: c.inkFaint),
+                  ),
+                )
+              else
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        for (final (i, t) in lines.indexed)
+                          LedgerLine(
+                            leading:
+                                '${t.at.hour.toString().padLeft(2, '0')}:${t.at.minute.toString().padLeft(2, '0')}',
+                            title: t.title,
+                            amount: Inr.format(t.amountPaise),
+                            last: i == lines.length - 1,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    final days = <DateTime>[
-      for (var i = 13; i >= 0; i--)
-        DateTime(now.year, now.month, now.day).subtract(Duration(days: i)),
-    ];
-    final totals = <int>[
-      for (final d in days)
+    final dayTotals = <int>[
+      for (var d = 1; d <= now.day; d++)
         expenses
-            .where((t) =>
-                t.at.year == d.year &&
-                t.at.month == d.month &&
-                t.at.day == d.day)
+            .where((t) => t.at.day == d)
             .fold(0, (s, t) => s + t.amountPaise),
     ];
-    final maxPaise =
-        totals.fold(0, (a, b) => a > b ? a : b).clamp(1, 1 << 62);
-    final quiet = totals.where((t) => t == 0).length;
+    final quiet = quietDays(monthTxns, now);
 
     return Padding(
       padding: const EdgeInsets.only(top: Gap.x2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              for (final (i, t) in totals.indexed) ...[
-                Expanded(
-                  child: InkIn(
-                    delay: Duration(milliseconds: i * 20),
-                    child: Container(
-                      height: 18,
-                      decoration: BoxDecoration(
-                        color: t == 0
-                            ? c.paperRaised
-                            : Color.lerp(
-                                c.paper, c.quill, 0.12 + 0.68 * t / maxPaise),
-                        border:
-                            t == 0 ? Border.all(color: c.rule) : null,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
+          HeatGrid(
+            dayTotalsPaise: dayTotals,
+            stagger: true,
+            onDayLongPress: (day) => _peek(context, day),
+          ),
+          const SizedBox(height: Gap.x1),
+          if (quiet.isEmpty)
+            Text(
+              'no quiet days this week',
+              style: LedgerType.bodyText
+                  .copyWith(fontSize: 11, color: c.inkFaint),
+            )
+          else
+            Pressable(
+              onTap: () => showCatchUpSheet(context),
+              child: Text.rich(
+                TextSpan(
+                  text:
+                      '${_spelled(quiet.length)} quiet ${quiet.length == 1 ? 'day' : 'days'} back there — ',
+                  children: [
+                    TextSpan(
+                      text: 'catch up the quiet days?',
+                      style: LedgerType.bodyStrong
+                          .copyWith(fontSize: 11, color: c.quill),
                     ),
-                  ),
+                  ],
                 ),
-                if (i != totals.length - 1) const SizedBox(width: 4),
-              ],
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            quiet == 0
-                ? 'no quiet days in the last fortnight'
-                : '$quiet quiet ${quiet == 1 ? 'day' : 'days'} in the last fortnight',
-            style:
-                LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint),
-          ),
+                style: LedgerType.bodyText
+                    .copyWith(fontSize: 11, color: c.inkFaint),
+              ),
+            ),
         ],
       ),
     );
@@ -482,15 +701,7 @@ class _PinStrip extends ConsumerWidget {
           child: Row(
             children: [
               for (final p in items) ...[
-                Pressable(
-                  onTap: () async {
-                    HapticFeedback.lightImpact();
-                    await pins.stamp(p);
-                  },
-                  child: LedgerChip(
-                    '${p.title.split(' ').first} · ${Inr.format(p.amountPaise)}',
-                  ),
-                ),
+                _PinChip(pin: p),
                 const SizedBox(width: Gap.x2),
               ],
               Text('one tap, stamped',
@@ -504,10 +715,75 @@ class _PinStrip extends ConsumerWidget {
   }
 }
 
+/// The one-tap repeat, given its full ritual: the chip gives under the
+/// finger, a small seal lands on it with the stamp's haptic, and only then
+/// does the entry ink itself onto today's page below as the hero counts up.
+class _PinChip extends ConsumerStatefulWidget {
+  const _PinChip({required this.pin});
+
+  final Pinned pin;
+
+  @override
+  ConsumerState<_PinChip> createState() => _PinChipState();
+}
+
+class _PinChipState extends ConsumerState<_PinChip> {
+  bool _stamping = false;
+
+  void _tap() {
+    if (_stamping) return;
+    setState(() => _stamping = true);
+  }
+
+  Future<void> _landed() async {
+    // The seal has pressed down — now the entry goes into the book, so the
+    // fresh line inks in right behind the stamp.
+    await ref.read(pinnedRepoProvider).stamp(widget.pin);
+    await Future<void>.delayed(const Duration(milliseconds: 280));
+    if (mounted) setState(() => _stamping = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.pin;
+    return Pressable(
+      haptic: false, // the stamp's landing is the haptic
+      onTap: _tap,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedOpacity(
+            duration: Motion.quick,
+            opacity: _stamping ? 0.35 : 1,
+            child: LedgerChip(
+              '${p.title.split(' ').first} · ${Inr.format(p.amountPaise)}',
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: !_stamping
+                    ? const SizedBox.shrink()
+                    : Center(
+                        child: StampIn(size: 24, onStamped: _landed),
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The once-daily ritual, with its full weight: the pill gives way to the
-/// stamp before the page settles sealed.
+/// stamp before the page settles sealed. Beneath it, the book keeps quiet
+/// count of the evenings it has been closed in a row.
 class _CloseDay extends ConsumerStatefulWidget {
-  const _CloseDay();
+  const _CloseDay({required this.name});
+
+  final String name;
 
   @override
   ConsumerState<_CloseDay> createState() => _CloseDayState();
@@ -531,17 +807,45 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
         );
   }
 
+  /// Consecutive sealed days ending today (if sealed) or yesterday.
+  static int _streak(Set<String> dates, DateTime now) {
+    var day = DateTime(now.year, now.month, now.day);
+    if (!dates.contains(LedgerDates.dayKey(day))) {
+      day = DateTime(day.year, day.month, day.day - 1);
+    }
+    var n = 0;
+    while (dates.contains(LedgerDates.dayKey(day))) {
+      n++;
+      day = DateTime(day.year, day.month, day.day - 1);
+    }
+    return n;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final db = ref.watch(dbProvider);
     final key = LedgerDates.dayKey(DateTime.now());
 
-    return StreamBuilder<DaySeal?>(
-      stream: (db.select(db.daySeals)..where((s) => s.date.equals(key)))
-          .watchSingleOrNull(),
+    return StreamBuilder<List<DaySeal>>(
+      stream: db.select(db.daySeals).watch(),
       builder: (context, snapshot) {
-        final sealed = snapshot.data != null;
+        final dates = {
+          for (final s in snapshot.data ?? const <DaySeal>[]) s.date,
+        };
+        final sealed = dates.contains(key);
+        final streak = _streak(dates, DateTime.now());
+        final whisper = streak >= 2
+            ? Padding(
+                padding: const EdgeInsets.only(top: Gap.x2),
+                child: Text(
+                  '${_spelled(streak)} evenings in a row',
+                  style: LedgerType.bodyText
+                      .copyWith(fontSize: 11, color: c.inkFaint),
+                ),
+              )
+            : null;
+
         if (sealed || _stamping) {
           return Column(
             children: [
@@ -562,35 +866,41 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
               InkIn(
                 delay: const Duration(milliseconds: 300),
                 child: Text(
-                  'day closed · good night, Krish',
+                  'day closed · good night, ${widget.name}',
                   style: LedgerType.bodyText
                       .copyWith(fontSize: 12, color: c.inkFaint),
                 ),
               ),
+              ?whisper,
             ],
           );
         }
-        return Pressable(
-          onTap: _close,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: Gap.x4, vertical: Gap.x2),
-            decoration: BoxDecoration(
-              border: Border.all(color: c.rule, width: 1),
-              borderRadius: BorderRadius.circular(Corner.chip),
+        return Column(
+          children: [
+            Pressable(
+              onTap: _close,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: Gap.x4, vertical: Gap.x2),
+                decoration: BoxDecoration(
+                  border: Border.all(color: c.rule, width: 1),
+                  borderRadius: BorderRadius.circular(Corner.chip),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_box_outline_blank,
+                        size: 14, color: c.inkFaint),
+                    const SizedBox(width: Gap.x2),
+                    Text('close the day',
+                        style: LedgerType.bodyStrong
+                            .copyWith(fontSize: 13, color: c.inkFaint)),
+                  ],
+                ),
+              ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.check_box_outline_blank,
-                    size: 14, color: c.inkFaint),
-                const SizedBox(width: Gap.x2),
-                Text('close the day',
-                    style: LedgerType.bodyStrong
-                        .copyWith(fontSize: 13, color: c.inkFaint)),
-              ],
-            ),
-          ),
+            ?whisper,
+          ],
         );
       },
     );

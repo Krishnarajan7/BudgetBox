@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 
 import '../../core/dates.dart';
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 import 'budget_math.dart';
 
 /// A budget joined to what actually happened against it this period.
@@ -41,26 +43,37 @@ class BudgetRepo {
     BudgetKind kind = BudgetKind.all,
     bool rollover = false,
   }) {
-    return _db.into(_db.budgets).insert(
-          BudgetsCompanion.insert(
-            name: name,
-            limitPaise: limitPaise,
-            period: period,
-            kind: kind,
-            categoryId: Value(categoryId),
-            rollover: Value(rollover),
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.budgets).insert(
+            BudgetsCompanion.insert(
+              name: name,
+              limitPaise: limitPaise,
+              period: period,
+              kind: kind,
+              categoryId: Value(categoryId),
+              rollover: Value(rollover),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.budget, id);
+      return id;
+    });
   }
 
   Future<void> setLimit(int budgetId, int limitPaise) {
-    return (_db.update(_db.budgets)..where((b) => b.id.equals(budgetId)))
-        .write(BudgetsCompanion(limitPaise: Value(limitPaise)));
+    return _db.transaction(() async {
+      await (_db.update(_db.budgets)..where((b) => b.id.equals(budgetId)))
+          .write(BudgetsCompanion(limitPaise: Value(limitPaise)));
+      await bbxSync.upsert(SyncKinds.budget, budgetId);
+    });
   }
 
   Future<void> archive(int budgetId) {
-    return (_db.update(_db.budgets)..where((b) => b.id.equals(budgetId)))
-        .write(const BudgetsCompanion(archived: Value(true)));
+    return _db.transaction(() async {
+      await (_db.update(_db.budgets)..where((b) => b.id.equals(budgetId)))
+          .write(const BudgetsCompanion(archived: Value(true)));
+      // BudgetIn has no `archived`; retiring a budget is a PATCH upstream.
+      await bbxSync.patch(SyncKinds.budget, budgetId, {'archived': true});
+    });
   }
 
   /// Budgets with this period's real spend and forecast folded in, heaviest
@@ -129,7 +142,7 @@ class BudgetRepo {
     final spent = views.fold(0, (s, v) => s + v.pace.spentPaise);
     if (spent <= 0 || total <= 0) return;
 
-    await _db.batch((b) {
+    await _db.transaction(() async {
       var assigned = 0;
       for (final (i, v) in views.indexed) {
         // Round to whole rupees, and give the last row the remainder so the
@@ -138,11 +151,10 @@ class BudgetRepo {
             ? total - assigned
             : ((total * v.pace.spentPaise / spent) / 100).round() * 100;
         assigned += share;
-        b.update(
-          _db.budgets,
-          BudgetsCompanion(limitPaise: Value(share)),
-          where: (t) => t.id.equals(v.budget.id),
-        );
+        await (_db.update(_db.budgets)
+              ..where((t) => t.id.equals(v.budget.id)))
+            .write(BudgetsCompanion(limitPaise: Value(share)));
+        await bbxSync.upsert(SyncKinds.budget, v.budget.id);
       }
     });
   }

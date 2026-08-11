@@ -215,3 +215,55 @@ class BalanceSnapshots extends Table {
   @override
   Set<Column> get primaryKey => {accountId, date};
 }
+
+// ————— the wire —————
+//
+// The phone keeps its own row numbers because every screen is built on them.
+// The server speaks uuid7. These two tables are the whole bridge: one maps
+// the ids in both directions, the other is the queue of writes still owed to
+// the server. Nothing above the repos knows either exists.
+
+/// What a queued write asks the server to do.
+enum OutboxOp { put, patch, delete }
+
+/// Which local table a synced row belongs to — 'txn', 'account', 'note'…
+/// A plain string so a new module needs no schema change here.
+class RemoteIds extends Table {
+  TextColumn get kind => text()();
+
+  /// The autoincrement id the UI knows this row by.
+  IntColumn get localId => integer()();
+
+  /// The server's uuid7. Minted on the phone when the row is first queued,
+  /// so a write can be retried blindly and stay idempotent.
+  TextColumn get remoteId => text()();
+
+  /// The server's `updated_at` as of the last successful sync — what a pull
+  /// compares against to know whether the phone's copy is stale.
+  DateTimeColumn get syncedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {kind, localId};
+}
+
+/// Writes owed to the server, oldest first. A row lives here until the
+/// server has acknowledged it, so a day spent on the Konkan railway with no
+/// signal costs nothing.
+class Outbox extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get kind => text()();
+  IntColumn get localId => integer()();
+
+  /// The uuid7 this write targets — the idempotency key.
+  TextColumn get remoteId => text()();
+  IntColumn get op => intEnum<OutboxOp>()();
+
+  /// The request body as JSON. Null for a delete.
+  TextColumn get payload => text().nullable()();
+  DateTimeColumn get queuedAt => dateTime().withDefault(currentDateAndTime)();
+
+  /// Attempts so far, and why the last one failed — the sync page's evidence
+  /// when something is stuck, rather than a silent retry loop.
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+  TextColumn get lastError => text().nullable()();
+}

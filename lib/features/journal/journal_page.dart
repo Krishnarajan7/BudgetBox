@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,7 +12,9 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
+import '../../core/widgets/motion.dart';
 import '../../data/db.dart';
+import '../../data/providers.dart';
 import '../../data/repos/journal_repo.dart';
 
 const _weekdays = [
@@ -55,8 +59,124 @@ const _moodIcons = [
   Icons.sentiment_very_satisfied_outlined,
 ];
 
+// ————— pure arithmetic (testable, no widgets) —————
+
+/// The blank page's wry questions; one per day, by day-of-month.
+const _journalPrompts = [
+  'What did to-day cost you, besides money?',
+  'Who did you talk to?',
+  'What would you skip next time?',
+  'What kept its promise to-day?',
+  'Where did the afternoon actually go?',
+  'What did you put off, and how does it sit?',
+  'What was worth what it cost?',
+  'What will you want to remember about to-day?',
+];
+
+/// Deterministic: the same day of the month always asks the same question.
+String journalPromptFor(int dayOfMonth) =>
+    _journalPrompts[(dayOfMonth - 1) % _journalPrompts.length];
+
+/// Consecutive written days counting back from today — or from yesterday, so
+/// a page not yet written to-night doesn't snap the run at breakfast. A gap
+/// ends it.
+int journalStreakDays(Iterable<String> writtenDates, DateTime today) {
+  final days = writtenDates.toSet();
+  var cursor = DateTime(today.year, today.month, today.day);
+  if (!days.contains(LedgerDates.dayKey(cursor))) {
+    cursor = DateTime(cursor.year, cursor.month, cursor.day - 1);
+  }
+  var run = 0;
+  while (days.contains(LedgerDates.dayKey(cursor))) {
+    run++;
+    cursor = DateTime(cursor.year, cursor.month, cursor.day - 1);
+  }
+  return run;
+}
+
+/// How many pages were written in [month]'s calendar month.
+int journalPagesInMonth(Iterable<String> writtenDates, DateTime month) {
+  final prefix =
+      LedgerDates.dayKey(DateTime(month.year, month.month)).substring(0, 8);
+  return writtenDates.where((d) => d.startsWith(prefix)).toSet().length;
+}
+
+/// One slot per day of [month]'s calendar month: the recorded mood, or null.
+List<int?> monthMoodDots(Iterable<(String, int?)> entries, DateTime month) {
+  final prefix =
+      LedgerDates.dayKey(DateTime(month.year, month.month)).substring(0, 8);
+  final dots = List<int?>.filled(LedgerDates.daysInMonth(month), null);
+  for (final (date, mood) in entries) {
+    if (mood == null || !date.startsWith(prefix)) continue;
+    final day = int.tryParse(date.substring(8));
+    if (day != null && day >= 1 && day <= dots.length) dots[day - 1] = mood;
+  }
+  return dots;
+}
+
+/// The one thing the mood grid and the money book can honestly say to each
+/// other. Given this month's lived days as (mood, spent-paise), it returns a
+/// flat sentence only when the gap is real: three days on each side and at
+/// least a fifth of a difference. Otherwise silence — a coincidence dressed
+/// up as an insight is worse than no line at all. Never a verdict, either
+/// way: it reports the averages and stops.
+String? moodMoneyWhisper(Iterable<(int, int)> days) {
+  final rough = <int>[];
+  final bright = <int>[];
+  for (final (mood, paise) in days) {
+    if (mood <= 2) {
+      rough.add(paise);
+    } else if (mood >= 4) {
+      bright.add(paise);
+    }
+  }
+  if (rough.length < 3 || bright.length < 3) return null;
+  final r = rough.reduce((a, b) => a + b) / rough.length;
+  final b = bright.reduce((a, b) => a + b) / bright.length;
+  String line(String which, double more, double less) =>
+      'the $which days cost more, on average — '
+      '${Inr.format(more.round())} against ${Inr.format(less.round())}.';
+  if (r > b * 1.2) return line('rough', r, b);
+  if (b > r * 1.2) return line('better', b, r);
+  return null;
+}
+
+/// The same calendar date, one year back. 29 Feb quietly becomes 1 Mar.
+String yearAgoKey(DateTime today) =>
+    LedgerDates.dayKey(DateTime(today.year - 1, today.month, today.day));
+
+/// An entry counts as written once it holds words or a mood.
+bool _isWritten(JournalEntry e) => e.body.trim().isNotEmpty || e.mood != null;
+
+/// Opens one earlier page, same quiet slide every caller uses.
+void _openEditor(BuildContext context, String dateKey) {
+  Navigator.of(context).push(
+    PageRouteBuilder(
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, _, _) => _EditorScreen(dateKey: dateKey),
+      transitionsBuilder: (_, anim, _, child) {
+        final curved = CurvedAnimation(
+          parent: anim,
+          curve: Curves.easeOutCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween(
+              begin: const Offset(0, 0.02),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    ),
+  );
+}
+
 /// The Journal book: today's page on top, half-written by the rest of the
-/// box, with every earlier page ruled beneath it.
+/// box — the day's facts, last year's echo, the month's moods — with every
+/// earlier page ruled beneath it.
 class JournalPage extends ConsumerWidget {
   const JournalPage({super.key});
 
@@ -73,6 +193,8 @@ class JournalPage extends ConsumerWidget {
           _PageEditor(dateKey: todayKey),
           const RuleHeader('the day, in facts'),
           _DayFacts(day: now),
+          _YearAgo(today: now),
+          _MonthMoods(today: now),
           const RuleHeader('earlier pages'),
           _EarlierPages(todayKey: todayKey),
           const SizedBox(height: Gap.x8),
@@ -101,30 +223,61 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
   int? _mood;
   bool _dirty = false;
 
+  /// Autosave is silent by design, but silence reads as "did that land?".
+  /// The page answers the way paper does: the ink dries, briefly, and the
+  /// mark fades off again. No toast, no tick, no "Saved".
+  Timer? _dry;
+  bool _dried = false;
+  bool _leaving = false;
+
+  /// Bumped on every deliberate pick so the chosen mood gets its one soft
+  /// ripple; zero means "seeded from the page", which stays still.
+  int _moodPulse = 0;
+
   @override
   void initState() {
     super.initState();
     _repo = ref.read(journalRepoProvider);
     // Seed once from the db; never clobber words already being typed.
-    unawaited(_repo.watch(widget.dateKey).first.then((e) {
-      if (!mounted || e == null) return;
-      setState(() {
-        _mood ??= e.mood;
-        if (!_dirty && _controller.text.isEmpty) _controller.text = e.body;
-      });
-    }));
+    unawaited(
+      _repo.watch(widget.dateKey).first.then((e) {
+        if (!mounted || e == null) return;
+        setState(() {
+          _mood ??= e.mood;
+          if (!_dirty && _controller.text.isEmpty) _controller.text = e.body;
+        });
+      }),
+    );
   }
 
   @override
   void dispose() {
+    _leaving = true;
     _debounce?.cancel();
+    _dry?.cancel();
     _flush();
     _controller.dispose();
     super.dispose();
   }
 
+  /// A beat after the write settles, the dateline notes that it dried; a
+  /// second and a half later the note is gone again.
+  void _markDried() {
+    if (_leaving) return;
+    _dry?.cancel();
+    _dry = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() => _dried = true);
+      _dry = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) setState(() => _dried = false);
+      });
+    });
+  }
+
   void _onBodyChanged(String _) {
     _dirty = true;
+    // Rebuild so the inked-in hint steps aside the moment words arrive.
+    setState(() {});
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 600), _flush);
   }
@@ -135,12 +288,25 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
     if (!_dirty) return;
     _dirty = false;
     unawaited(_repo.upsert(widget.dateKey, body: _controller.text));
+    _markDried();
   }
 
   void _pickMood(int mood) {
     HapticFeedback.selectionClick();
-    setState(() => _mood = mood);
+    setState(() {
+      _mood = mood;
+      _moodPulse++;
+    });
     unawaited(_repo.upsert(widget.dateKey, mood: mood));
+    _markDried();
+  }
+
+  /// The prompt becomes the page's first line, cursor waiting on the next.
+  void _usePrompt(String prompt) {
+    _controller.text = '$prompt\n';
+    _controller.selection =
+        TextSelection.collapsed(offset: _controller.text.length);
+    _onBodyChanged(_controller.text);
   }
 
   @override
@@ -148,66 +314,139 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
     final c = LedgerColors.of(context);
     final date = DateTime.parse(widget.dateKey);
     final still = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final prompt = journalPromptFor(date.day);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(_longDate(date), style: LedgerType.title.copyWith(color: c.ink)),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              _longDate(date),
+              style: LedgerType.title.copyWith(color: c.ink),
+            ),
+            const SizedBox(width: Gap.x2),
+            AnimatedOpacity(
+              opacity: _dried ? 1 : 0,
+              duration: still ? Duration.zero : Motion.settle,
+              curve: Motion.curve,
+              child: Text(
+                '· dried',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: Gap.x3),
         Row(
           children: [
             for (var m = 1; m <= 5; m++) ...[
               GestureDetector(
                 onTap: () => _pickMood(m),
-                child: AnimatedContainer(
-                  duration: still
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  padding: const EdgeInsets.all(Gap.x2),
-                  decoration: BoxDecoration(
-                    color: _mood == m ? c.quillSoft : null,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _moodIcons[m - 1],
-                    size: 22,
-                    color: _mood == m ? c.quill : c.inkFaint,
-                  ),
-                ),
+                child: _moodCell(c, m, still),
               ),
               if (m < 5) const SizedBox(width: Gap.x2),
             ],
           ],
         ),
         const SizedBox(height: Gap.x2),
-        TextField(
-          controller: _controller,
-          onChanged: _onBodyChanged,
-          maxLines: null,
-          minLines: 3,
-          keyboardType: TextInputType.multiline,
-          textCapitalization: TextCapitalization.sentences,
-          cursorColor: c.quill,
-          style: LedgerType.bodyText.copyWith(
-            fontSize: 15,
-            height: 1.55,
-            color: c.ink,
-          ),
-          decoration: InputDecoration(
-            isDense: true,
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
-            hintText: 'How was it?',
-            hintStyle: LedgerType.bodyText.copyWith(
-              fontSize: 15,
-              height: 1.55,
-              color: c.inkFaint,
+        Stack(
+          children: [
+            // The page invites, never demands: with no words yet, the
+            // question surfaces a beat after the page opens.
+            if (_controller.text.isEmpty)
+              IgnorePointer(
+                child: InkIn(
+                  delay: const Duration(milliseconds: 400),
+                  child: Text(
+                    'How was it?',
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 15,
+                      height: 1.55,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ),
+              ),
+            TextField(
+              controller: _controller,
+              onChanged: _onBodyChanged,
+              maxLines: null,
+              minLines: 3,
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              cursorColor: c.quill,
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 15,
+                height: 1.55,
+                color: c.ink,
+              ),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
+        ),
+        // A blank page offers one question; a tap writes it as the first
+        // line. The same date always asks the same thing.
+        if (_controller.text.isEmpty) ...[
+          const SizedBox(height: Gap.x3),
+          InkIn(
+            delay: const Duration(milliseconds: 650),
+            child: Pressable(
+              onTap: () => _usePrompt(prompt),
+              child: Text(
+                prompt,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ],
     );
+  }
+
+  /// One mood in the row; the picked one wears the wash and ripples once —
+  /// a 1.15 swell and back, 200ms, only on a deliberate tap.
+  Widget _moodCell(LedgerColors c, int m, bool still) {
+    Widget cell = AnimatedContainer(
+      duration: still ? Duration.zero : const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.all(Gap.x2),
+      decoration: BoxDecoration(
+        color: _mood == m ? c.quillSoft : null,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        _moodIcons[m - 1],
+        size: 22,
+        color: _mood == m ? c.quill : c.inkFaint,
+      ),
+    );
+    if (_mood == m && _moodPulse > 0 && !still) {
+      cell = TweenAnimationBuilder<double>(
+        key: ValueKey('mood-pop-$m-$_moodPulse'),
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        child: cell,
+        builder: (context, t, child) => Transform.scale(
+          scale: 1 + 0.15 * math.sin(math.pi * t),
+          child: child,
+        ),
+      );
+    }
+    return cell;
   }
 }
 
@@ -222,8 +461,10 @@ class _DayFacts extends ConsumerStatefulWidget {
 }
 
 class _DayFactsState extends ConsumerState<_DayFacts> {
-  late final Future<({int spentPaise, int txnCount, int focusMinutes, int notesCount})>
-      _facts;
+  late final Future<
+    ({int spentPaise, int txnCount, int focusMinutes, int notesCount})
+  >
+  _facts;
 
   @override
   void initState() {
@@ -247,15 +488,24 @@ class _DayFactsState extends ConsumerState<_DayFacts> {
       builder: (context, snapshot) {
         final f = snapshot.data;
         if (f == null) return const SizedBox(height: Gap.x6);
-        final lines = <(String, String)>[
+        final amountStyle = LedgerType.amount.copyWith(color: c.inkFaint);
+        final lines = <(String, Widget)>[
           if (f.txnCount > 0)
             (
               'Spent',
-              '${Inr.format(f.spentPaise)} across ${f.txnCount} '
-                  '${f.txnCount == 1 ? 'entry' : 'entries'}',
+              // The figure settles in mono rather than snapping.
+              CountUp(
+                value: f.spentPaise,
+                format: (p) =>
+                    '${Inr.format(p)} across ${f.txnCount} '
+                    '${f.txnCount == 1 ? 'entry' : 'entries'}',
+                style: amountStyle,
+              ),
             ),
-          if (f.focusMinutes > 0) ('Focused', _focus(f.focusMinutes)),
-          if (f.notesCount > 0) ('Notes written', '${f.notesCount}'),
+          if (f.focusMinutes > 0)
+            ('Focused', Text(_focus(f.focusMinutes), style: amountStyle)),
+          if (f.notesCount > 0)
+            ('Notes written', Text('${f.notesCount}', style: amountStyle)),
         ];
         if (lines.isEmpty) {
           return Padding(
@@ -269,14 +519,18 @@ class _DayFactsState extends ConsumerState<_DayFacts> {
             ),
           );
         }
+        // The facts write themselves onto the page top to bottom, once.
         return Column(
           children: [
             for (final (i, line) in lines.indexed)
-              LedgerLine(
-                title: line.$1,
-                amount: line.$2,
-                amountColor: c.inkFaint,
-                last: i == lines.length - 1,
+              InkIn(
+                key: ValueKey('fact-${line.$1}'),
+                delay: Duration(milliseconds: 60 * i),
+                child: LedgerLine(
+                  title: line.$1,
+                  amountWidget: line.$2,
+                  last: i == lines.length - 1,
+                ),
               ),
           ],
         );
@@ -285,21 +539,332 @@ class _DayFactsState extends ConsumerState<_DayFacts> {
   }
 }
 
+/// The page he wrote on this date last year, if there is one — two quiet
+/// quoted lines behind a hairline. Absent when the book doesn't reach back.
+class _YearAgo extends ConsumerStatefulWidget {
+  const _YearAgo({required this.today});
+
+  final DateTime today;
+
+  @override
+  ConsumerState<_YearAgo> createState() => _YearAgoState();
+}
+
+class _YearAgoState extends ConsumerState<_YearAgo> {
+  late final Future<JournalEntry?> _entry;
+
+  @override
+  void initState() {
+    super.initState();
+    _entry =
+        ref.read(journalRepoProvider).watch(yearAgoKey(widget.today)).first;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return FutureBuilder<JournalEntry?>(
+      future: _entry,
+      builder: (context, snapshot) {
+        final e = snapshot.data;
+        if (e == null || e.body.trim().isEmpty) {
+          return const SizedBox.shrink();
+        }
+        final date = DateTime.parse(e.date);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RuleHeader(
+              'a year ago to-day',
+              trailing: Text(
+                '${date.year}',
+                style: LedgerType.amount.copyWith(
+                  fontSize: 11,
+                  color: c.inkFaint,
+                ),
+              ),
+            ),
+            const SizedBox(height: Gap.x2),
+            InkIn(
+              child: Pressable(
+                onTap: () => _openEditor(context, e.date),
+                child: Container(
+                  padding: const EdgeInsets.only(
+                    left: Gap.x3,
+                    top: 2,
+                    bottom: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: c.rule, width: 2),
+                    ),
+                  ),
+                  child: Text(
+                    e.body.trim(),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 14,
+                      height: 1.5,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The month, one small circle per day: tinted by mood, hollow when nothing
+/// was recorded, to-day ringed in quill. Beneath it, the running tallies.
+class _MonthMoods extends ConsumerStatefulWidget {
+  const _MonthMoods({required this.today});
+
+  final DateTime today;
+
+  @override
+  ConsumerState<_MonthMoods> createState() => _MonthMoodsState();
+}
+
+class _MonthMoodsState extends ConsumerState<_MonthMoods> {
+  /// This month's expense paise per day of the month, read once — the money
+  /// half of the whisper under the grid.
+  late final Future<Map<int, int>> _spentByDay;
+
+  /// Latched on the first emission so the dots ink in once and every later
+  /// rebuild renders an already-drawn month.
+  bool _played = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _spentByDay = _loadSpend();
+  }
+
+  Future<Map<int, int>> _loadSpend() async {
+    final db = ref.read(dbProvider);
+    final rows =
+        await (db.select(db.txns)..where(
+              (t) =>
+                  t.type.equalsValue(TxnType.expense) &
+                  t.at.isBiggerOrEqualValue(
+                    LedgerDates.monthStart(widget.today),
+                  ) &
+                  t.at.isSmallerThanValue(LedgerDates.monthEnd(widget.today)),
+            ))
+            .get();
+    final byDay = <int, int>{};
+    for (final r in rows) {
+      byDay.update(
+        r.at.day,
+        (p) => p + r.amountPaise,
+        ifAbsent: () => r.amountPaise,
+      );
+    }
+    return byDay;
+  }
+
+  /// Mood 1 leans seal, 3 sits at faint ink, 5 leans jama — the same status
+  /// hues the rest of the book already speaks.
+  Color _moodTint(LedgerColors c, int mood) {
+    final t = ((mood - 1) / 4).clamp(0.0, 1.0);
+    return t < 0.5
+        ? Color.lerp(c.seal, c.inkFaint, t * 2)!
+        : Color.lerp(c.inkFaint, c.jama, (t - 0.5) * 2)!;
+  }
+
+  void _openDay(int day) {
+    _openEditor(
+      context,
+      LedgerDates.dayKey(
+        DateTime(widget.today.year, widget.today.month, day),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return StreamBuilder<List<JournalEntry>>(
+      stream: ref.watch(journalRepoProvider).watchAll(),
+      builder: (context, snapshot) {
+        final entries = snapshot.data ?? const <JournalEntry>[];
+        final dots = monthMoodDots(
+          entries.map((e) => (e.date, e.mood)),
+          widget.today,
+        );
+        final written = [
+          for (final e in entries)
+            if (_isWritten(e)) e.date,
+        ];
+        final streak = journalStreakDays(written, widget.today);
+        final pages = journalPagesInMonth(written, widget.today);
+        // The dots write themselves across the month rather than all landing
+        // at once — the same hand as the book's heat grid.
+        final play = !_played && snapshot.hasData;
+        if (snapshot.hasData) _played = true;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const RuleHeader('the month in moods'),
+            const SizedBox(height: Gap.x2),
+            GridView.count(
+              key: const ValueKey('mood-grid'),
+              crossAxisCount: 7,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 4,
+              crossAxisSpacing: 4,
+              childAspectRatio: 1.5,
+              children: [
+                for (final (i, mood) in dots.indexed)
+                  InkIn(
+                    key: ValueKey('mood-dot-$i'),
+                    play: play,
+                    delay: Duration(milliseconds: 10 * i),
+                    child: _dayDot(c, i + 1, mood),
+                  ),
+              ],
+            ),
+            const SizedBox(height: Gap.x3),
+            _tallyLine(c, streak, pages),
+            _moodMoneyLine(c, dots),
+          ],
+        );
+      },
+    );
+  }
+
+  /// One factual sentence when the mood column and the money column actually
+  /// disagree this month — and nothing at all when they don't.
+  Widget _moodMoneyLine(LedgerColors c, List<int?> dots) {
+    return FutureBuilder<Map<int, int>>(
+      future: _spentByDay,
+      builder: (context, snapshot) {
+        final spent = snapshot.data;
+        if (spent == null) return const SizedBox.shrink();
+        final line = moodMoneyWhisper([
+          for (final (i, mood) in dots.indexed)
+            if (mood != null && i < widget.today.day) (mood, spent[i + 1] ?? 0),
+        ]);
+        if (line == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: Gap.x2),
+          child: InkIn(
+            child: Text(
+              line,
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _dayDot(LedgerColors c, int day, int? mood) {
+    final isToday = day == widget.today.day;
+    final isFuture = day > widget.today.day;
+    Widget dot = Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: mood == null ? null : _moodTint(c, mood),
+        border: mood == null
+            ? Border.all(
+                color: isFuture ? c.rule.withValues(alpha: 0.55) : c.rule,
+                width: 1.2,
+              )
+            : null,
+      ),
+    );
+    if (isToday) {
+      dot = Container(
+        width: 22,
+        height: 22,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: c.quill, width: 1.2),
+        ),
+        child: dot,
+      );
+    }
+    final cell = Center(child: dot);
+    if (isFuture) return cell;
+    // Any lived day opens its page.
+    return Pressable(scale: 0.9, onTap: () => _openDay(day), child: cell);
+  }
+
+  /// "written 4 days running · 12 pages this month" — numbers settle, and
+  /// the phrasing never pretends to a streak that isn't there.
+  Widget _tallyLine(LedgerColors c, int streak, int pages) {
+    final style = LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint);
+    if (streak == 0 && pages == 0) {
+      return Text(
+        'nothing written this month, yet.',
+        style: LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+      );
+    }
+    return Row(
+      children: [
+        if (streak > 0)
+          CountUp(
+            value: streak,
+            format: (n) => 'written $n ${n == 1 ? 'day' : 'days'} running',
+            style: style,
+          ),
+        if (streak > 0 && pages > 0) Text(' · ', style: style),
+        if (pages > 0)
+          CountUp(
+            value: pages,
+            format: (n) => '$n ${n == 1 ? 'page' : 'pages'} this month',
+            style: style,
+          ),
+      ],
+    );
+  }
+}
+
 /// Every page before today, newest first. Tap a row to reopen that day.
-class _EarlierPages extends ConsumerWidget {
+class _EarlierPages extends ConsumerStatefulWidget {
   const _EarlierPages({required this.todayKey});
 
   final String todayKey;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_EarlierPages> createState() => _EarlierPagesState();
+}
+
+class _EarlierPagesState extends ConsumerState<_EarlierPages> {
+  /// Latched after the first emission: the rows ink in once, then every
+  /// later rebuild renders them as already-written pages.
+  bool _played = false;
+
+  /// A year of journalling is 365 ruled lines; the book opens on the recent
+  /// ones and turns back a season at a time when he asks.
+  static const _firstLeaf = 14;
+  static const _nextLeaf = 30;
+  int _shown = _firstLeaf;
+
+  @override
+  Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     return StreamBuilder<List<JournalEntry>>(
       stream: ref.watch(journalRepoProvider).watchAll(),
       builder: (context, snapshot) {
         final earlier = (snapshot.data ?? const <JournalEntry>[])
-            .where((e) => e.date != todayKey)
+            .where((e) => e.date != widget.todayKey)
             .toList();
+        final play = !_played && snapshot.hasData;
+        if (snapshot.hasData) _played = true;
         if (earlier.isEmpty) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.x3),
@@ -312,10 +877,39 @@ class _EarlierPages extends ConsumerWidget {
             ),
           );
         }
+        final leaf = earlier.take(_shown).toList();
+        final back = earlier.length - leaf.length;
         return Column(
           children: [
-            for (final (i, e) in earlier.indexed)
-              _EarlierRow(entry: e, last: i == earlier.length - 1),
+            for (final (i, e) in leaf.indexed)
+              InkIn(
+                key: ValueKey('earlier-${e.date}'),
+                play: play,
+                delay: Duration(milliseconds: 60 * math.min(i, 8)),
+                child: _EarlierRow(
+                  entry: e,
+                  last: back == 0 && i == leaf.length - 1,
+                ),
+              ),
+            if (back > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                child: Pressable(
+                  onTap: () => setState(
+                    () => _shown = math.min(_shown + _nextLeaf, earlier.length),
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'further back — $back more ${back == 1 ? 'page' : 'pages'}',
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 13,
+                        color: c.quill,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },
@@ -329,36 +923,13 @@ class _EarlierRow extends StatelessWidget {
   final JournalEntry entry;
   final bool last;
 
-  void _open(BuildContext context) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (context, _, _) => _EditorScreen(dateKey: entry.date),
-        transitionsBuilder: (_, anim, _, child) {
-          final curved =
-              CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-          return FadeTransition(
-            opacity: curved,
-            child: SlideTransition(
-              position: Tween(
-                begin: const Offset(0, 0.02),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final firstLine = entry.body.trim().split('\n').first.trim();
     final wordless = firstLine.isEmpty;
     return InkWell(
-      onTap: () => _open(context),
+      onTap: () => _openEditor(context, entry.date),
       child: Container(
         decoration: BoxDecoration(
           border: last ? null : Border(bottom: BorderSide(color: c.rule)),

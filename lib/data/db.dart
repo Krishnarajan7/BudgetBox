@@ -24,6 +24,8 @@ part 'db.g.dart';
   Events,
   VaultItems,
   BalanceSnapshots,
+  RemoteIds,
+  Outbox,
 ])
 class LedgerDb extends _$LedgerDb {
   LedgerDb() : super(driftDatabase(name: 'budgetbox'));
@@ -32,7 +34,7 @@ class LedgerDb extends _$LedgerDb {
   LedgerDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -41,6 +43,14 @@ class LedgerDb extends _$LedgerDb {
           await _seedCategories();
         },
         onUpgrade: (m, from, to) async {
+          if (from < 6) {
+            // v6 opens the line to the server: what the phone's row numbers
+            // are called upstream, and what it still owes.
+            await m.createTable(remoteIds);
+            await m.createTable(outbox);
+            await m.createIndex(_remoteIdLookup);
+            await m.createIndex(_outboxOrder);
+          }
           if (from < 5) {
             // v5 gives balances a memory.
             await m.createTable(balanceSnapshots);
@@ -120,3 +130,17 @@ class LedgerDb extends _$LedgerDb {
     });
   }
 }
+
+/// Reverse lookup: the server hands back a uuid7, the phone needs its own row
+/// number for it. Unique so one remote row can never claim two local ones.
+final _remoteIdLookup = Index(
+  'remote_ids_by_remote',
+  'CREATE UNIQUE INDEX IF NOT EXISTS remote_ids_by_remote '
+      'ON remote_ids (kind, remote_id)',
+);
+
+/// The queue is drained oldest first.
+final _outboxOrder = Index(
+  'outbox_by_queued',
+  'CREATE INDEX IF NOT EXISTS outbox_by_queued ON outbox (queued_at)',
+);

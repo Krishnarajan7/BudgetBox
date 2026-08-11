@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 
+import '../api/api_config.dart';
 import '../db.dart';
 
 /// The box's own facts: whose book this is, when salary lands, how it looks,
@@ -18,6 +19,26 @@ class SettingsRepo {
   static const _pinHash = 'pinHash';
   static const _pinSalt = 'pinSalt';
   static const _setupDone = 'setupDone';
+  static const _intent = 'intent';
+  static const _yearFrame = 'yearFrame';
+  static const _serverUrl = 'serverUrl';
+  static const _serverToken = 'serverToken';
+
+  /// The preferences worth keeping on the server, so a reinstall comes back
+  /// as the same book rather than a blank one.
+  ///
+  /// Everything omitted here is omitted on purpose. The PIN's hash and salt
+  /// guard *this device* and would be a four-digit search space for anyone
+  /// who reached the server; the server's own address and token can't live
+  /// behind the connection they configure.
+  static const syncableKeys = <String>[
+    _name,
+    _salaryDay,
+    _themeMode,
+    _setupDone,
+    _intent,
+    _yearFrame,
+  ];
 
   Future<String?> _get(String key) async {
     final row = await (_db.select(_db.settings)
@@ -44,6 +65,66 @@ class SettingsRepo {
 
   Future<bool> setupDone() async => await _get(_setupDone) == 'true';
   Future<void> markSetupDone() => _set(_setupDone, 'true');
+
+  /// What the book was asked to watch for at setup: 'leaks', 'goal', or
+  /// 'truth'. Reorders the Today page's modules.
+  Future<String?> intent() => _get(_intent);
+  Future<void> setIntent(String value) => _set(_intent, value);
+
+  /// How the year is framed: 'calendar' or 'fy' (Apr–Mar).
+  Future<String> yearFrame() async => await _get(_yearFrame) ?? 'calendar';
+  Future<void> setYearFrame(String value) => _set(_yearFrame, value);
+
+  // ————— the other half of the book —————
+
+  /// Where this book syncs, and the token that opens it.
+  ///
+  /// What was typed in Settings wins; a `--dart-define` launch is the
+  /// fallback, so a build that was already wired that way keeps working
+  /// until something is typed over it.
+  Future<BbxConfig> serverConfig() async {
+    final env = BbxConfig.fromEnvironment();
+    final url = await _get(_serverUrl);
+    final token = await _get(_serverToken);
+    return BbxConfig(
+      baseUrl: (url == null || url.isEmpty) ? env.baseUrl : url,
+      token: (token == null || token.isEmpty) ? env.token : token,
+    );
+  }
+
+  /// True once the address was typed here rather than compiled in.
+  Future<bool> hasStoredServer() async =>
+      (await _get(_serverUrl))?.isNotEmpty ?? false;
+
+  Future<void> setServer(String url, String token) async {
+    // A trailing slash and a pasted space are the two things a person
+    // reliably gets wrong; neither is worth an error message.
+    final clean = url.trim().replaceAll(RegExp(r'/+$'), '');
+    await _set(_serverUrl, clean);
+    await _set(_serverToken, token.trim());
+  }
+
+  Future<void> clearServer() =>
+      (_db.delete(_db.settings)
+            ..where((s) => s.key.isIn(const [_serverUrl, _serverToken])))
+          .go();
+
+  // ————— for the settings sync —————
+
+  /// Every syncable preference this book has actually set.
+  Future<Map<String, String>> syncableValues() async {
+    final rows = await (_db.select(_db.settings)
+          ..where((s) => s.key.isIn(syncableKeys)))
+        .get();
+    return {for (final r in rows) r.key: r.value};
+  }
+
+  /// Write a preference that came down from the server. Unknown or
+  /// non-syncable keys are ignored rather than trusted.
+  Future<void> adoptRemote(String key, String value) async {
+    if (!syncableKeys.contains(key)) return;
+    await _set(key, value);
+  }
 
   // ————— the lock —————
 

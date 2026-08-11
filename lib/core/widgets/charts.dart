@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../tokens.dart';
 import '../typography.dart';
 import '../../data/repos/budget_math.dart';
+import 'motion.dart';
 
 /// The pace chart: solid ink = actual cumulative spend, dotted = even pace,
 /// dashed vertical = today. A verdict, not a decoration.
@@ -284,12 +285,26 @@ class _SparkPainter extends CustomPainter {
       old.points != points || old.color != color;
 }
 
-/// The month grid: cell tint = spend intensity, pale = quiet day.
+/// The month grid: cell tint = spend intensity, pale = quiet day. Cells can
+/// settle in one after another ([stagger]) and answer a touch.
 class HeatGrid extends StatelessWidget {
-  const HeatGrid({super.key, required this.dayTotalsPaise});
+  const HeatGrid({
+    super.key,
+    required this.dayTotalsPaise,
+    this.stagger = false,
+    this.onDayTap,
+    this.onDayLongPress,
+  });
 
   /// Paise per day of the month, index 0 = the 1st.
   final List<int> dayTotalsPaise;
+
+  /// True inks the cells in top-left to bottom-right, once, on entry.
+  final bool stagger;
+
+  /// Both receive the day of month (1-based).
+  final ValueChanged<int>? onDayTap;
+  final ValueChanged<int>? onDayLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -304,20 +319,31 @@ class HeatGrid extends StatelessWidget {
       crossAxisSpacing: 5,
       children: [
         for (final (i, v) in dayTotalsPaise.indexed)
-          Container(
-            decoration: BoxDecoration(
-              color: v == 0
-                  ? c.paperRaised
-                  : Color.lerp(c.paper, c.quill, 0.12 + 0.7 * v / maxSpend),
-              border: v == 0 ? Border.all(color: c.rule) : null,
-              borderRadius: BorderRadius.circular(5),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              '${i + 1}',
-              style: LedgerType.amount.copyWith(
-                fontSize: 9,
-                color: v > maxSpend * 0.55 ? c.paper : c.inkFaint,
+          InkIn(
+            play: stagger,
+            delay: Duration(milliseconds: 14 * i),
+            child: Pressable(
+              haptic: onDayTap != null,
+              onTap: onDayTap == null ? null : () => onDayTap!(i + 1),
+              onLongPress: onDayLongPress == null
+                  ? null
+                  : () => onDayLongPress!(i + 1),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: v == 0
+                      ? c.paperRaised
+                      : Color.lerp(c.paper, c.quill, 0.12 + 0.7 * v / maxSpend),
+                  border: v == 0 ? Border.all(color: c.rule) : null,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '${i + 1}',
+                  style: LedgerType.amount.copyWith(
+                    fontSize: 9,
+                    color: v > maxSpend * 0.55 ? c.paper : c.inkFaint,
+                  ),
+                ),
               ),
             ),
           ),

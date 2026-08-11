@@ -4,6 +4,7 @@ import '../../features/settings/settings_page.dart';
 import '../../features/shelf/shelf_overlay.dart';
 import '../tokens.dart';
 import '../typography.dart';
+import 'motion.dart';
 
 /// Wordmark (tap → the shelf) · optional trailing · gear (→ the box's
 /// settings). Every root screen wears this.
@@ -21,9 +22,11 @@ class LedgerAppBar extends StatelessWidget {
       padding: const EdgeInsets.only(top: Gap.x2),
       child: Row(
         children: [
-          InkWell(
+          Pressable(
+            scale: 0.97,
             onTap: () => showShelf(context),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(title ?? 'BudgetBox',
                     style: LedgerType.wordmark.copyWith(color: c.ink)),
@@ -35,9 +38,10 @@ class LedgerAppBar extends StatelessWidget {
           const Spacer(),
           ?trailing,
           if (trailing != null) const SizedBox(width: Gap.x3),
-          InkWell(
+          Pressable(
+            scale: 0.9,
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+              LedgerRoute<void>(builder: (_) => const SettingsPage()),
             ),
             child: Icon(Icons.settings_outlined, size: 18, color: c.inkFaint),
           ),

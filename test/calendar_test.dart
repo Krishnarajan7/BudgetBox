@@ -1,7 +1,10 @@
 import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
+import 'package:budgetbox/data/repos/account_repo.dart';
 import 'package:budgetbox/data/repos/event_repo.dart';
+import 'package:budgetbox/data/repos/recurring_repo.dart';
+import 'package:budgetbox/data/repos/txn_repo.dart';
 import 'package:budgetbox/features/calendar/calendar_page.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -26,7 +29,106 @@ Event _ev({
   );
 }
 
+Txn _txn({
+  required int id,
+  required DateTime at,
+  required int paise,
+  TxnType type = TxnType.expense,
+}) {
+  return Txn(
+    id: id,
+    amountPaise: paise,
+    type: type,
+    accountId: 1,
+    toAccountId: type == TxnType.transfer ? 2 : null,
+    title: 'line $id',
+    at: at,
+    createdAt: at,
+  );
+}
+
+Recurring _bill({
+  int id = 1,
+  String title = 'Rent',
+  int amountPaise = 1800000,
+  int dayOfMonth = 5,
+  int everyMonths = 1,
+  RecurringKind kind = RecurringKind.bill,
+}) {
+  return Recurring(
+    id: id,
+    title: title,
+    amountPaise: amountPaise,
+    accountId: 1,
+    kind: kind,
+    everyMonths: everyMonths,
+    dayOfMonth: dayOfMonth,
+    nextDue: '2026-08-05',
+    active: true,
+  );
+}
+
 void main() {
+  group('the money layer', () {
+    test('a monthly charge lands once in every month of the window', () {
+      final charges = chargesBetween(
+        [_bill()],
+        DateTime(2026, 8, 1),
+        DateTime(2026, 11, 1),
+      );
+      expect(charges.map((c) => c.on), [
+        DateTime(2026, 8, 5),
+        DateTime(2026, 9, 5),
+        DateTime(2026, 10, 5),
+      ]);
+      expect(charges.first.recurring.title, 'Rent');
+    });
+
+    test('a quarterly charge keeps its cadence, day clamped to the month', () {
+      final charges = chargesBetween(
+        [_bill(dayOfMonth: 31, everyMonths: 3)],
+        DateTime(2026, 12, 1),
+        DateTime(2027, 7, 1),
+      );
+      expect(charges.map((c) => c.on), [
+        DateTime(2026, 12, 31),
+        DateTime(2027, 3, 31),
+        DateTime(2027, 6, 30),
+      ]);
+    });
+
+    test('charges already past the window start are not dragged back', () {
+      final charges = chargesBetween(
+        [_bill()],
+        DateTime(2026, 8, 20),
+        DateTime(2026, 9, 30),
+      );
+      expect(charges.single.on, DateTime(2026, 9, 5));
+    });
+
+    test('day totals split what went out from what came in; transfers do '
+        'neither', () {
+      final money = moneyByDay([
+        _txn(id: 1, at: DateTime(2026, 8, 1, 12), paise: 18000),
+        _txn(id: 2, at: DateTime(2026, 8, 1, 20), paise: 2000),
+        _txn(
+          id: 3,
+          at: DateTime(2026, 8, 1, 9),
+          paise: 9200000,
+          type: TxnType.income,
+        ),
+        _txn(
+          id: 4,
+          at: DateTime(2026, 8, 2, 9),
+          paise: 500000,
+          type: TxnType.transfer,
+        ),
+      ]);
+      expect(money['2026-08-01'], (spent: 20000, earned: 9200000));
+      expect(money['2026-08-02'], isNull);
+    });
+  });
+
   group('EventRepo', () {
     late LedgerDb db;
     late EventRepo repo;
@@ -197,5 +299,120 @@ void main() {
       await db.close();
       await tester.pump(const Duration(seconds: 1));
     });
+
+    testWidgets('swiping the week strip carries the agenda a week on',
+        (tester) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      await _pumpCalendar(tester, db);
+
+      final now = DateTime.now();
+      final next = DateTime(now.year, now.month, now.day + 7);
+      await tester.drag(find.byType(PageView), const Offset(-400, 0));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('${next.day} ${_months[next.month - 1]}'),
+        findsOneWidget,
+      );
+      await _drain(tester, db);
+    });
+
+    testWidgets('the grid names its month, flips to the next, and peeks',
+        (tester) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      await _pumpCalendar(tester, db);
+      final now = DateTime.now();
+
+      await tester.tap(find.byIcon(Icons.grid_on));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${_months[now.month - 1]} ${now.year}'),
+        findsOneWidget,
+      );
+
+      // A drag across the grid turns to the next month.
+      await tester.fling(
+        find.byType(SingleChildScrollView),
+        const Offset(-300, 0),
+        800,
+      );
+      await tester.pumpAndSettle();
+      final ahead = DateTime(now.year, now.month + 1);
+      expect(
+        find.text('${_months[ahead.month - 1]} ${ahead.year}'),
+        findsOneWidget,
+      );
+
+      // A long press peeks at a day without leaving the month.
+      await tester.longPress(
+        find.descendant(
+          of: find.byType(SingleChildScrollView),
+          matching: find.text('15'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('write something here'), findsOneWidget);
+
+      await tester.tapAt(const Offset(20, 20));
+      await tester.pumpAndSettle();
+      await _drain(tester, db);
+    });
+
+    testWidgets('a bill due shares the page with the plans', (tester) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      final now = DateTime.now();
+      final tomorrow = DateTime(now.year, now.month, now.day + 1);
+      final cash = await AccountRepo(db).create(
+        name: 'Cash',
+        kind: AccountKind.cash,
+        openingBalancePaise: 5000000,
+      );
+      await RecurringRepo(db, TxnRepo(db)).create(
+        title: 'Rent',
+        amountPaise: 1800000,
+        accountId: cash,
+        dayOfMonth: tomorrow.day,
+        kind: RecurringKind.bill,
+      );
+      await TxnRepo(db).addExpense(
+        amountPaise: 18000,
+        accountId: cash,
+        title: 'Saravana Bhavan',
+        at: DateTime(now.year, now.month, now.day, 12),
+      );
+
+      await _pumpCalendar(tester, db);
+
+      // The bill lands on every due day inside the horizon, in mono;
+      // to-day's page carries what the ledger already spent.
+      expect(find.textContaining('Rent'), findsWidgets);
+      expect(find.text('₹18,000'), findsWidgets);
+      expect(find.text('₹180 out'), findsOneWidget);
+      await _drain(tester, db);
+    });
   });
+}
+
+const _months = [
+  'january', 'february', 'march', 'april', 'may', 'june', //
+  'july', 'august', 'september', 'october', 'november', 'december',
+];
+
+Future<void> _pumpCalendar(WidgetTester tester, LedgerDb db) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [dbProvider.overrideWithValue(db)],
+      child: MaterialApp(theme: ledgerDayTheme(), home: const CalendarPage()),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
+/// Drain drift's stream machinery so the binding sees no leaked timers.
+Future<void> _drain(WidgetTester tester, LedgerDb db) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pump(const Duration(seconds: 1));
+  await db.close();
+  await tester.pump(const Duration(seconds: 1));
 }

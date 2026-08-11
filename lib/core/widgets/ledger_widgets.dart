@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../tokens.dart';
 import '../typography.dart';
+import 'motion.dart';
 
 /// "this month ————————" — a ruled section header.
 class RuleHeader extends StatelessWidget {
@@ -63,25 +65,39 @@ class HeroAmount extends StatelessWidget {
   }
 }
 
-/// One ruled ledger line: time · title · account — amount.
+/// One ruled ledger line: time · mark · title · account — amount.
 class LedgerLine extends StatelessWidget {
   const LedgerLine({
     super.key,
     this.leading,
+    this.mark,
     required this.title,
     this.detail,
-    required this.amount,
+    this.amount = '',
+    this.amountWidget,
     this.amountColor,
+    this.struck = false,
     this.last = false,
     this.onTap,
     this.onLongPress,
   });
 
   final String? leading;
+
+  /// A small glyph before the title — a [CatMark], a kind icon.
+  final Widget? mark;
   final String title;
   final String? detail;
   final String amount;
+
+  /// Replaces the amount text when the figure needs to move (a [CountUp])
+  /// or carry more than mono ink.
+  final Widget? amountWidget;
   final Color? amountColor;
+
+  /// Renders the line struck through and faint — an entry on its way out,
+  /// still tappable to bring it back.
+  final bool struck;
   final bool last;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
@@ -89,6 +105,8 @@ class LedgerLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
+    final inkColor = struck ? c.inkFaint : c.ink;
+    final strike = struck ? TextDecoration.lineThrough : null;
     return InkWell(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -112,6 +130,14 @@ class LedgerLine extends StatelessWidget {
                       .copyWith(fontSize: 12, color: c.inkFaint),
                 ),
               ),
+            if (mark != null) ...[
+              Baseline(
+                baseline: 11,
+                baselineType: TextBaseline.alphabetic,
+                child: mark!,
+              ),
+              const SizedBox(width: Gap.x2),
+            ],
             Expanded(
               child: Text.rich(
                 TextSpan(
@@ -125,18 +151,60 @@ class LedgerLine extends StatelessWidget {
                       ),
                   ],
                 ),
-                style: LedgerType.bodyText.copyWith(color: c.ink),
+                style: LedgerType.bodyText
+                    .copyWith(color: inkColor, decoration: strike),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            Text(
-              amount,
-              style: LedgerType.amount.copyWith(color: amountColor ?? c.ink),
-            ),
+            amountWidget ??
+                Text(
+                  amount,
+                  style: LedgerType.amount.copyWith(
+                    color: struck ? c.inkFaint : (amountColor ?? c.ink),
+                    decoration: strike,
+                  ),
+                ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The shared counting hero: caption over a Fraunces figure that settles
+/// whenever [paise] changes. The one number the screen exists for.
+class CountHero extends StatelessWidget {
+  const CountHero({
+    super.key,
+    required this.caption,
+    required this.paise,
+    required this.format,
+    this.sub,
+    this.size = 42,
+  });
+
+  final String caption;
+  final int paise;
+  final String Function(int) format;
+  final Widget? sub;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(caption, style: LedgerType.label.copyWith(color: c.inkFaint)),
+        const SizedBox(height: 2),
+        CountUp(
+          value: paise,
+          format: format,
+          style: LedgerType.heroAmount.copyWith(fontSize: size, color: c.ink),
+        ),
+        if (sub != null) ...[const SizedBox(height: 2), sub!],
+      ],
     );
   }
 }
@@ -171,6 +239,123 @@ class DayHeader extends StatelessWidget {
               style: LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint)),
         ],
       ),
+    );
+  }
+}
+
+/// A blank page speaking for itself: a Fraunces line in the author's voice,
+/// a faint second thought beneath. No illustrations, no icons — the copy is
+/// the empty state.
+class EmptyPage extends StatelessWidget {
+  const EmptyPage({
+    super.key,
+    required this.line,
+    this.sub,
+    this.action,
+  });
+
+  /// The page's one sentence — wry, first person, no exclamation marks.
+  final String line;
+  final String? sub;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Center(
+      child: InkIn(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: Gap.x8, vertical: Gap.x12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                line,
+                textAlign: TextAlign.center,
+                style: LedgerType.title.copyWith(fontSize: 20, color: c.ink),
+              ),
+              if (sub != null) ...[
+                const SizedBox(height: Gap.x2),
+                Text(
+                  sub!,
+                  textAlign: TextAlign.center,
+                  style: LedgerType.bodyText
+                      .copyWith(fontSize: 13, color: c.inkFaint),
+                ),
+              ],
+              if (action != null) ...[
+                const SizedBox(height: Gap.x4),
+                action!,
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Swipe a ledger line right to correct it, left to strike it out.
+/// The reveal is flat paper and a word — no tinted floods; the strike side
+/// uses seal ink only for its label, kept within the seal budget.
+class SwipeRow extends StatelessWidget {
+  const SwipeRow({
+    super.key,
+    required this.rowKey,
+    required this.child,
+    this.onEdit,
+    this.onDelete,
+    this.deleteLabel = 'strike',
+    this.editLabel = 'correct',
+  });
+
+  final Key rowKey;
+  final Widget child;
+  final VoidCallback? onEdit;
+
+  /// Called after the row is dismissed; the deletion itself is the caller's.
+  final VoidCallback? onDelete;
+  final String deleteLabel;
+  final String editLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Dismissible(
+      key: rowKey,
+      direction: onEdit == null
+          ? (onDelete == null
+              ? DismissDirection.none
+              : DismissDirection.endToStart)
+          : (onDelete == null
+              ? DismissDirection.startToEnd
+              : DismissDirection.horizontal),
+      background: Container(
+        color: c.paperRaised,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: Gap.x4),
+        child: Text(editLabel,
+            style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill)),
+      ),
+      secondaryBackground: Container(
+        color: c.paperRaised,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: Gap.x4),
+        child: Text(deleteLabel,
+            style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.seal)),
+      ),
+      confirmDismiss: (dir) async {
+        if (dir == DismissDirection.startToEnd) {
+          HapticFeedback.selectionClick();
+          onEdit?.call();
+          return false; // The row stays; the editor opens over it.
+        }
+        HapticFeedback.mediumImpact();
+        return true;
+      },
+      onDismissed: (_) => onDelete?.call(),
+      child: child,
     );
   }
 }

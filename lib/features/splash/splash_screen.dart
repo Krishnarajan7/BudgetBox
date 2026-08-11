@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/widgets/motion.dart';
 import '../../core/widgets/seal.dart';
 import '../../data/providers.dart';
 import '../lock/lock_page.dart';
@@ -27,7 +28,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late final Animation<double> _byline;
   late final Animation<double> _stamp;
 
-  static const _total = Duration(milliseconds: 2600);
+  static const _total = Duration(milliseconds: 2100);
 
   @override
   void initState() {
@@ -100,8 +101,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _InkReveal(
-                    progress: _inkReveal,
+                  InkReveal(
+                    animation: _inkReveal,
                     child: Text(
                       'BudgetBox',
                       style: LedgerType.heroAmount.copyWith(
@@ -153,28 +154,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Reveals its child left-to-right, like a pen stroke crossing the line.
-class _InkReveal extends StatelessWidget {
-  const _InkReveal({required this.progress, required this.child});
-
-  final Animation<double> progress;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: progress,
-      builder: (context, _) => ClipRect(
-        child: Align(
-          alignment: Alignment.centerLeft,
-          widthFactor: progress.value == 0 ? 0.001 : progress.value,
-          child: child,
         ),
       ),
     );

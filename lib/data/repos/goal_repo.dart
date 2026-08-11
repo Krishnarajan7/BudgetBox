@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 import 'txn_repo.dart';
 
 /// A goal and the real, tagged entries behind it — never a separate ledger,
@@ -57,21 +59,28 @@ class GoalRepo {
     DateTime? targetDate,
     int? monthlyPaise,
   }) {
-    return _db.into(_db.goals).insert(
-          GoalsCompanion.insert(
-            name: name,
-            targetPaise: targetPaise,
-            kind: kind,
-            targetDate:
-                Value(targetDate?.toIso8601String().split('T').first),
-            monthlyPaise: Value(monthlyPaise),
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.goals).insert(
+            GoalsCompanion.insert(
+              name: name,
+              targetPaise: targetPaise,
+              kind: kind,
+              targetDate:
+                  Value(targetDate?.toIso8601String().split('T').first),
+              monthlyPaise: Value(monthlyPaise),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.goal, id);
+      return id;
+    });
   }
 
   Future<void> archive(int id) {
-    return (_db.update(_db.goals)..where((g) => g.id.equals(id)))
-        .write(const GoalsCompanion(archived: Value(true)));
+    return _db.transaction(() async {
+      await (_db.update(_db.goals)..where((g) => g.id.equals(id)))
+          .write(const GoalsCompanion(archived: Value(true)));
+      await bbxSync.patch(SyncKinds.goal, id, {'archived': true});
+    });
   }
 
   /// Contribute to a goal: a real entry, tagged, that also moves the account.

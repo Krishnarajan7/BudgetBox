@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 
 import '../db.dart';
 import '../providers.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 
 final journalRepoProvider =
     Provider<JournalRepo>((ref) => JournalRepo(ref.watch(dbProvider)));
@@ -20,7 +22,8 @@ class JournalRepo {
   /// page if it doesn't exist yet; always bumps [JournalEntry.updatedAt].
   Future<void> upsert(String date, {String? body, int? mood}) async {
     final now = DateTime.now();
-    await _db.into(_db.journalEntries).insert(
+    await _db.transaction(() async {
+      await _db.into(_db.journalEntries).insert(
           JournalEntriesCompanion.insert(
             date: date,
             body: Value(body ?? ''),
@@ -35,6 +38,10 @@ class JournalRepo {
             ),
           ),
         );
+      // The journal is keyed by day both here and upstream, so the day is
+      // the id — no uuid7 involved.
+      await bbxSync.upsertDay(SyncKinds.journal, date);
+    });
   }
 
   /// One day's page, or null while it's still blank.

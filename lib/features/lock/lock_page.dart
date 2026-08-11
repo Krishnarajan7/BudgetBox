@@ -5,15 +5,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_auth/local_auth.dart';
 
+import '../../core/dates.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/widgets/motion.dart';
 import '../../core/widgets/seal.dart';
 import '../../data/providers.dart';
 import '../shell/shell.dart';
 
 /// The book's cover. Face ID fires on arrival when a PIN exists; the PIN pad
-/// is the fallback. A wrong PIN shakes and flashes the seal red; the right
-/// one turns the dots jama, stamps the chop, and the book opens through it.
+/// is the fallback. A wrong PIN shakes and says so in one line; the right one
+/// stamps the chop, and the book opens through it. Under the date the cover
+/// may whisper one true thing about yesterday — never a nag.
 class LockPage extends ConsumerStatefulWidget {
   const LockPage({super.key});
 
@@ -22,15 +25,25 @@ class LockPage extends ConsumerStatefulWidget {
 }
 
 class _LockPageState extends ConsumerState<LockPage>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final _entered = StringBuffer();
   bool _hasPin = false;
   bool _checked = false;
   bool _wrong = false;
   bool _success = false;
 
+  /// One quiet, factual line under the date — or nothing at all.
+  String? _whisper;
+
+  /// Built in [initState], never lazily: a cover that is never shaken (a
+  /// book with no PIN) would otherwise construct its controller inside
+  /// dispose, reaching for a ticker that is already gone.
   late final AnimationController _shake;
-  late final AnimationController _stamp;
+
+  /// The chop's landing (StampIn's own beat) and the pause after it, before
+  /// the shell fades up through the cover.
+  static const _stampBeat = Duration(milliseconds: 340);
+  static const _openBeat = Duration(milliseconds: 260);
 
   @override
   void initState() {
@@ -39,17 +52,13 @@ class _LockPageState extends ConsumerState<LockPage>
       vsync: this,
       duration: const Duration(milliseconds: 420),
     );
-    _stamp = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 380),
-    );
     _prepare();
+    _listenForWhispers();
   }
 
   @override
   void dispose() {
     _shake.dispose();
-    _stamp.dispose();
     super.dispose();
   }
 
@@ -62,6 +71,48 @@ class _LockPageState extends ConsumerState<LockPage>
       _checked = true;
     });
     if (hasPin) _tryBiometrics();
+  }
+
+  /// Read-only: did yesterday get closed, and how long has the journal been
+  /// quiet? One of those becomes the cover's line; neither is a reproach.
+  Future<void> _listenForWhispers() async {
+    final db = ref.read(dbProvider);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yKey = LedgerDates.dayKey(today.subtract(const Duration(days: 1)));
+
+    final sealed = await (db.select(
+      db.daySeals,
+    )..where((s) => s.date.equals(yKey))).getSingleOrNull();
+    if (!mounted) return;
+    if (sealed != null) {
+      setState(() => _whisper = 'yesterday, closed');
+      return;
+    }
+
+    // One row per day and only ever a few hundred — cheap to read whole.
+    final pages = await db.select(db.journalEntries).get();
+    if (!mounted) return;
+    DateTime? last;
+    for (final p in pages) {
+      if (p.body.trim().isEmpty) continue;
+      final d = DateTime.tryParse(p.date);
+      if (d == null) continue;
+      if (last == null || d.isAfter(last)) last = d;
+    }
+    if (last == null) return;
+    final gap = today.difference(DateTime(last.year, last.month, last.day)).inDays;
+    if (gap < 2) return;
+    if (mounted) setState(() => _whisper = '${_count(gap)} days unwritten');
+  }
+
+  /// Small numbers read better as words; past ten, the figure is kinder.
+  static String _count(int n) {
+    const words = [
+      'zero', 'one', 'two', 'three', 'four', 'five', //
+      'six', 'seven', 'eight', 'nine', 'ten',
+    ];
+    return n <= 10 ? words[n] : '$n';
   }
 
   Future<void> _tryBiometrics() async {
@@ -79,64 +130,49 @@ class _LockPageState extends ConsumerState<LockPage>
     }
   }
 
-  /// Success is a moment: dots turn jama, the chop stamps with a thud, and
-  /// the shell fades up through the cover.
+  /// Success is a moment: the chop stamps down with a thud (StampIn brings
+  /// its own haptic), a beat passes, and the shell fades up through the cover.
   Future<void> _celebrateAndOpen() async {
     if (_success) return;
     setState(() => _success = true);
-    HapticFeedback.mediumImpact();
-    await _stamp.forward();
-    HapticFeedback.lightImpact();
-    await Future<void>.delayed(const Duration(milliseconds: 260));
+    if (!Motion.reduced(context)) {
+      await Future<void>.delayed(_stampBeat + _openBeat);
+    }
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 420),
-        pageBuilder: (_, _, _) => const LedgerShell(),
-        transitionsBuilder: (_, anim, _, child) {
-          final curved =
-              CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-          return FadeTransition(
-            opacity: curved,
-            child: SlideTransition(
-              position: Tween(
-                begin: const Offset(0, 0.015),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(LedgerRoute(builder: (_) => const LedgerShell()));
   }
 
   Future<void> _digit(String d) async {
     if (_entered.length >= 4 || _success) return;
-    HapticFeedback.selectionClick();
     setState(() {
       _wrong = false;
       _entered.write(d);
     });
-    if (_entered.length == 4) {
-      final ok =
-          await ref.read(settingsRepoProvider).checkPin(_entered.toString());
-      if (!mounted) return;
-      if (ok) {
-        await _celebrateAndOpen();
-      } else {
-        HapticFeedback.heavyImpact();
-        setState(() => _wrong = true);
-        await _shake.forward(from: 0);
-        if (!mounted) return;
-        setState(() => _entered.clear());
-      }
+    if (_entered.length < 4) return;
+
+    final ok = await ref
+        .read(settingsRepoProvider)
+        .checkPin(_entered.toString());
+    if (!mounted) return;
+    if (ok) {
+      await _celebrateAndOpen();
+      return;
     }
+    HapticFeedback.heavyImpact();
+    setState(() => _wrong = true);
+    if (Motion.reduced(context)) {
+      await Future<void>.delayed(Motion.quick);
+    } else {
+      await _shake.forward(from: 0);
+    }
+    if (!mounted) return;
+    setState(() => _entered.clear());
   }
 
   void _backspace() {
     if (_entered.isEmpty || _success) return;
-    HapticFeedback.selectionClick();
     final s = _entered.toString();
     _entered.clear();
     _entered.write(s.substring(0, s.length - 1));
@@ -145,20 +181,14 @@ class _LockPageState extends ConsumerState<LockPage>
 
   static String _dateLine() {
     final now = DateTime.now();
-    const w = [
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-      'Friday', 'Saturday', 'Sunday',
-    ];
-    const m = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    return '${w[now.weekday - 1]}, ${now.day} ${m[now.month - 1]}';
+    return '${LedgerDates.weekdaysFull[now.weekday - 1]}, '
+        '${now.day} ${LedgerDates.monthsFull[now.month - 1]}';
   }
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
+    final whisper = _whisper;
     final cover = Scaffold(
       body: SafeArea(
         child: Column(
@@ -174,9 +204,24 @@ class _LockPageState extends ConsumerState<LockPage>
             Text(
               "Krish's book · ${_dateLine()}",
               textAlign: TextAlign.center,
-              style: LedgerType.bodyText
-                  .copyWith(fontSize: 13, color: c.inkFaint),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
             ),
+            if (whisper != null) ...[
+              const SizedBox(height: Gap.x1),
+              InkIn(
+                child: Text(
+                  whisper,
+                  textAlign: TextAlign.center,
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint.withValues(alpha: 0.75),
+                  ),
+                ),
+              ),
+            ],
             const Spacer(flex: 3),
             if (!_checked)
               const SizedBox.shrink()
@@ -202,16 +247,15 @@ class _LockPageState extends ConsumerState<LockPage>
   }
 
   /// Until a PIN exists (setup ritual or Settings), the cover just opens —
-  /// under Krish's own chop-mark.
+  /// under Krish's own chop-mark, which stamps on the way through.
   Widget _noPinYet(LedgerColors c) {
     return Column(
       children: [
-        _chop(c),
+        SizedBox(height: 52, child: Center(child: _chop(c))),
         const SizedBox(height: Gap.x4),
         Text(
           'Tap to open the book',
-          style:
-              LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+          style: LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
         ),
         const SizedBox(height: Gap.x1),
         Text(
@@ -225,39 +269,30 @@ class _LockPageState extends ConsumerState<LockPage>
     );
   }
 
+  /// Krish's mark. Idle it simply sits there; on the way in it lands.
   Widget _chop(LedgerColors c) {
-    return Seal(
-      size: 52,
-      child: Text(
-        'K',
-        style: LedgerType.wordmark.copyWith(fontSize: 24, color: c.seal),
-      ),
+    final mark = Text(
+      'K',
+      style: LedgerType.wordmark.copyWith(fontSize: 24, color: c.seal),
     );
+    return _success
+        ? StampIn(key: const ValueKey('lock-stamp'), size: 52, child: mark)
+        : Seal(size: 52, child: mark);
   }
 
   Widget _pinPad(LedgerColors c) {
+    // A wrong PIN is amber, not vermilion: the dots and their rims go warn
+    // and only the one line of verdict wears the seal.
+    final dotInk = _wrong ? c.warn : c.ink;
+    final dotRim = _wrong ? c.warn : c.inkFaint;
     return Column(
       children: [
-        // Success replaces the dots with the stamping chop; otherwise the
+        // Success replaces the dots with the landing chop; otherwise the
         // dots, which shake as one piece on a wrong PIN.
         SizedBox(
           height: 64,
           child: _success
-              ? AnimatedBuilder(
-                  animation: _stamp,
-                  builder: (context, child) {
-                    final v = Curves.easeOutBack.transform(_stamp.value);
-                    return Opacity(
-                      opacity: _stamp.value.clamp(0, 1),
-                      child: Transform.rotate(
-                        angle: 6 * (1 - v) * math.pi / 180,
-                        child: Transform.scale(
-                            scale: 1.6 - 0.6 * v, child: child),
-                      ),
-                    );
-                  },
-                  child: Center(child: _chop(c)),
-                )
+              ? Center(child: _chop(c))
               : AnimatedBuilder(
                   animation: _shake,
                   builder: (context, child) {
@@ -265,7 +300,9 @@ class _LockPageState extends ConsumerState<LockPage>
                     final t = _shake.value;
                     final dx = math.sin(t * math.pi * 5) * 14 * (1 - t);
                     return Transform.translate(
-                        offset: Offset(dx, 0), child: child);
+                      offset: Offset(dx, 0),
+                      child: child,
+                    );
                   },
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -274,23 +311,10 @@ class _LockPageState extends ConsumerState<LockPage>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           for (var i = 0; i < 4; i++)
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 140),
-                              curve: Curves.easeOut,
-                              width: 11,
-                              height: 11,
-                              margin: const EdgeInsets.symmetric(
-                                  horizontal: 7),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: i < _entered.length
-                                    ? (_wrong ? c.seal : c.ink)
-                                    : null,
-                                border: Border.all(
-                                  color: _wrong ? c.seal : c.inkFaint,
-                                  width: 1.2,
-                                ),
-                              ),
+                            _PinDot(
+                              filled: i < _entered.length,
+                              ink: dotInk,
+                              rim: dotRim,
                             ),
                         ],
                       ),
@@ -302,8 +326,10 @@ class _LockPageState extends ConsumerState<LockPage>
                           opacity: _wrong ? 1 : 0,
                           child: Text(
                             'Not it — try again',
-                            style: LedgerType.bodyText
-                                .copyWith(fontSize: 12, color: c.seal),
+                            style: LedgerType.bodyText.copyWith(
+                              fontSize: 12,
+                              color: c.seal,
+                            ),
                           ),
                         ),
                       ),
@@ -313,7 +339,7 @@ class _LockPageState extends ConsumerState<LockPage>
         ),
         const SizedBox(height: Gap.x4),
         AnimatedOpacity(
-          duration: const Duration(milliseconds: 200),
+          duration: Motion.quick,
           opacity: _success ? 0.25 : 1,
           child: IgnorePointer(
             ignoring: _success,
@@ -327,7 +353,7 @@ class _LockPageState extends ConsumerState<LockPage>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      for (final d in row) _key(c, d, () => _digit(d))
+                      for (final d in row) _key(c, d, () => _digit(d)),
                     ],
                   ),
                 Row(
@@ -335,8 +361,7 @@ class _LockPageState extends ConsumerState<LockPage>
                   children: [
                     _key(c, '', _tryBiometrics, icon: Icons.face_outlined),
                     _key(c, '0', () => _digit('0')),
-                    _key(c, '', _backspace,
-                        icon: Icons.backspace_outlined),
+                    _key(c, '', _backspace, icon: Icons.backspace_outlined),
                   ],
                 ),
               ],
@@ -347,11 +372,17 @@ class _LockPageState extends ConsumerState<LockPage>
     );
   }
 
-  Widget _key(LedgerColors c, String label, VoidCallback onTap,
-      {IconData? icon}) {
+  Widget _key(
+    LedgerColors c,
+    String label,
+    VoidCallback onTap, {
+    IconData? icon,
+  }) {
     return Padding(
       padding: const EdgeInsets.all(6),
-      child: _PressScale(
+      // The kit's press: every key visibly gives, with its own click.
+      child: Pressable(
+        scale: 0.90,
         onTap: onTap,
         child: Container(
           width: 64,
@@ -363,43 +394,75 @@ class _LockPageState extends ConsumerState<LockPage>
           ),
           child: icon != null
               ? Icon(icon, size: 20, color: c.inkFaint)
-              : Text(label,
-                  style:
-                      LedgerType.amount.copyWith(fontSize: 22, color: c.ink)),
+              : Text(
+                  label,
+                  style: LedgerType.amount.copyWith(fontSize: 22, color: c.ink),
+                ),
         ),
       ),
     );
   }
 }
 
-/// A key that visibly depresses — taps should feel like pressing something.
-class _PressScale extends StatefulWidget {
-  const _PressScale({required this.onTap, required this.child});
+/// One PIN dot. Filling is a small pop — the digit lands on the page rather
+/// than appearing on it.
+class _PinDot extends StatefulWidget {
+  const _PinDot({required this.filled, required this.ink, required this.rim});
 
-  final VoidCallback onTap;
-  final Widget child;
+  final bool filled;
+  final Color ink;
+  final Color rim;
 
   @override
-  State<_PressScale> createState() => _PressScaleState();
+  State<_PinDot> createState() => _PinDotState();
 }
 
-class _PressScaleState extends State<_PressScale> {
-  bool _down = false;
+class _PinDotState extends State<_PinDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _pop;
+
+  @override
+  void initState() {
+    super.initState();
+    _pop = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_PinDot old) {
+    super.didUpdateWidget(old);
+    if (widget.filled && !old.filled && !Motion.reduced(context)) {
+      _pop.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _down = true),
-      onTapCancel: () => setState(() => _down = false),
-      onTapUp: (_) {
-        setState(() => _down = false);
-        widget.onTap();
-      },
-      child: AnimatedScale(
-        scale: _down ? 0.90 : 1,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeOut,
-        child: widget.child,
+    return AnimatedBuilder(
+      animation: _pop,
+      builder: (context, child) => Transform.scale(
+        // Up and back down in one breath — a flash, never a bounce.
+        scale: 1 + math.sin(_pop.value * math.pi) * 0.4,
+        child: child,
+      ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Motion.curve,
+        width: 11,
+        height: 11,
+        margin: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: widget.filled ? widget.ink : null,
+          border: Border.all(color: widget.rim, width: 1.2),
+        ),
       ),
     );
   }

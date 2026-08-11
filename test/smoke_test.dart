@@ -58,21 +58,24 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
-    expect(find.text('Today'), findsWidgets);
+    expect(find.text('today'), findsWidgets);
     expect(find.byIcon(Icons.add), findsOneWidget);
 
     // Walk the spine: Book, Plans, Worth all render.
-    await tester.tap(find.text('Book'));
+    await tester.tap(find.text('book'));
     await tester.pumpAndSettle();
     expect(find.textContaining('heat'), findsOneWidget);
 
-    await tester.tap(find.text('Plans'));
+    await tester.tap(find.text('plans'));
     await tester.pumpAndSettle();
     expect(find.text('budgets'), findsOneWidget);
 
-    await tester.tap(find.text('Worth'));
+    await tester.tap(find.text('worth'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('net worth'), findsOneWidget);
+    // This book has no accounts, so Worth shows its blank page rather than a
+    // hero of nothing. Either way the book's own title is on it.
+    expect(find.text('Worth'), findsOneWidget);
+    expect(find.textContaining('Nothing on the shelf'), findsOneWidget);
 
     await drain(tester);
   });

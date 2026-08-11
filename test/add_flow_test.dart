@@ -1,6 +1,7 @@
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
+import 'package:budgetbox/data/repos/txn_repo.dart';
 import 'package:budgetbox/features/add/add_sheet.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -51,6 +52,8 @@ void main() {
     await tester.tap(find.text('8'));
     await tester.tap(find.text('0'));
     await tester.pump();
+    // Extra frames: the hero amount counts up over 160ms before it settles.
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('₹180'), findsOneWidget);
 
     // One chip tap for the category…
@@ -76,10 +79,12 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    for (final k in ['1', '2', '0', '＋', '6', '0']) {
+    for (final k in ['1', '2', '0', '+', '6', '0']) {
       await tester.tap(find.text(k));
     }
     await tester.pump();
+    // Extra frames: the hero amount counts up over 160ms before it settles.
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('₹180'), findsOneWidget);
     expect(find.text('120 + 60'), findsOneWidget);
 
@@ -100,6 +105,61 @@ void main() {
     expect(await db.select(db.txns).get(), isEmpty);
     // Sheet stays open, waiting for a real amount.
     expect(find.text('stamp'), findsOneWidget);
+  });
+
+  testWidgets('details opens a note that rides along with the entry',
+      (tester) async {
+    await tester.pumpWidget(host());
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // The note does not exist until asked for — the core path pays nothing.
+    expect(find.byKey(const ValueKey('add-note-field')), findsNothing);
+
+    await tester.tap(find.text('details ›'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('add-note-field')), 'split with A');
+
+    await tester.tap(find.text('4'));
+    await tester.tap(find.text('0'));
+    await tester.pump();
+    await tester.tap(find.text('stamp'));
+    await tester.pumpAndSettle();
+
+    final rows = await db.select(db.txns).get();
+    expect(rows.single.note, 'split with A');
+  });
+
+  testWidgets('the recents whisper writes a habitual amount in one tap',
+      (tester) async {
+    final food = await (db.select(db.categories)
+          ..where((c) => c.name.equals('Food & chai')))
+        .getSingle();
+    final account = await (db.select(db.accounts)..limit(1)).getSingle();
+    for (var i = 0; i < 2; i++) {
+      await TxnRepo(db).addExpense(
+        amountPaise: 12000,
+        accountId: account.id,
+        categoryId: food.id,
+        title: 'Chai',
+      );
+    }
+
+    await tester.pumpWidget(host());
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('Food & chai'));
+    await tester.pumpAndSettle();
+
+    // A whisper, not a step: it offers the figure the category usually takes.
+    expect(find.text('usually'), findsOneWidget);
+    await tester.tap(find.text('₹120'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    // Now in two places: the hero, and the whisper it came from.
+    expect(find.text('₹120'), findsNWidgets(2));
   });
 
   testWidgets('long-press stamps and stays open for the next entry',

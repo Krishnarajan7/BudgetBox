@@ -1,6 +1,12 @@
+import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/data/db.dart';
+import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/vault_repo.dart';
+import 'package:budgetbox/features/vault/vault_page.dart';
 import 'package:drift/native.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -79,5 +85,140 @@ void main() {
     expect(key2, isNotNull);
     final items = await again.readAll(key2!);
     expect(items.single.title, 'persists');
+  });
+
+  // ————— the page itself: opening, closing, and walking away —————
+
+  Widget host() => ProviderScope(
+        overrides: [
+          dbProvider.overrideWithValue(db),
+          vaultRepoProvider.overrideWithValue(vault),
+        ],
+        child: MaterialApp(
+          theme: ledgerDayTheme(),
+          home: const Scaffold(body: VaultPage()),
+        ),
+      );
+
+  /// Seals a book with one page in it, then opens the vault on screen.
+  Future<void> openOnScreen(WidgetTester tester) async {
+    final key = await vault.setUp('correct horse battery');
+    await vault.addItem(key, title: 'Aadhaar', body: '1234 5678 9012');
+    await tester.pumpWidget(host());
+    await tester.pumpAndSettle();
+    expect(find.text('Open the vault'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'correct horse battery');
+    await tester.tap(find.text('Open the vault'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Aadhaar', findRichText: true), findsOneWidget);
+  }
+
+  /// Let the page's own delayed work run out before the test ends.
+  Future<void> quiesce(WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+  }
+
+  testWidgets('the right passphrase stamps the vault open', (tester) async {
+    await openOnScreen(tester);
+    await quiesce(tester);
+  });
+
+  testWidgets('sealing runs its beat and puts the cover back', (tester) async {
+    await openOnScreen(tester);
+
+    await tester.tap(find.byIcon(Icons.lock_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Aadhaar', findRichText: true), findsNothing);
+    expect(find.text('Open the vault'), findsOneWidget);
+    await quiesce(tester);
+  });
+
+  testWidgets('backgrounding past the grace seals it and says so',
+      (tester) async {
+    await openOnScreen(tester);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    // Away long enough for the vault to shut itself, then back to the app.
+    await tester.pump(const Duration(seconds: 21));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Aadhaar', findRichText: true), findsNothing);
+    expect(find.text('Open the vault'), findsOneWidget);
+    expect(
+      find.textContaining('Sealed itself while you were away'),
+      findsOneWidget,
+    );
+    await quiesce(tester);
+  });
+
+  testWidgets('a glance away leaves the vault open', (tester) async {
+    await openOnScreen(tester);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump(const Duration(seconds: 2));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Aadhaar', findRichText: true), findsOneWidget);
+    await quiesce(tester);
+  });
+
+  testWidgets('burning from the list asks first, then takes the page',
+      (tester) async {
+    await openOnScreen(tester);
+
+    await tester.longPress(find.textContaining('Aadhaar', findRichText: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Burn it'));
+    await tester.pumpAndSettle();
+
+    // The confirm sheet stands between the tap and the loss.
+    expect(find.text('Burn this page?'), findsOneWidget);
+    await tester.tap(find.text('Burn it'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Aadhaar', findRichText: true), findsNothing);
+    expect(find.text('Open, and empty.'), findsOneWidget);
+    await quiesce(tester);
+  });
+
+  testWidgets('long-press copies the secret without opening the page',
+      (tester) async {
+    await openOnScreen(tester);
+
+    final clipped = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          final args = call.arguments as Map<Object?, Object?>;
+          clipped.add(args['text'] as String);
+        }
+        return null;
+      },
+    );
+
+    await tester.longPress(find.textContaining('Aadhaar', findRichText: true));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy the secret'), findsOneWidget);
+
+    await tester.tap(find.text('Copy the secret'));
+    await tester.pumpAndSettle();
+
+    expect(clipped, ['1234 5678 9012']);
+    expect(find.text('On the clipboard'), findsOneWidget);
+    // The editor never opened — the body stayed off screen.
+    expect(find.text('What stays sealed…'), findsNothing);
+
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
+    await quiesce(tester);
   });
 }

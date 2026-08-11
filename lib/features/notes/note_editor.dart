@@ -34,6 +34,13 @@ String relativeDayLabel(DateTime d) {
   return '${d.day} ${months[d.month - 1]}';
 }
 
+/// Whitespace-separated runs of ink — the meta line's word count.
+int wordCount(String text) {
+  final t = text.trim();
+  if (t.isEmpty) return 0;
+  return RegExp(r'\S+').allMatches(t).length;
+}
+
 /// One note, full page. No save button — the ink dries on its own: writes
 /// are debounced ~500ms and flushed when the page is left.
 class NoteEditorPage extends ConsumerStatefulWidget {
@@ -54,6 +61,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   late String _savedBody;
   late bool _pinned;
   late DateTime _updatedAt;
+
+  /// True for the 800ms after a copy — the icon wears a check, then
+  /// settles back on its own.
+  bool _copied = false;
+  int _copyStamp = 0;
 
   @override
   void initState() {
@@ -100,6 +112,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (mounted) setState(() => _updatedAt = DateTime.now());
   }
 
+  /// The whole page onto the clipboard: title, a blank line, the body. No
+  /// toast — the icon's brief check is the confirmation.
+  void _copyAll() {
+    final title = _title.text.trim();
+    final body = _body.text;
+    Clipboard.setData(
+      ClipboardData(text: title.isEmpty ? body : '$title\n\n$body'),
+    );
+    HapticFeedback.lightImpact();
+    final stamp = ++_copyStamp;
+    setState(() => _copied = true);
+    Future<void>.delayed(const Duration(milliseconds: 800), () {
+      if (mounted && stamp == _copyStamp) setState(() => _copied = false);
+    });
+  }
+
   void _togglePin() {
     HapticFeedback.lightImpact();
     setState(() => _pinned = !_pinned);
@@ -144,6 +172,28 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                         ),
                       ),
                     ),
+                    InkWell(
+                      onTap: _copyAll,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 150),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeOutCubic,
+                        child: _copied
+                            ? Icon(
+                                Icons.check,
+                                key: const ValueKey('copied'),
+                                size: 18,
+                                color: c.quill,
+                              )
+                            : Icon(
+                                Icons.copy_all_outlined,
+                                key: const ValueKey('copy'),
+                                size: 18,
+                                color: c.inkFaint,
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: Gap.x4),
                     InkWell(
                       onTap: _togglePin,
                       child: Icon(
@@ -202,10 +252,43 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   ),
                 ),
               ),
+              _metaLine(c),
               const SizedBox(height: Gap.x4),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The faint line at the page's foot: "312 words · edited to-day ·
+  /// began 14 Jul". The count refreshes on the same debounce as the ink.
+  Widget _metaLine(LedgerColors c) {
+    final n = wordCount(_body.text);
+    final style = LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.page, Gap.x2, Gap.page, 0),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$n',
+              style: LedgerType.amount.copyWith(
+                fontSize: 11,
+                color: c.inkFaint,
+              ),
+            ),
+            TextSpan(
+              text:
+                  ' word${n == 1 ? '' : 's'}'
+                  ' · edited ${relativeDayLabel(_updatedAt)}'
+                  ' · began ${relativeDayLabel(widget.note.createdAt)}',
+            ),
+          ],
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
       ),
     );
   }

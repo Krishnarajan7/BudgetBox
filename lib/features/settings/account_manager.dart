@@ -7,8 +7,11 @@ import '../../core/icons.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
+import '../../core/widgets/motion.dart';
+import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 
@@ -18,6 +21,10 @@ bool canRetireAccount(int balancePaise) => balancePaise == 0;
 
 String _kindLabel(AccountKind kind) =>
     kind == AccountKind.upi ? 'UPI' : kind.name;
+
+/// What an account is worth to the footing: a liability counts against it.
+int _signed(Account a) =>
+    a.kind == AccountKind.liability ? -a.balancePaise : a.balancePaise;
 
 /// Banks, cash, cards — where the money sits, in the owner's words.
 class AccountManagerPage extends ConsumerStatefulWidget {
@@ -33,12 +40,60 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
   final _seen = <int>{};
   bool _primed = false;
 
-  Future<void> _openSheet({Account? existing}) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
+  /// The order the owner's finger just chose, kept until the write lands.
+  List<int>? _localOrder;
+
+  /// Lines on their way off the page: struck through while the ink dries.
+  final _leaving = <int>{};
+
+  List<Account> _ordered(List<Account> accounts) {
+    final wanted = _localOrder;
+    if (wanted == null) return accounts;
+    final byId = {for (final a in accounts) a.id: a};
+    if (wanted.length != accounts.length ||
+        !wanted.toSet().containsAll(byId.keys)) {
+      return accounts;
+    }
+    return [for (final id in wanted) byId[id]!];
+  }
+
+  Future<void> _reorder(List<Account> accounts, int oldIndex, int newIndex) async {
+    final next = [...accounts];
+    next.insert(newIndex, next.removeAt(oldIndex));
+    HapticFeedback.lightImpact();
+    setState(() => _localOrder = [for (final a in next) a.id]);
+    final db = ref.read(dbProvider);
+    await db.batch((b) {
+      for (final (i, a) in next.indexed) {
+        b.update(
+          db.accounts,
+          AccountsCompanion(sortOrder: Value(i)),
+          where: ($AccountsTable t) => t.id.equals(a.id),
+        );
+      }
+    });
+  }
+
+  /// The line is struck first and only then leaves — a retirement is
+  /// something you watch happen.
+  Future<void> _retire(Account account) async {
+    setState(() => _leaving.add(account.id));
+    if (!Motion.reduced(context)) {
+      await Future<void>.delayed(const Duration(milliseconds: 320));
+    }
+    final db = ref.read(dbProvider);
+    await (db.update(db.accounts)..where((a) => a.id.equals(account.id)))
+        .write(const AccountsCompanion(archived: Value(true)));
+    if (mounted) setState(() => _leaving.remove(account.id));
+  }
+
+  Future<void> _openSheet({Account? existing}) async {
+    final verdict = await showLedgerSheet<String>(
+      context,
       builder: (context) => _AccountSheet(existing: existing),
     );
+    if (!mounted) return;
+    if (verdict == 'retire' && existing != null) await _retire(existing);
   }
 
   @override
@@ -48,7 +103,8 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
 
     return ModuleScaffold(
       title: 'Accounts',
-      trailing: InkWell(
+      trailing: Pressable(
+        scale: 0.9,
         onTap: () => _openSheet(),
         child: Padding(
           padding: const EdgeInsets.all(Gap.x1),
@@ -58,9 +114,12 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
       child: StreamBuilder<List<Account>>(
         stream: repo.watchAll(),
         builder: (context, snapshot) {
-          final accounts = snapshot.data ?? const <Account>[];
+          final accounts = _ordered(snapshot.data ?? const <Account>[]);
+          final firstPaint = !_primed && snapshot.hasData;
           final fresh = <int>{
-            if (_primed)
+            if (firstPaint)
+              for (final a in accounts) a.id
+            else if (_primed)
               for (final a in accounts)
                 if (!_seen.contains(a.id)) a.id,
           };
@@ -69,37 +128,61 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
             _seen.addAll(accounts.map((a) => a.id));
           }
 
+          if (snapshot.hasData && accounts.isEmpty) {
+            return const EmptyPage(
+              line: 'Nowhere for the money to sit yet.',
+              sub: 'The plus above opens the first one — '
+                  'rough is fine, all of it can be corrected.',
+            );
+          }
+
+          final footing =
+              accounts.fold(0, (int sum, a) => sum + _signed(a));
+
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
             children: [
               const SizedBox(height: Gap.x3),
-              if (snapshot.hasData && accounts.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: Gap.x8),
-                  child: Text(
-                    'No accounts yet. The book needs somewhere '
-                    'for the money to sit.',
-                    style: LedgerType.bodyText.copyWith(color: c.inkFaint),
-                  ),
-                )
-              else
-                for (final a in accounts)
-                  _Entrance(
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                onReorderItem: (from, to) => _reorder(accounts, from, to),
+                proxyDecorator: (child, index, animation) => Material(
+                  color: c.paperRaised,
+                  elevation: 3,
+                  shadowColor: c.ink.withValues(alpha: 0.25),
+                  child: child,
+                ),
+                itemCount: accounts.length,
+                itemBuilder: (context, i) {
+                  final a = accounts[i];
+                  return InkIn(
                     key: ValueKey('acct-${a.id}'),
-                    animate: fresh.contains(a.id),
+                    play: fresh.contains(a.id),
+                    delay: firstPaint
+                        ? Duration(milliseconds: 24 * i)
+                        : Duration.zero,
                     child: _AccountRow(
                       account: a,
+                      index: i,
+                      leaving: _leaving.contains(a.id),
                       onTap: () => _openSheet(existing: a),
                     ),
-                  ),
-              const SizedBox(height: Gap.x4),
-              if (accounts.isNotEmpty)
+                  );
+                },
+              ),
+              if (accounts.isNotEmpty) ...[
+                _Footing(paise: footing),
+                const SizedBox(height: Gap.x4),
                 Text(
-                  'Balances move with the book. Tap a line to rename it '
-                  'or change what kind of thing it is.',
+                  'Balances move with the book. Drag by the grip to put them '
+                  'in your order, tap a line to rename it or change what kind '
+                  'of thing it is.',
                   style: LedgerType.bodyText
                       .copyWith(fontSize: 12, color: c.inkFaint),
                 ),
+              ],
               const SizedBox(height: Gap.x8),
             ],
           );
@@ -109,54 +192,103 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
   }
 }
 
-/// One ruled line: the kind's mark, the name over a faint kind label,
-/// the balance in mono holding the right edge.
-class _AccountRow extends StatelessWidget {
-  const _AccountRow({required this.account, required this.onTap});
+/// The column's total, ruled off in ink like a page that has been added up.
+class _Footing extends StatelessWidget {
+  const _Footing({required this.paise});
 
-  final Account account;
-  final VoidCallback onTap;
+  final int paise;
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: c.rule)),
+    return Container(
+      margin: const EdgeInsets.only(top: Gap.x3),
+      padding: const EdgeInsets.only(top: Gap.x2),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: c.ink)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            'the footing',
+            style: LedgerType.label.copyWith(color: c.inkFaint),
+          ),
+          const Spacer(),
+          CountUp(
+            value: paise,
+            format: (p) => Inr.format(p),
+            style: LedgerType.amountTotal.copyWith(color: c.ink),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One ruled line: the kind's mark, the name over its nature, the last few
+/// readings as a whisper, the balance in mono holding the right edge.
+class _AccountRow extends ConsumerWidget {
+  const _AccountRow({
+    required this.account,
+    required this.index,
+    required this.leaving,
+    required this.onTap,
+  });
+
+  final Account account;
+  final int index;
+  final bool leaving;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    final owed = account.kind == AccountKind.liability;
+    return AnimatedOpacity(
+      duration: Motion.quick,
+      curve: Motion.curve,
+      opacity: leaving ? 0.3 : 1,
+      child: LedgerLine(
+        mark: Icon(
+          LedgerIcons.account[account.kind.name] ?? LedgerIcons.fallback,
+          size: 15,
+          color: c.inkFaint,
         ),
-        child: Row(
+        title: account.name,
+        detail: _kindLabel(account.kind),
+        struck: leaving,
+        onTap: onTap,
+        amountWidget: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              LedgerIcons.account[account.kind.name] ?? LedgerIcons.fallback,
-              size: 16,
-              color: c.inkFaint,
+            SizedBox(
+              width: 44,
+              height: 16,
+              child: FutureBuilder<List<double>>(
+                key: ValueKey('spark-${account.id}-${account.balancePaise}'),
+                future: ref.read(accountRepoProvider).spark(account.id),
+                builder: (context, spark) =>
+                    Sparkline(spark.data ?? const <double>[]),
+              ),
             ),
             const SizedBox(width: Gap.x3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    account.name,
-                    style: LedgerType.bodyText.copyWith(color: c.ink),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    _kindLabel(account.kind),
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 11, color: c.inkFaint),
-                  ),
-                ],
+            // Settles to the new figure after an entry lands, never snaps.
+            CountUp(
+              value: owed ? -account.balancePaise : account.balancePaise,
+              format: (p) => Inr.format(p),
+              style: LedgerType.amount.copyWith(
+                color: leaving ? c.inkFaint : c.ink,
+                decoration: leaving ? TextDecoration.lineThrough : null,
               ),
             ),
             const SizedBox(width: Gap.x2),
-            Text(
-              Inr.format(account.balancePaise),
-              style: LedgerType.amount.copyWith(color: c.ink),
+            ReorderableDragStartListener(
+              index: index,
+              child: Icon(
+                Icons.drag_indicator,
+                size: 16,
+                color: c.inkFaint.withValues(alpha: 0.55),
+              ),
             ),
           ],
         ),
@@ -216,14 +348,12 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _retire() async {
+  /// The page strikes the line out before the write lands.
+  void _retire() {
     final existing = widget.existing;
     if (existing == null || !canRetireAccount(existing.balancePaise)) return;
     HapticFeedback.mediumImpact();
-    final db = ref.read(dbProvider);
-    await (db.update(db.accounts)..where((a) => a.id.equals(existing.id)))
-        .write(const AccountsCompanion(archived: Value(true)));
-    if (mounted) Navigator.of(context).pop();
+    Navigator.of(context).pop('retire');
   }
 
   @override
@@ -236,7 +366,6 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
       padding: EdgeInsets.only(
         left: Gap.page,
         right: Gap.page,
-        top: Gap.x4,
         bottom: MediaQuery.of(context).viewInsets.bottom + Gap.x4,
       ),
       child: ConstrainedBox(
@@ -248,6 +377,7 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const SheetHandle(),
               Text(
                 adding
                     ? 'Somewhere new for the money to sit.'
@@ -299,7 +429,7 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
               const SizedBox(height: Gap.x4),
               if (adding) ...[
                 Text(
-                  'opening balance',
+                  'opening balance, in rupees',
                   style: LedgerType.label.copyWith(color: c.inkFaint),
                 ),
                 Container(
@@ -316,9 +446,6 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
                     style: LedgerType.amountTotal
                         .copyWith(fontSize: 22, color: c.ink),
                     decoration: InputDecoration(
-                      prefixText: '₹',
-                      prefixStyle: LedgerType.amountTotal
-                          .copyWith(fontSize: 22, color: c.inkFaint),
                       hintText: '0',
                       hintStyle: LedgerType.amountTotal
                           .copyWith(fontSize: 22, color: c.inkFaint),
@@ -336,10 +463,24 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
               const SizedBox(height: Gap.x4),
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _name,
-                builder: (context, value, _) => FilledButton(
-                  onPressed: value.text.trim().isEmpty ? null : _keep,
-                  child: const Text('Keep it'),
-                ),
+                builder: (context, value, _) {
+                  final ready = value.text.trim().isNotEmpty;
+                  return AnimatedOpacity(
+                    duration: Motion.quick,
+                    curve: Motion.curve,
+                    opacity: ready ? 1 : 0.5,
+                    child: FilledButton(
+                      onPressed: ready ? _keep : null,
+                      child: AnimatedSwitcher(
+                        duration: Motion.quick,
+                        child: Text(
+                          ready ? 'Keep it' : 'give it a name first',
+                          key: ValueKey(ready),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
               if (!adding)
                 Center(
@@ -359,32 +500,6 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Fade + small slide for a line that has just been written.
-class _Entrance extends StatelessWidget {
-  const _Entrance({super.key, required this.animate, required this.child});
-
-  final bool animate;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!animate) return child;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
-      child: child,
-      builder: (context, t, child) => Opacity(
-        opacity: t,
-        child: Transform.translate(
-          offset: Offset(0, 8 * (1 - t)),
-          child: child,
         ),
       ),
     );

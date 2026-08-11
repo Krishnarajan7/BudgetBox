@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 
 /// A title suggestion carrying the category it was last filed under —
 /// type "sar", get "Saravana Bhavan" + Food & chai for free.
@@ -103,6 +105,9 @@ class TxnRepo {
           .getSingle();
       await _applyBalance(row, direction: 1);
       await _log(row, ActivityAction.created);
+      // Same transaction as the write itself: the entry and the promise to
+      // send it commit together, or neither of them happened.
+      await bbxSync.upsert(SyncKinds.txn, id);
       return id;
     });
   }
@@ -114,6 +119,7 @@ class TxnRepo {
       await _applyBalance(row, direction: -1);
       await _log(row, ActivityAction.deleted);
       await (_db.delete(_db.txns)..where((t) => t.id.equals(id))).go();
+      await bbxSync.remove(SyncKinds.txn, id);
     });
   }
 
@@ -150,6 +156,7 @@ class TxnRepo {
           .getSingle();
       await _applyBalance(fresh, direction: 1);
       await _log(fresh, ActivityAction.edited);
+      await bbxSync.upsert(SyncKinds.txn, id);
     });
   }
 

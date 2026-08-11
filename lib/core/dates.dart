@@ -28,4 +28,27 @@ abstract final class LedgerDates {
     final b = (s.year + 1) % 100;
     return 'FY ${a.toString().padLeft(2, '0')}-${b.toString().padLeft(2, '0')}';
   }
+
+  static const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static const monthsFull = [
+    'January', 'February', 'March', 'April', 'May', 'June', //
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  static const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  static const weekdaysFull = [
+    'Monday', 'Tuesday', 'Wednesday', 'Thursday', //
+    'Friday', 'Saturday', 'Sunday',
+  ];
+
+  /// '14 Jul' — the book's date form, DD MMM, never MM/DD.
+  static String ddMmm(DateTime d) => '${d.day} ${months[d.month - 1]}';
+
+  /// 'Wed 30 Jul'
+  static String dayLabel(DateTime d) => '${weekdays[d.weekday - 1]} ${ddMmm(d)}';
 }

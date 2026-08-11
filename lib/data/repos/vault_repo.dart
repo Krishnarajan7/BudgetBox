@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../db.dart';
 import '../providers.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 
 /// The sealed book. True encryption: AES-GCM-256 under a key derived from a
 /// vault passphrase (PBKDF2-SHA256). Rows are ciphertext; titles and bodies
@@ -82,28 +84,41 @@ class VaultRepo {
   Future<int> addItem(SecretKey key,
       {required String title, required String body}) async {
     final sealed = await _seal(title: title, body: body, key: key);
-    return _db.into(_db.vaultItems).insert(
-          VaultItemsCompanion.insert(
-            nonce: sealed.nonceB64,
-            cipher: sealed.cipherB64,
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.vaultItems).insert(
+            VaultItemsCompanion.insert(
+              nonce: sealed.nonceB64,
+              cipher: sealed.cipherB64,
+            ),
+          );
+      // Only the nonce and the ciphertext ever leave: the queue carries the
+      // same opaque blob the table holds, and the passphrase never moves.
+      await bbxSync.upsert(SyncKinds.vault, id);
+      return id;
+    });
   }
 
   Future<void> updateItem(SecretKey key, int id,
       {required String title, required String body}) async {
     final sealed = await _seal(title: title, body: body, key: key);
-    await (_db.update(_db.vaultItems)..where((v) => v.id.equals(id))).write(
-      VaultItemsCompanion(
-        nonce: Value(sealed.nonceB64),
-        cipher: Value(sealed.cipherB64),
-        updatedAt: Value(DateTime.now()),
-      ),
-    );
+    await _db.transaction(() async {
+      await (_db.update(_db.vaultItems)..where((v) => v.id.equals(id))).write(
+        VaultItemsCompanion(
+          nonce: Value(sealed.nonceB64),
+          cipher: Value(sealed.cipherB64),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await bbxSync.upsert(SyncKinds.vault, id);
+    });
   }
 
-  Future<void> deleteItem(int id) =>
-      (_db.delete(_db.vaultItems)..where((v) => v.id.equals(id))).go();
+  Future<void> deleteItem(int id) {
+    return _db.transaction(() async {
+      await (_db.delete(_db.vaultItems)..where((v) => v.id.equals(id))).go();
+      await bbxSync.remove(SyncKinds.vault, id);
+    });
+  }
 
   /// Decrypts everything (vaults are small). Throws on a wrong key — which
   /// cannot happen through [unlock]'s front door.

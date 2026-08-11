@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 
 import '../../core/dates.dart';
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 import 'txn_repo.dart';
 
 /// A recurring charge with its next landing date resolved.
@@ -37,23 +39,31 @@ class RecurringRepo {
     int everyMonths = 1,
   }) {
     final next = nextDate(dayOfMonth, everyMonths, DateTime.now());
-    return _db.into(_db.recurrings).insert(
-          RecurringsCompanion.insert(
-            title: title,
-            amountPaise: amountPaise,
-            accountId: accountId,
-            dayOfMonth: dayOfMonth,
-            kind: kind,
-            categoryId: Value(categoryId),
-            everyMonths: Value(everyMonths),
-            nextDue: LedgerDates.dayKey(next),
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.recurrings).insert(
+            RecurringsCompanion.insert(
+              title: title,
+              amountPaise: amountPaise,
+              accountId: accountId,
+              dayOfMonth: dayOfMonth,
+              kind: kind,
+              categoryId: Value(categoryId),
+              everyMonths: Value(everyMonths),
+              nextDue: LedgerDates.dayKey(next),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.recurring, id);
+      return id;
+    });
   }
 
   Future<void> stop(int id) {
-    return (_db.update(_db.recurrings)..where((r) => r.id.equals(id)))
-        .write(const RecurringsCompanion(active: Value(false)));
+    return _db.transaction(() async {
+      await (_db.update(_db.recurrings)..where((r) => r.id.equals(id)))
+          .write(const RecurringsCompanion(active: Value(false)));
+      // `active` rides the full body, so stopping a charge is a plain PUT.
+      await bbxSync.upsert(SyncKinds.recurring, id);
+    });
   }
 
   /// The next time this charge lands on or after [from], with the day of
@@ -153,8 +163,11 @@ class RecurringRepo {
       r.everyMonths,
       DateTime.now().add(const Duration(days: 1)),
     );
-    await (_db.update(_db.recurrings)..where((x) => x.id.equals(r.id)))
-        .write(RecurringsCompanion(nextDue: Value(LedgerDates.dayKey(next))));
+    await _db.transaction(() async {
+      await (_db.update(_db.recurrings)..where((x) => x.id.equals(r.id)))
+          .write(RecurringsCompanion(nextDue: Value(LedgerDates.dayKey(next))));
+      await bbxSync.upsert(SyncKinds.recurring, r.id);
+    });
     return id;
   }
 

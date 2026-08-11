@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../db.dart';
 import '../providers.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 
 final focusRepoProvider =
     Provider<FocusRepo>((ref) => FocusRepo(ref.watch(dbProvider)));
@@ -23,15 +25,19 @@ class FocusRepo {
     required bool completed,
     String? label,
   }) {
-    return _db.into(_db.focusSessions).insert(
-          FocusSessionsCompanion.insert(
-            startedAt: startedAt,
-            minutes: minutes,
-            kind: kind,
-            completed: Value(completed),
-            label: Value(label),
-          ),
-        );
+    return _db.transaction(() async {
+      final id = await _db.into(_db.focusSessions).insert(
+            FocusSessionsCompanion.insert(
+              startedAt: startedAt,
+              minutes: minutes,
+              kind: kind,
+              completed: Value(completed),
+              label: Value(label),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.focus, id);
+      return id;
+    });
   }
 
   /// Every session started on [day]'s local date, earliest first — the page

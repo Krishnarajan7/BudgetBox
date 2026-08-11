@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../features/shelf/shelf_overlay.dart';
 import '../tokens.dart';
 import '../typography.dart';
+import 'motion.dart';
 
 /// The frame every non-Money book lives in: module name up top (tap to open
 /// the shelf and switch books), back always available, content below. Same
@@ -34,14 +35,17 @@ class ModuleScaffold extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(Gap.page, Gap.x2, Gap.page, 0),
               child: Row(
                 children: [
-                  InkWell(
+                  Pressable(
+                    scale: 0.9,
                     onTap: () => Navigator.of(context).pop(),
                     child: Icon(Icons.arrow_back, size: 18, color: c.inkFaint),
                   ),
                   const SizedBox(width: Gap.x3),
-                  InkWell(
+                  Pressable(
+                    scale: 0.97,
                     onTap: () => showShelf(context),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(title,
                             style: LedgerType.wordmark.copyWith(color: c.ink)),

@@ -1,9 +1,48 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// The motion kit. Every screen draws from these four so the whole book
-/// moves with one hand: things press, numbers settle, lines ink in, charts
-/// draw themselves. Nothing bounces; nothing celebrates without cause.
+/// The motion kit. Every screen draws from these so the whole book moves
+/// with one hand: things press, numbers settle, lines ink in, charts draw
+/// themselves, pages turn. Nothing bounces; nothing celebrates without cause.
+
+/// The book's one hand: a single gentle spring for everything that moves.
+abstract final class Motion {
+  static const Duration quick = Duration(milliseconds: 180);
+  static const Duration spring = Duration(milliseconds: 250);
+  static const Duration settle = Duration(milliseconds: 550);
+  static const Duration draw = Duration(milliseconds: 700);
+  static const Curve curve = Curves.easeOutCubic;
+
+  /// True when the system asks for reduced motion — every entrance and
+  /// flourish in the kit collapses to an instant render.
+  static bool reduced(BuildContext context) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+}
+
+/// Pushes the next screen like a page turning, not a Material zoom: the new
+/// page fades in and rises a hair on the book's one spring.
+class LedgerRoute<T> extends PageRouteBuilder<T> {
+  LedgerRoute({required WidgetBuilder builder, super.fullscreenDialog})
+      : super(
+          transitionDuration: Motion.spring,
+          reverseTransitionDuration: Motion.quick,
+          pageBuilder: (context, anim, secondary) => builder(context),
+          transitionsBuilder: (context, anim, _, child) {
+            final eased =
+                CurvedAnimation(parent: anim, curve: Motion.curve);
+            return FadeTransition(
+              opacity: eased,
+              child: SlideTransition(
+                position: Tween(
+                  begin: const Offset(0, 0.015),
+                  end: Offset.zero,
+                ).animate(eased),
+                child: child,
+              ),
+            );
+          },
+        );
+}
 
 /// Universal press affordance: anything tappable visibly gives.
 class Pressable extends StatefulWidget {
@@ -86,11 +125,14 @@ class _CountUpState extends State<CountUp> {
 
   @override
   Widget build(BuildContext context) {
+    if (Motion.reduced(context)) {
+      return Text(widget.format(widget.value), style: widget.style);
+    }
     return TweenAnimationBuilder<double>(
       key: ValueKey(widget.value),
       tween: Tween(begin: _from.toDouble(), end: widget.value.toDouble()),
       duration: widget.duration,
-      curve: Curves.easeOutCubic,
+      curve: Motion.curve,
       builder: (context, v, _) =>
           Text(widget.format(v.round()), style: widget.style),
     );
@@ -132,15 +174,80 @@ class _InkInState extends State<InkIn> {
 
   @override
   Widget build(BuildContext context) {
+    if (Motion.reduced(context)) return widget.child;
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOut,
       opacity: _shown ? 1 : 0,
       child: AnimatedSlide(
         duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
+        curve: Motion.curve,
         offset: _shown ? Offset.zero : const Offset(0, 0.12),
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Reveals its child left-to-right, like a pen stroke crossing the line.
+/// Give it an [animation] to drive it, or leave it to drive itself once on
+/// entry after [delay].
+class InkReveal extends StatefulWidget {
+  const InkReveal({
+    super.key,
+    required this.child,
+    this.animation,
+    this.delay = Duration.zero,
+    this.duration = const Duration(milliseconds: 420),
+  });
+
+  final Widget child;
+  final Animation<double>? animation;
+  final Duration delay;
+  final Duration duration;
+
+  @override
+  State<InkReveal> createState() => _InkRevealState();
+}
+
+class _InkRevealState extends State<InkReveal>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _own;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animation == null) {
+      _own = AnimationController(vsync: this, duration: widget.duration);
+      Future<void>.delayed(widget.delay, () {
+        if (!mounted) return;
+        if (Motion.reduced(context)) {
+          _own!.value = 1;
+        } else {
+          _own!.forward();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _own?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final anim = widget.animation ??
+        CurvedAnimation(parent: _own!, curve: const Cubic(0.6, 0, 0.2, 1));
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (context, _) => ClipRect(
+        child: Align(
+          alignment: Alignment.centerLeft,
+          widthFactor: anim.value == 0 ? 0.001 : anim.value,
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -160,10 +267,11 @@ class DrawIn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (Motion.reduced(context)) return builder(context, 1);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: duration,
-      curve: Curves.easeOutCubic,
+      curve: Motion.curve,
       builder: (context, v, _) => builder(context, v),
     );
   }

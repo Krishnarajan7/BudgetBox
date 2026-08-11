@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/widgets/motion.dart';
 import '../add/add_sheet.dart';
 import '../add/fab_menu.dart';
 import '../book/book_page.dart';
@@ -10,7 +11,7 @@ import '../plans/plans_page.dart';
 import '../today/today_page.dart';
 import '../worth/worth_page.dart';
 
-/// The book's spine: Today · Book · [+] · Plans · Worth.
+/// The book's spine: today · book · [+] · plans · worth.
 class LedgerShell extends StatefulWidget {
   const LedgerShell({super.key});
 
@@ -31,10 +32,16 @@ class _LedgerShellState extends State<LedgerShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(bottom: false, child: _pages[_index]),
+      body: SafeArea(
+        bottom: false,
+        child: _PageTurn(index: _index, children: _pages),
+      ),
       bottomNavigationBar: _LedgerNav(
         index: _index,
-        onSelect: (i) => setState(() => _index = i),
+        onSelect: (i) {
+          if (i != _index) HapticFeedback.selectionClick();
+          setState(() => _index = i);
+        },
         onAdd: () {
           HapticFeedback.lightImpact();
           showAddSheet(context);
@@ -44,6 +51,87 @@ class _LedgerShellState extends State<LedgerShell> {
           showFabMenu(context);
         },
       ),
+    );
+  }
+}
+
+/// Turns to another page of the book without closing the old one: every page
+/// stays alive (its numbers keep their place; nothing re-counts from zero),
+/// only paint and tickers rest while a page is face-down.
+class _PageTurn extends StatefulWidget {
+  const _PageTurn({required this.index, required this.children});
+
+  final int index;
+  final List<Widget> children;
+
+  @override
+  State<_PageTurn> createState() => _PageTurnState();
+}
+
+class _PageTurnState extends State<_PageTurn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.quick,
+    value: 1,
+  );
+  int _leaving = -1;
+
+  @override
+  void didUpdateWidget(_PageTurn old) {
+    super.didUpdateWidget(old);
+    if (old.index != widget.index) {
+      _leaving = old.index;
+      if (Motion.reduced(context)) {
+        _c.value = 1;
+        _leaving = -1;
+      } else {
+        _c.forward(from: 0).whenComplete(() {
+          if (mounted) setState(() => _leaving = -1);
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = Motion.curve.transform(_c.value);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final (i, page) in widget.children.indexed)
+              if (i == widget.index)
+                Opacity(
+                  opacity: t,
+                  child: Transform.translate(
+                    offset: Offset(0, 5 * (1 - t)),
+                    child: page,
+                  ),
+                )
+              else
+                Offstage(
+                  offstage: i != _leaving,
+                  child: TickerMode(
+                    enabled: false,
+                    child: IgnorePointer(
+                      child: i == _leaving
+                          ? Opacity(opacity: 1 - t, child: page)
+                          : page,
+                    ),
+                  ),
+                ),
+          ],
+        );
+      },
     );
   }
 }
@@ -62,10 +150,10 @@ class _LedgerNav extends StatelessWidget {
   final VoidCallback onAddLong;
 
   static const _items = [
-    (Icons.today_outlined, 'Today'),
-    (Icons.menu_book_outlined, 'Book'),
-    (Icons.space_dashboard_outlined, 'Plans'),
-    (Icons.show_chart, 'Worth'),
+    (Icons.today_outlined, 'today'),
+    (Icons.menu_book_outlined, 'book'),
+    (Icons.fact_check_outlined, 'plans'),
+    (Icons.show_chart, 'worth'),
   ];
 
   @override
@@ -86,7 +174,8 @@ class _LedgerNav extends StatelessWidget {
               _tab(context, 1),
               Expanded(
                 child: Center(
-                  child: GestureDetector(
+                  child: Pressable(
+                    scale: 0.9,
                     onTap: onAdd,
                     onLongPress: onAddLong,
                     child: Container(
@@ -95,13 +184,6 @@ class _LedgerNav extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: c.quill,
                         borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: c.ink.withValues(alpha: 0.28),
-                            offset: const Offset(0, 3),
-                            blurRadius: 0,
-                          ),
-                        ],
                       ),
                       child: Icon(Icons.add, color: c.paper, size: 28),
                     ),
@@ -122,17 +204,38 @@ class _LedgerNav extends StatelessWidget {
     final selected = index == i;
     final (icon, label) = _items[i];
     return Expanded(
-      child: InkWell(
+      child: Pressable(
+        haptic: false,
+        scale: 0.97,
         onTap: () => onSelect(i),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 20, color: selected ? c.ink : c.inkFaint),
+            AnimatedScale(
+              scale: selected ? 1.0 : 0.92,
+              duration: Motion.quick,
+              curve: Motion.curve,
+              child: Icon(icon,
+                  size: 20, color: selected ? c.ink : c.inkFaint),
+            ),
             const SizedBox(height: 2),
-            Text(
-              label,
+            AnimatedDefaultTextStyle(
+              duration: Motion.quick,
               style: LedgerType.label.copyWith(
                 color: selected ? c.ink : c.inkFaint,
+              ),
+              child: Text(label),
+            ),
+            const SizedBox(height: 3),
+            // A 3px underline dot marks the open page — the spine's ribbon.
+            AnimatedContainer(
+              duration: Motion.quick,
+              curve: Motion.curve,
+              width: selected ? 12 : 0,
+              height: 2.5,
+              decoration: BoxDecoration(
+                color: c.quill,
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
           ],
@@ -141,4 +244,3 @@ class _LedgerNav extends StatelessWidget {
     );
   }
 }
-

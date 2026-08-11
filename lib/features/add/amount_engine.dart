@@ -87,6 +87,16 @@ class AmountEngine {
     }
   }
 
+  /// Writes a whole figure in at once, replacing whatever was there — the
+  /// recents whisper taps this, so it must land exactly, not append.
+  void setPaise(int paise) {
+    clear();
+    if (paise <= 0) return;
+    _current = paise % 100 == 0
+        ? (paise ~/ 100).toString()
+        : (paise / 100).toStringAsFixed(2);
+  }
+
   void clear() {
     _current = '';
     _accumulated = null;
