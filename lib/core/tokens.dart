@@ -47,28 +47,35 @@ class LedgerColors extends ThemeExtension<LedgerColors> {
   /// Soft wash of [quill] for selected chips and highlights.
   Color get quillSoft => quill.withValues(alpha: 0.12);
 
+  /// The book opened in daylight: soft paper-white, iron ink, the lightning
+  /// deepened so it still strikes against a bright page. Same identity as
+  /// night, brighter room.
   static const day = LedgerColors(
-    paper: Color(0xFFF2EFE8),
-    paperRaised: Color(0xFFFAF8F3),
-    ink: Color(0xFF1B2033),
-    inkFaint: Color(0xFF616682),
-    rule: Color(0xFFDDD8CA),
-    quill: Color(0xFF2F4AB8),
-    seal: Color(0xFFC6402E),
-    jama: Color(0xFF2E7D52),
-    warn: Color(0xFFA97B14),
+    paper: Color(0xFFF5F4F8),
+    paperRaised: Color(0xFFFFFFFF),
+    ink: Color(0xFF16151D),
+    inkFaint: Color(0xFF6A6875),
+    rule: Color(0xFFE4E3EA),
+    quill: Color(0xFF5B45E0),
+    seal: Color(0xFFD23B24),
+    jama: Color(0xFF1E8F5D),
+    warn: Color(0xFFB07E1E),
   );
 
+  /// The book at night — the app's primary identity. Lacquer black, ivory
+  /// ink, and one strike of lightning violet doing all the interactive
+  /// talking. The seal keeps its vermilion: red belongs to the stamp alone,
+  /// which is exactly what keeps both colors loud.
   static const night = LedgerColors(
-    paper: Color(0xFF13151E),
-    paperRaised: Color(0xFF1B1E2A),
-    ink: Color(0xFFE9E6DB),
-    inkFaint: Color(0xFF9A9EB4),
-    rule: Color(0xFF2A2E3E),
-    quill: Color(0xFF8FA3FF),
-    seal: Color(0xFFE86A50),
-    jama: Color(0xFF5DB388),
-    warn: Color(0xFFD9A441),
+    paper: Color(0xFF0A0A0D),
+    paperRaised: Color(0xFF15151B),
+    ink: Color(0xFFF2EFE6),
+    inkFaint: Color(0xFF9A97A8),
+    rule: Color(0xFF26252E),
+    quill: Color(0xFF7B68FF),
+    seal: Color(0xFFE8402A),
+    jama: Color(0xFF43C98D),
+    warn: Color(0xFFF2A64B),
   );
 
   static LedgerColors of(BuildContext context) =>

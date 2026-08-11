@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../add/add_sheet.dart';
 import '../add/fab_menu.dart';
 import '../book/book_page.dart';
@@ -149,12 +150,10 @@ class _LedgerNav extends StatelessWidget {
   final VoidCallback onAdd;
   final VoidCallback onAddLong;
 
-  static const _items = [
-    (Icons.today_outlined, 'today'),
-    (Icons.menu_book_outlined, 'book'),
-    (Icons.fact_check_outlined, 'plans'),
-    (Icons.show_chart, 'worth'),
-  ];
+  /// Words, not icons. Material's glyphs are the most recognised drawing on
+  /// any phone; four of them in a row is the universal "an app" footer. A
+  /// ledger's sections are written in its margin — so these are written.
+  static const _items = ['today', 'book', 'plans', 'worth'];
 
   @override
   Widget build(BuildContext context) {
@@ -178,14 +177,25 @@ class _LedgerNav extends StatelessWidget {
                     scale: 0.9,
                     onTap: onAdd,
                     onLongPress: onAddLong,
+                    // The writing chop, cut like a real stamp: a vermilion
+                    // face over a hard extruded edge (zero-blur shadow), so
+                    // pressing it visibly pushes the stamp into the page.
                     child: Container(
-                      width: 52,
-                      height: 52,
+                      key: const ValueKey('nav-add'),
+                      width: 54,
+                      height: 54,
+                      alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: c.quill,
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color.lerp(c.quill, const Color(0xFF000000), 0.45)!,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
                       ),
-                      child: Icon(Icons.add, color: c.paper, size: 28),
+                      child: PenPlus(size: 30, color: c.paper),
                     ),
                   ),
                 ),
@@ -202,7 +212,7 @@ class _LedgerNav extends StatelessWidget {
   Widget _tab(BuildContext context, int i) {
     final c = LedgerColors.of(context);
     final selected = index == i;
-    final (icon, label) = _items[i];
+    final label = _items[i];
     return Expanded(
       child: Pressable(
         haptic: false,
@@ -211,32 +221,25 @@ class _LedgerNav extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedScale(
-              scale: selected ? 1.0 : 0.92,
-              duration: Motion.quick,
-              curve: Motion.curve,
-              child: Icon(icon,
-                  size: 20, color: selected ? c.ink : c.inkFaint),
-            ),
-            const SizedBox(height: 2),
             AnimatedDefaultTextStyle(
               duration: Motion.quick,
-              style: LedgerType.label.copyWith(
+              // The open page's name in ivory; the rest wait in the margin.
+              style: (selected ? LedgerType.bodyStrong : LedgerType.bodyText)
+                  .copyWith(
+                fontSize: 14,
                 color: selected ? c.ink : c.inkFaint,
               ),
               child: Text(label),
             ),
-            const SizedBox(height: 3),
-            // A 3px underline dot marks the open page — the spine's ribbon.
+            const SizedBox(height: 5),
+            // A square vermilion chip below the open page — the ribbon,
+            // cut hard like everything else in the book.
             AnimatedContainer(
               duration: Motion.quick,
               curve: Motion.curve,
-              width: selected ? 12 : 0,
-              height: 2.5,
-              decoration: BoxDecoration(
-                color: c.quill,
-                borderRadius: BorderRadius.circular(2),
-              ),
+              width: selected ? 5 : 0,
+              height: 5,
+              color: c.quill,
             ),
           ],
         ),

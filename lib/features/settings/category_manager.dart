@@ -13,6 +13,7 @@ import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
@@ -261,7 +262,7 @@ class _CategoryManagerPageState extends ConsumerState<CategoryManagerPage> {
         onTap: () => _openSheet(),
         child: Padding(
           padding: const EdgeInsets.all(Gap.x1),
-          child: Icon(Icons.add, size: 20, color: c.inkFaint),
+          child: PenPlus(size: 18, color: c.inkFaint),
         ),
       ),
       child: StreamBuilder<List<Category>>(
@@ -412,11 +413,8 @@ class _CategoryRow extends StatelessWidget {
             const SizedBox(width: Gap.x2),
             ReorderableDragStartListener(
               index: index,
-              child: Icon(
-                Icons.drag_indicator,
-                size: 16,
-                color: c.inkFaint.withValues(alpha: 0.55),
-              ),
+              child: PenLines(
+                size: 15, color: c.inkFaint.withValues(alpha: 0.55)),
             ),
           ],
         ),

@@ -36,6 +36,8 @@ void main() {
       ? null
       : 'needs a backend: pass --dart-define=BBX_URL and BBX_TOKEN';
 
+  liveRestore(config, needsServer);
+
   test('a written entry reaches the server, once', skip: needsServer, () async {
     final db = LedgerDb.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
@@ -162,4 +164,46 @@ Future<List<Map<String, dynamic>>> _serverGet(
   } finally {
     client.close();
   }
+}
+
+/// The reinstall case, against the real server: one phone writes a book, a
+/// second blank phone takes it back with nothing but an address and a token.
+void liveRestore(BbxConfig config, String? needsServer) {
+  test('a blank phone restores the whole book', skip: needsServer, () async {
+    final stamp = '${DateTime.now().microsecondsSinceEpoch}';
+
+    final first = LedgerDb.forTesting(NativeDatabase.memory());
+    addTearDown(first.close);
+    final writing = SyncEngine(db: first, config: config)..install();
+    addTearDown(writing.dispose);
+
+    final accountId = await AccountRepo(first)
+        .create(name: 'Restore $stamp', kind: AccountKind.cash);
+    await TxnRepo(first).addExpense(
+      amountPaise: 4200,
+      accountId: accountId,
+      title: 'restore $stamp',
+      at: DateTime.now(),
+    );
+    await SettingsRepo(first).setName('Krish $stamp');
+    await writing.syncNow();
+    expect(writing.status.value.phase, SyncPhase.idle,
+        reason: writing.status.value.lastError ?? '');
+
+    // A brand new phone, exactly as the restore page leaves it.
+    final blank = LedgerDb.forTesting(NativeDatabase.memory());
+    addTearDown(blank.close);
+    expect(await blank.select(blank.txns).get(), isEmpty);
+
+    final restoring = SyncEngine(db: blank, config: config)..install();
+    addTearDown(restoring.dispose);
+    await restoring.syncNow();
+
+    final txns = await blank.select(blank.txns).get();
+    final accounts = await blank.select(blank.accounts).get();
+    expect(txns.map((t) => t.title), contains('restore $stamp'));
+    expect(accounts.map((a) => a.name), contains('Restore $stamp'));
+    expect(await SettingsRepo(blank).name(), 'Krish $stamp');
+    expect(await SettingsRepo(blank).hasPin(), isFalse);
+  });
 }

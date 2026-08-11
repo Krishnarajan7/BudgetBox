@@ -13,6 +13,7 @@ import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
@@ -225,7 +226,7 @@ class _PinnedManagerPageState extends ConsumerState<PinnedManagerPage> {
         onTap: () => _openSheet(),
         child: Padding(
           padding: const EdgeInsets.all(Gap.x1),
-          child: Icon(Icons.add, size: 20, color: c.inkFaint),
+          child: PenPlus(size: 18, color: c.inkFaint),
         ),
       ),
       child: StreamBuilder<List<Pinned>>(
@@ -387,7 +388,7 @@ class _PinRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(Icons.push_pin_outlined, size: 16, color: c.inkFaint),
+              SealOutline(size: 15, color: c.inkFaint),
               const SizedBox(width: Gap.x3),
               Expanded(
                 child: Column(
@@ -422,11 +423,8 @@ class _PinRow extends StatelessWidget {
               const SizedBox(width: Gap.x3),
               ReorderableDragStartListener(
                 index: index,
-                child: Icon(
-                  Icons.drag_indicator,
-                  size: 16,
-                  color: c.inkFaint.withValues(alpha: 0.55),
-                ),
+                child: PenLines(
+                  size: 15, color: c.inkFaint.withValues(alpha: 0.55)),
               ),
             ],
           ),
@@ -452,7 +450,7 @@ class _SuggestionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     return LedgerLine(
-      mark: Icon(Icons.history, size: 15, color: c.inkFaint),
+      mark: PenLines(size: 14, color: c.inkFaint),
       title: suggestion.title,
       detail: '${suggestion.times} times lately',
       last: last,

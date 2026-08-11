@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../tokens.dart';
 import 'motion.dart';
+import 'pen_marks.dart';
 
 /// The vermilion chop-mark. The app's only celebration.
 class Seal extends StatelessWidget {
@@ -27,7 +28,7 @@ class Seal extends StatelessWidget {
         ),
         alignment: Alignment.center,
         child: child ??
-            Icon(Icons.check, color: c.seal, size: size * 0.48, weight: 700),
+            PenTick(size: size * 0.48, color: c.seal),
       ),
     );
   }

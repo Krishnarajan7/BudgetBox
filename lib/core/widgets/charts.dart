@@ -311,12 +311,15 @@ class HeatGrid extends StatelessWidget {
     final c = LedgerColors.of(context);
     final maxSpend =
         dayTotalsPaise.isEmpty ? 1 : math.max(dayTotalsPaise.reduce(math.max), 1);
+    // A month ruled into the page: shared hairlines, square corners, ink
+    // wash where money moved. Detached rounded tiles are the contribution
+    // graph every dashboard wears; a ledger draws its calendar as a table.
     return GridView.count(
       crossAxisCount: 7,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 5,
-      crossAxisSpacing: 5,
+      // Wider than tall: a table's rows, not a wall of boxes.
+      childAspectRatio: 1.45,
       children: [
         for (final (i, v) in dayTotalsPaise.indexed)
           InkIn(
@@ -331,12 +334,14 @@ class HeatGrid extends StatelessWidget {
               child: Container(
                 decoration: BoxDecoration(
                   color: v == 0
-                      ? c.paperRaised
-                      : Color.lerp(c.paper, c.quill, 0.12 + 0.7 * v / maxSpend),
-                  border: v == 0 ? Border.all(color: c.rule) : null,
-                  borderRadius: BorderRadius.circular(5),
+                      ? null
+                      : Color.lerp(c.paper, c.quill, 0.10 + 0.55 * v / maxSpend),
+                  // Half-width strokes meet their neighbours' to rule single
+                  // hairlines through the table rather than doubled walls.
+                  border: Border.all(color: c.rule, width: 0.5),
                 ),
-                alignment: Alignment.center,
+                alignment: Alignment.topLeft,
+                padding: const EdgeInsets.only(top: 3, left: 4),
                 child: Text(
                   '${i + 1}',
                   style: LedgerType.amount.copyWith(

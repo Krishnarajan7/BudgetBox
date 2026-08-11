@@ -5,6 +5,7 @@ import '../../features/shelf/shelf_overlay.dart';
 import '../tokens.dart';
 import '../typography.dart';
 import 'motion.dart';
+import 'pen_marks.dart';
 
 /// Wordmark (tap → the shelf) · optional trailing · gear (→ the box's
 /// settings). Every root screen wears this.
@@ -30,8 +31,8 @@ class LedgerAppBar extends StatelessWidget {
               children: [
                 Text(title ?? 'BudgetBox',
                     style: LedgerType.wordmark.copyWith(color: c.ink)),
-                const SizedBox(width: 2),
-                Icon(Icons.expand_more, size: 14, color: c.inkFaint),
+                const SizedBox(width: 3),
+                PenChevron(size: 12, color: c.inkFaint),
               ],
             ),
           ),
@@ -43,7 +44,9 @@ class LedgerAppBar extends StatelessWidget {
             onTap: () => Navigator.of(context).push(
               LedgerRoute<void>(builder: (_) => const SettingsPage()),
             ),
-            child: Icon(Icons.settings_outlined, size: 18, color: c.inkFaint),
+            // The box's mark: adjustments drawn as dots on rules, the way a
+            // ledger would show its settings — never Material's machine gear.
+            child: PenSliders(size: 17, color: c.inkFaint),
           ),
         ],
       ),

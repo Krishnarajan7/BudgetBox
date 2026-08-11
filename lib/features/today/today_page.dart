@@ -11,6 +11,7 @@ import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
@@ -176,25 +177,96 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             // month and what's about to charge, 'goal' leads with the saving,
             // 'truth' (or an unasked book) keeps the plain order.
             final monthModule = <Widget>[
-              const RuleHeader('this month'),
-              DrawIn(
-                builder: (context, p) => PaceChart(
-                  daily: cumulative,
-                  elapsedDays: now.day,
-                  totalDays: LedgerDates.daysInMonth(now),
-                  progress: p,
+              LedgerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const RuleHeader('this month'),
+                    const SizedBox(height: Gap.x3),
+                    // The number that decides the evening is what is LEFT —
+                    // so it leads, in the book's own serif, with the verdict
+                    // stamped beside it and the arithmetic as a footnote.
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CountUp(
+                                value:
+                                    (monthLimit - monthPaise).clamp(0, 1 << 62),
+                                format: Inr.format,
+                                style: LedgerType.heroAmount
+                                    .copyWith(fontSize: 34, color: c.ink),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'left · ${_daysToSalary(now)} '
+                                '${_daysToSalary(now) == 1 ? 'day' : 'days'} to salary',
+                                style: LedgerType.amount.copyWith(
+                                    fontSize: 11, color: c.inkFaint),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _VerdictChip(pace: pace),
+                      ],
+                    ),
+                    const SizedBox(height: Gap.x3),
+                    DrawIn(
+                      builder: (context, p) => PaceChart(
+                        daily: cumulative,
+                        elapsedDays: now.day,
+                        totalDays: LedgerDates.daysInMonth(now),
+                        progress: p,
+                      ),
+                    ),
+                    const SizedBox(height: Gap.x2),
+                    Row(
+                      children: [
+                        Text(
+                          '${Inr.format(monthPaise)} spent',
+                          style: LedgerType.amount
+                              .copyWith(fontSize: 11, color: c.inkFaint),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'of ${Inr.format(monthLimit)}',
+                          style: LedgerType.amount
+                              .copyWith(fontSize: 11, color: c.inkFaint),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              _monthFooter(c, monthPaise, monthLimit, pace, now),
             ];
-            const goalModule = <Widget>[_GoalStrip()];
+            const goalModule = <Widget>[
+              LedgerCard(child: _GoalStrip()),
+            ];
             const upcomingModule = <Widget>[
-              RuleHeader('coming up'),
-              _Upcoming(),
+              LedgerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RuleHeader('coming up'),
+                    _Upcoming(),
+                  ],
+                ),
+              ),
             ];
             final heatModule = <Widget>[
-              const RuleHeader('the month, day by day'),
-              _MonthHeat(expenses: expenses, monthTxns: month, now: now),
+              LedgerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const RuleHeader('the month, day by day'),
+                    _MonthHeat(
+                        expenses: expenses, monthTxns: month, now: now),
+                  ],
+                ),
+              ),
             ];
             final ordered = switch (_intent) {
               'leaks' => [
@@ -231,9 +303,19 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                   value: todayPaise,
                   format: Inr.format,
                   style: LedgerType.heroAmount
-                      .copyWith(fontSize: 42, color: c.ink)
+                      .copyWith(fontSize: 64, color: c.ink)
                       .copyWith(
                           fontFeatures: const [FontFeature.tabularFigures()]),
+                ),
+                const SizedBox(height: Gap.x2),
+                // The day's entry underlined in the binding's vermilion —
+                // the one stroke of red the page carries while it is open.
+                InkIn(
+                  delay: const Duration(milliseconds: 150),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(width: 72, height: 3, color: c.quill),
+                  ),
                 ),
                 const SizedBox(height: 2),
                 _reactiveSubline(c, today.length, todayPaise, yesterdayPaise),
@@ -296,61 +378,44 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     );
   }
 
-  Widget _monthFooter(LedgerColors c, int monthPaise, int monthLimit,
-      BudgetPace pace, DateTime now) {
-    final left = (monthLimit - monthPaise).clamp(0, 1 << 62);
-    final days = _daysToSalary(now);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            CountUp(
-              value: monthPaise,
-              format: Inr.format,
-              style: LedgerType.amountTotal.copyWith(color: c.ink),
-            ),
-            Text(
-              '  of ${Inr.format(monthLimit)}',
-              style:
-                  LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint),
-            ),
-            const Spacer(),
-            Text(
-              switch (pace.status) {
-                BudgetStatus.onPace => 'on pace',
-                BudgetStatus.projectedOver =>
-                  '${Inr.format(pace.projectedOverspendPaise)} over at this rate',
-                BudgetStatus.over =>
-                  '${Inr.format(-pace.remainingPaise)} past the line',
-                BudgetStatus.pending => 'waiting on bills',
-              },
-              // Status ink stays off the seal here — the stamp is saved for
-              // the day-close and the one-tap ritual.
-              style: LedgerType.bodyStrong.copyWith(
-                fontSize: 12,
-                color: switch (pace.status) {
-                  BudgetStatus.onPace => c.jama,
-                  BudgetStatus.projectedOver => c.warn,
-                  BudgetStatus.over => c.warn,
-                  BudgetStatus.pending => c.inkFaint,
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 3),
-        Text(
-          '${Inr.format(left)} left · $days ${days == 1 ? 'day' : 'days'} to salary',
-          style: LedgerType.amount.copyWith(fontSize: 11, color: c.inkFaint),
-        ),
-      ],
-    );
-  }
 }
 
 /// The next two things the recurring shelf will ask for. Each line answers a
 /// tap with a small sheet that can stamp the charge as paid.
+/// The month's verdict, stamped small: a hard-cornered chip in the status
+/// ink, washed faint behind. One glance, one colour, no gauge.
+class _VerdictChip extends StatelessWidget {
+  const _VerdictChip({required this.pace});
+
+  final BudgetPace pace;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final (label, tone) = switch (pace.status) {
+      BudgetStatus.onPace => ('on pace', c.jama),
+      BudgetStatus.projectedOver => (
+          '${Inr.format(pace.projectedOverspendPaise)} over at this rate',
+          c.warn
+        ),
+      BudgetStatus.over =>
+        ('${Inr.format(-pace.remainingPaise)} past the line', c.warn),
+      BudgetStatus.pending => ('waiting on bills', c.inkFaint),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Gap.x2, vertical: 5),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: LedgerType.bodyStrong.copyWith(fontSize: 11, color: tone),
+      ),
+    );
+  }
+}
+
 class _Upcoming extends ConsumerWidget {
   const _Upcoming();
 
@@ -373,14 +438,67 @@ class _Upcoming extends ConsumerWidget {
         }
         return Column(
           children: [
-            for (final (i, d) in next.indexed)
-              LedgerLine(
-                leading: LedgerDates.ddMmm(d.due),
-                title: d.recurring.title,
-                detail: 'the usual',
-                amount: Inr.format(d.recurring.amountPaise),
-                last: i == next.length - 1,
+            for (final d in next)
+              Pressable(
                 onTap: () => _paySheet(context, ref, d),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+                  child: Row(
+                    children: [
+                      // A leaf off the calendar: the day large, its month
+                      // small above, cut hard like everything in the book.
+                      Container(
+                        width: 42,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: c.paper,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              LedgerDates.ddMmm(d.due).split(' ').last,
+                              style: LedgerType.label
+                                  .copyWith(fontSize: 9, color: c.inkFaint),
+                            ),
+                            Text(
+                              '${d.due.day}',
+                              style: LedgerType.amount.copyWith(
+                                  fontSize: 17,
+                                  color: c.ink,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: Gap.x3),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              d.recurring.title,
+                              style: LedgerType.bodyStrong
+                                  .copyWith(fontSize: 14, color: c.ink),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              'the usual — tap when paid',
+                              style: LedgerType.bodyText.copyWith(
+                                  fontSize: 11, color: c.inkFaint),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        Inr.format(d.recurring.amountPaise),
+                        style: LedgerType.amount
+                            .copyWith(fontSize: 14, color: c.ink),
+                      ),
+                    ],
+                  ),
+                ),
               ),
           ],
         );
@@ -468,45 +586,56 @@ class _GoalStrip extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const RuleHeader('still saving'),
+            const SizedBox(height: Gap.x3),
+            // What has been put away is the object; where it is going is the
+            // caption; when it lands is the punchline.
             Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(goal.goal.name,
-                    style: LedgerType.bodyStrong
-                        .copyWith(fontSize: 13, color: c.ink)),
-                const Spacer(),
                 CountUp(
                   value: goal.donePaise,
                   format: Inr.format,
-                  style: LedgerType.amount
-                      .copyWith(fontSize: 12, color: c.ink),
+                  style: LedgerType.heroAmount
+                      .copyWith(fontSize: 30, color: c.ink),
                 ),
-                Text(
-                  ' of ${Inr.format(goal.goal.targetPaise)}',
-                  style: LedgerType.amount
-                      .copyWith(fontSize: 12, color: c.inkFaint),
+                const SizedBox(width: Gap.x2),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    'of ${Inr.format(goal.goal.targetPaise)} — ${goal.goal.name}',
+                    style: LedgerType.bodyText
+                        .copyWith(fontSize: 12, color: c.inkFaint),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: Gap.x2),
+            // The stroke of red the goal has earned so far.
             DrawIn(
-              builder: (context, p) => ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: SizedBox(
-                  height: 5,
-                  child: Stack(children: [
-                    Container(color: c.rule.withValues(alpha: 0.45)),
-                    FractionallySizedBox(
-                      widthFactor: (goal.fraction * p).clamp(0.01, 1.0),
-                      child: Container(color: c.jama),
+              builder: (context, p) => SizedBox(
+                height: 8,
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: ((goal.fraction * p).clamp(0.004, 1.0) * 1000)
+                          .round(),
+                      child: Container(color: c.quill),
                     ),
-                  ]),
+                    Expanded(
+                      flex: 1000 -
+                          ((goal.fraction * p).clamp(0.004, 1.0) * 1000)
+                              .round(),
+                      child: Container(
+                          color: c.rule.withValues(alpha: 0.45)),
+                    ),
+                  ],
                 ),
               ),
             ),
             if (eta != null) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
-                'on pace for ${_month(eta)} ${eta.year}',
+                'lands ${_month(eta)} ${eta.year}, at this pace',
                 style: LedgerType.bodyText
                     .copyWith(fontSize: 11, color: c.inkFaint),
               ),
@@ -889,8 +1018,9 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check_box_outline_blank,
-                        size: 14, color: c.inkFaint),
+                    // The chop before it lands — the mark this tap will make,
+                    // not a form's checkbox.
+                    SealOutline(size: 15, color: c.inkFaint),
                     const SizedBox(width: Gap.x2),
                     Text('close the day',
                         style: LedgerType.bodyStrong

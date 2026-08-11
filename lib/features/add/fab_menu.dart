@@ -8,6 +8,7 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
@@ -125,8 +126,7 @@ class _FabMenuState extends ConsumerState<_FabMenu> {
                       haptic: false,
                       onTap: () => _stampPin(p),
                       child: LedgerLine(
-                        mark: Icon(Icons.push_pin_outlined,
-                            size: 13, color: c.inkFaint),
+                        mark: SealOutline(size: 13, color: c.inkFaint),
                         title: p.title,
                         detail: _whisper(p),
                         amount: Inr.format(p.amountPaise),
@@ -147,13 +147,13 @@ class _FabMenuState extends ConsumerState<_FabMenu> {
                   spacing: Gap.x4,
                   runSpacing: Gap.x3,
                   children: const [
-                    _Move(Icons.swap_horiz, 'transfer', 'pocket to pocket',
+                    _Move('transfer', 'pocket to pocket',
                         showTransferSheet),
-                    _Move(Icons.rule, 'fix', 'make the book match',
+                    _Move('fix', 'make the book match',
                         showFixBalanceSheet),
-                    _Move(Icons.south_west, 'income', 'money that came in',
+                    _Move('income', 'money that came in',
                         showIncomeSheet),
-                    _Move(Icons.history_edu_outlined, 'catch-up',
+                    _Move('catch-up',
                         'the days I skipped', showCatchUpSheet),
                   ],
                 ),
@@ -170,9 +170,8 @@ class _FabMenuState extends ConsumerState<_FabMenu> {
 /// saying what it does. Closes the menu first, then opens its sheet from the
 /// navigator's own context — the menu never stacks under it.
 class _Move extends StatelessWidget {
-  const _Move(this.icon, this.label, this.sub, this.open);
+  const _Move(this.label, this.sub, this.open);
 
-  final IconData icon;
   final String label;
   final String sub;
   final Future<void> Function(BuildContext) open;
@@ -190,7 +189,7 @@ class _Move extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LedgerChip(label, icon: icon),
+          LedgerChip(label),
           const SizedBox(height: Gap.x1),
           Padding(
             padding: const EdgeInsets.only(left: 2),

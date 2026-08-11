@@ -1,45 +1,45 @@
-# BudgetBox Design System — "The Ledger"
+# BudgetBox Design System — "The Lightning Ledger"
 
 > The design language for BudgetBox. Read this before designing or building any screen.
-> Grounded in [research.md](research.md). 2026-07-31.
+> **Supersedes the paper-and-beige "Ledger" of 2026-07-31** — Krish judged it on device
+> (2026-08-11) and chose this: same soul, electric body. Grounded in [research.md](research.md)
+> plus CRED/NeoPop analysis.
 
 ## Concept
 
-BudgetBox is a **digital bahi-khata** — the Indian account ledger, rebuilt as one person's
-daily ritual. Every screen is a page in Krish's book: ruled lines, ink numerals, a day that
-gets closed with a stamp. The light theme is the ledger by daylight; the dark theme is the
-same ledger under lamplight at night — one identity, two illuminations, never an inversion.
+BudgetBox is still a **digital bahi-khata** — one person's daily ledger ritual — but the
+object is now the book at night: **lacquer black, ivory ink, one strike of lightning
+violet**, and a vermilion stamp that appears only when something is sealed. Dark is the
+primary identity; the light theme is the same book in a bright room, never an inversion.
 
-This is home-cooked software (Robin Sloan sense): personal from inception, no acquisition
-surface, the author's taste visible in every corner. If a screenshot could belong to any
-other app, it has failed.
+Structure borrows CRED/NeoPop's discipline (hard corners, dimensional pressable objects,
+serif-over-sans) without its monochrome: the drama lives in huge serif numerals and one
+electric accent. If a screenshot could belong to any other app, it has failed.
 
-**The one aesthetic risk:** money amounts are typeset like ledger entries — mono figures on
-ruled lines, no cards, no tiles — and the interface's only true red is a stamp.
+**The signatures:** the chop (an extruded, pressable stamp — the add button), calendar-leaf
+date blocks, verdict chips, the seal ritual, pen-drawn chrome glyphs (never Material icons
+in chrome), and words-as-nav.
 
 ## Palette
 
-Tokens first (Jupiter/Europa lesson): no raw hex in widgets, ever.
+Tokens first: no raw hex in widgets, ever. Token *names* keep their ledger vocabulary.
 
 ### Roles
 
-| Token | Light ("day page") | Dark ("night page") | Role |
+| Token | Night (primary) | Day | Role |
 |---|---|---|---|
-| `paper` | `#F2EFE8` | `#13151E` | App background. Warm unbleached paper / indigo-black night desk. Never pure white or pure black. |
-| `paper-raised` | `#FAF8F3` | `#1B1E2A` | Sheets, the keypad, raised surfaces. |
-| `ink` | `#1B2033` | `#E9E6DB` | Primary text. Indigo-black iron-gall ink / moonlit paper. |
-| `ink-faint` | `#616682` | `#9A9EB4` | Secondary text, captions, labels. |
-| `rule` | `#DDD8CA` | `#2A2E3E` | The ruled ledger lines. Hairlines, 1px, everywhere structure lives. |
-| `quill` | `#2F4AB8` | `#8FA3FF` | The pen. Interactive ink: links, active states, selection, the FAB, focus. |
-| `seal` | `#C6402E` | `#E86A50` | The vermilion stamp. RESERVED: day-closed seal, save-stamp, over-budget verdicts, destructive confirm. If `seal` appears more than twice on a screen, the screen is wrong. |
-| `jama` | `#2E7D52` | `#5DB388` | Credit/income marks and on-pace status. Small marks only — never floods. |
-| `warn` | `#A97B14` | `#D9A441` | Projected-to-overrun status (amber). |
+| `paper` | `#0A0A0D` | `#F5F4F8` | App background. Lacquer black / soft paper-white. |
+| `paper-raised` | `#15151B` | `#FFFFFF` | Cards ("plates"), sheets, the keypad. |
+| `ink` | `#F2EFE6` | `#16151D` | Primary text. Warm ivory / iron ink. |
+| `ink-faint` | `#9A97A8` | `#6A6875` | Secondary text, captions, labels. |
+| `rule` | `#26252E` | `#E4E3EA` | Hairlines and the month table's grid. |
+| `quill` | `#7B68FF` | `#5B45E0` | **The lightning.** All interactive ink: links, active states, the chop, focus, brand strokes. |
+| `seal` | `#E8402A` | `#D23B24` | The vermilion stamp. RESERVED: day-close seal, save-stamp, over-budget verdicts, destructive confirm. ≤2 per screen. Never used as brand/interactive. |
+| `jama` | `#43C98D` | `#1E8F5D` | Credit marks and on-pace status. Small marks only. |
+| `warn` | `#F2A64B` | `#B07E1E` | Projected-to-overrun status. |
 
-Category identity comes from **icons and names, not hues** — one color system per screen
-(research conclusion #4): status owns color; categories own glyphs.
-
-Dark-mode rules: chart and accent ink desaturated ~10–15% vs light; surfaces are layered
-indigo-greys; shadows become darker paper, never glows.
+Category identity comes from **glyphs and names, not hues**: status owns color; categories
+own marks.
 
 ## Typography
 
@@ -62,16 +62,28 @@ ledger-amount 16 mono, ledger-total 20 mono.
 
 ## Structure
 
-- **Rules, not cards.** Lists are ruled lines on paper — full-bleed hairlines (`rule`),
-  generous 16dp side margins, no bordered boxes, no cards-in-cards, no shadows on rows.
-  Elevation exists only for sheets and the keypad (`paper-raised` + soft shadow).
-- **The day is the unit.** Transactions group by day: date + weekday left, day total right
-  in mono, entries as ruled lines beneath. Today's page is always first.
-- **Numbers in the spotlight** (Jupiter): the answer renders at display size; its label is a
-  caption above it. Never `Label: value` at equal weight.
-- Radius: 0 on the page and rows (ledger geometry), 12 on sheets, 999 on chips. One radius
-  per role, not one radius everywhere.
-- Spacing: 4-based scale (4/8/12/16/24/32/48).
+- **Plates, not paper rules.** Content that *reads the book back* (pace, upcoming, goals,
+  grids) sits on `paper-raised` plates: **hard corners (radius 4–8), no outlines, no
+  shadows** — the edge is the tone change. The hero and the ledger lines stay directly on
+  `paper`. Cards-in-cards remain forbidden.
+- **Hero hierarchy.** Every module leads with the number that decides something (what's
+  *left*, what's *saved*), set large in Fraunces; the arithmetic (`spent of limit`) is a
+  mono footnote; the verdict is a chip. Never `Label: value` at equal weight.
+- **Calendar leaves.** A dated row leads with a torn-leaf block: month tiny over day large,
+  hard-cornered, `paper` on a plate (or `paper-raised` on the page).
+- **Verdict chips.** Status is a small hard-cornered chip: status ink on a 14%-alpha wash
+  of itself. One per module.
+- **Stamp blocks.** Chips/filters are lifted blocks (radius 6, `paper-raised`, no border);
+  selected takes a 16% `quill` wash.
+- **The chop.** Key action buttons are extruded: face + zero-blur offset shadow in the same
+  hue darkened ~45%, collapsing on press. Reserved for the most important press on screen.
+- **Chrome is drawn, never typed.** No Material icons in chrome — pen-drawn glyphs only
+  (`pen_marks.dart`). Words-as-nav: lowercase section names, active in ink with a small
+  square `quill` chip beneath.
+- **The day is the unit.** Transactions group by day; today's page first. The month grid is
+  a ruled table: shared hairlines, square cells, ink-wash fills.
+- Radius: 0 page & rows · 4–8 plates/leaves/chips · 22 sheets · never 999 pills.
+- Spacing: 4-based scale. Dark ships first; day is derived.
 
 ## Signature elements
 

@@ -15,6 +15,7 @@ import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
@@ -352,11 +353,9 @@ class _BookPageState extends ConsumerState<BookPage> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  _heat ? Icons.view_list_outlined : Icons.grid_on_outlined,
-                  size: 14,
-                  color: c.quill,
-                ),
+                _heat
+                    ? PenLines(size: 14, color: c.quill)
+                    : PenGrid(size: 14, color: c.quill),
                 const SizedBox(width: 4),
                 Text(
                   _heat ? 'list' : 'heat',
@@ -477,7 +476,10 @@ class _BookPageState extends ConsumerState<BookPage> {
           onTap: () => _flipMonth(bookMonthShift(_month, -1), direction: -1),
           child: Padding(
             padding: const EdgeInsets.all(4),
-            child: Icon(Icons.chevron_left, size: 18, color: c.inkFaint),
+            child: RotatedBox(
+              quarterTurns: 1,
+              child: PenChevron(size: 15, color: c.inkFaint),
+            ),
           ),
         ),
         const SizedBox(width: Gap.x1),
@@ -490,7 +492,7 @@ class _BookPageState extends ConsumerState<BookPage> {
                   style: LedgerType.bodyStrong
                       .copyWith(fontSize: 14, color: c.ink)),
               const SizedBox(width: 2),
-              Icon(Icons.expand_more, size: 14, color: c.inkFaint),
+              PenChevron(size: 12, color: c.inkFaint),
             ],
           ),
         ),
@@ -501,15 +503,17 @@ class _BookPageState extends ConsumerState<BookPage> {
               : () => _flipMonth(bookMonthShift(_month, 1), direction: 1),
           child: Padding(
             padding: const EdgeInsets.all(4),
-            child: Icon(Icons.chevron_right,
-                size: 18, color: onNow ? c.rule : c.inkFaint),
+            child: RotatedBox(
+              quarterTurns: 3,
+              child: PenChevron(
+                  size: 15, color: onNow ? c.rule : c.inkFaint),
+            ),
           ),
         ),
         const Spacer(),
         if (!onNow)
           LedgerChip(
             'back to now',
-            icon: Icons.undo,
             selected: true,
             onTap: () => _flipMonth(DateTime.now(), direction: 1),
           ),
@@ -551,7 +555,7 @@ class _BookPageState extends ConsumerState<BookPage> {
                         title: label,
                         detail: i == 0 ? 'now' : null,
                         amountWidget: selected
-                            ? Icon(Icons.check, size: 15, color: c.quill)
+                            ? PenTick(size: 15, color: c.quill)
                             : const SizedBox.shrink(),
                         last: i == 11,
                         onTap: () => Navigator.of(sheetContext).pop(m),
@@ -662,11 +666,13 @@ class _BookPageState extends ConsumerState<BookPage> {
                 duration: Motion.quick,
                 switchInCurve: Motion.curve,
                 switchOutCurve: Motion.curve,
-                child: Icon(
-                  Icons.search,
+                child: Padding(
                   key: ValueKey('search-icon-$focused'),
-                  size: 16,
-                  color: focused ? c.quill : c.inkFaint,
+                  padding: const EdgeInsets.only(right: 4),
+                  child: PenSearch(
+                    size: 16,
+                    color: focused ? c.quill : c.inkFaint,
+                  ),
                 ),
               ),
               border: InputBorder.none,
@@ -834,43 +840,68 @@ class _BookPageState extends ConsumerState<BookPage> {
         amount: Inr.format(monthSpent),
         size: 30,
       ),
-      const SizedBox(height: Gap.x3),
-      HeatGrid(
-        dayTotalsPaise: days,
-        stagger: _heatStagger,
-        onDayTap: (d) => _openDayPage(
-          DateTime(_month.year, _month.month, d),
-          byDay[d] ?? const [],
-          catById,
+      const SizedBox(height: Gap.x1),
+      LedgerCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: Gap.x3),
+            HeatGrid(
+              dayTotalsPaise: days,
+              stagger: _heatStagger,
+              onDayTap: (d) => _openDayPage(
+                DateTime(_month.year, _month.month, d),
+                byDay[d] ?? const [],
+                catById,
+              ),
+            ),
+            const SizedBox(height: Gap.x2),
+            Text('pale = quiet day',
+                style: LedgerType.bodyText
+                    .copyWith(fontSize: 11, color: c.inkFaint)),
+            ?whisper,
+          ],
         ),
       ),
-      const SizedBox(height: Gap.x2),
-      Text('pale = quiet day',
-          style: LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint)),
-      ?whisper,
-      if (slices.isNotEmpty) ...[
-        const RuleHeader('where it went'),
-        for (final (i, s) in slices.indexed)
-          _WhereRow(
-            key: ValueKey('where-${s.isOther ? 'other' : s.categoryId}'),
-            label: s.isOther
-                ? 'everything else'
-                : (catById[s.categoryId]?.name ?? 'unfiled'),
-            iconKey: s.isOther ? null : catById[s.categoryId]?.icon,
-            amount: Inr.format(s.paise),
-            frac: slices.first.paise <= 0 ? 0 : s.paise / slices.first.paise,
-            stagger: i,
-            last: i == slices.length - 1,
-            onTap: (s.isOther || s.categoryId == null)
-                ? null
-                : () => setState(() {
-                      _heat = false;
-                      _categoryFilter = s.categoryId;
-                    }),
+      if (slices.isNotEmpty)
+        LedgerCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const RuleHeader('where it went'),
+              for (final (i, s) in slices.indexed)
+                _WhereRow(
+                  key: ValueKey('where-${s.isOther ? 'other' : s.categoryId}'),
+                  label: s.isOther
+                      ? 'everything else'
+                      : (catById[s.categoryId]?.name ?? 'unfiled'),
+                  iconKey: s.isOther ? null : catById[s.categoryId]?.icon,
+                  amount: Inr.format(s.paise),
+                  frac: slices.first.paise <= 0
+                      ? 0
+                      : s.paise / slices.first.paise,
+                  stagger: i,
+                  last: i == slices.length - 1,
+                  onTap: (s.isOther || s.categoryId == null)
+                      ? null
+                      : () => setState(() {
+                            _heat = false;
+                            _categoryFilter = s.categoryId;
+                          }),
+                ),
+            ],
           ),
-      ],
-      const RuleHeader('what the month looks like'),
-      _monthShapeLine(c, quiet, all.length, maxDay, maxPaise > 0),
+        ),
+      LedgerCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const RuleHeader('what the month looks like'),
+            const SizedBox(height: Gap.x2),
+            _monthShapeLine(c, quiet, all.length, maxDay, maxPaise > 0),
+          ],
+        ),
+      ),
     ];
   }
 

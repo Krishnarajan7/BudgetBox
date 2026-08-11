@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../tokens.dart';
 import '../typography.dart';
 import 'motion.dart';
+import 'pen_marks.dart';
 
 /// "this month ————————" — a ruled section header.
 class RuleHeader extends StatelessWidget {
@@ -28,6 +29,33 @@ class RuleHeader extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// A lifted surface: the midnight identity's unit of content. The hero and
+/// the ledger lines live on the page itself; everything that *reads* the book
+/// back to Krish — pace, upcoming, the month grid — sits a layer up.
+class LedgerCard extends StatelessWidget {
+  const LedgerCard({super.key, required this.child, this.padding});
+
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    // Hard corners, no outline: a plate of lacquer, not the borderless-soft
+    // card every dark app ships. The edge is the tone change itself.
+    return Container(
+      margin: const EdgeInsets.only(top: Gap.x3),
+      padding: padding ??
+          const EdgeInsets.fromLTRB(Gap.x4, Gap.x1, Gap.x4, Gap.x4),
+      decoration: BoxDecoration(
+        color: c.paperRaised,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: child,
     );
   }
 }
@@ -232,7 +260,8 @@ class DayHeader extends StatelessWidget {
               style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.ink)),
           if (sealed) ...[
             const SizedBox(width: Gap.x2),
-            Icon(Icons.verified_outlined, size: 13, color: c.seal),
+            // The chop that closed it, in miniature — not a checkmark badge.
+            SealOutline(size: 13, color: c.seal),
           ],
           const Spacer(),
           Text(total,
@@ -377,12 +406,13 @@ class LedgerChip extends StatelessWidget {
     final color = selected ? c.quill : c.inkFaint;
     return GestureDetector(
       onTap: onTap,
+      // A stamp block, not a pill: lifted lacquer, hard corners, and the
+      // selected one takes a wash of the binding's vermilion.
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? c.quillSoft : null,
-          border: Border.all(color: selected ? c.quill : c.rule),
-          borderRadius: BorderRadius.circular(Corner.chip),
+          color: selected ? c.quill.withValues(alpha: 0.16) : c.paperRaised,
+          borderRadius: BorderRadius.circular(6),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

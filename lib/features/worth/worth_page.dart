@@ -232,26 +232,42 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                     .copyWith(fontSize: 12, color: c.inkFaint),
               ),
             ],
-            const RuleHeader('assets'),
-            for (final (i, a) in assets.indexed)
-              InkIn(
-                delay: Duration(milliseconds: 45 * i),
-                child: _AccountRow(
-                    account: a, stagger: i, last: i == assets.length - 1),
+            LedgerCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const RuleHeader('assets'),
+                  for (final (i, a) in assets.indexed)
+                    InkIn(
+                      delay: Duration(milliseconds: 45 * i),
+                      child: _AccountRow(
+                          account: a,
+                          stagger: i,
+                          last: i == assets.length - 1),
+                    ),
+                ],
               ),
-            if (owed.isNotEmpty) ...[
-              const RuleHeader('owed'),
-              for (final (i, a) in owed.indexed)
-                InkIn(
-                  delay: Duration(milliseconds: 45 * (assets.length + i)),
-                  child: _AccountRow(
-                    account: a,
-                    negative: true,
-                    stagger: assets.length + i,
-                    last: i == owed.length - 1,
-                  ),
+            ),
+            if (owed.isNotEmpty)
+              LedgerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const RuleHeader('owed'),
+                    for (final (i, a) in owed.indexed)
+                      InkIn(
+                        delay:
+                            Duration(milliseconds: 45 * (assets.length + i)),
+                        child: _AccountRow(
+                          account: a,
+                          negative: true,
+                          stagger: assets.length + i,
+                          last: i == owed.length - 1,
+                        ),
+                      ),
+                  ],
                 ),
-            ],
+              ),
             const SizedBox(height: Gap.x6),
           ],
         );

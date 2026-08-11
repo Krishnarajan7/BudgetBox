@@ -13,6 +13,7 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/pickers.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
@@ -421,7 +422,7 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
                 LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
           ),
           const SizedBox(width: 2),
-          Icon(Icons.expand_more, size: 13, color: c.inkFaint),
+          PenChevron(size: 12, color: c.inkFaint),
         ],
       ),
     );
@@ -798,7 +799,7 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
                 borderRadius: BorderRadius.circular(Corner.stamp),
               ),
               child: _asEntry
-                  ? Icon(Icons.check, size: 11, color: c.paper)
+                  ? PenTick(size: 11, color: c.paper)
                   : null,
             ),
             const SizedBox(width: Gap.x2),
@@ -1080,7 +1081,7 @@ class _QuietDayRowState extends State<_QuietDayRow> {
           child: Center(
             child: _flash
                 ? const StampIn(size: 22, haptic: false)
-                : Icon(Icons.check, size: 15, color: c.jama),
+                : PenTick(size: 15, color: c.jama),
           ),
         ),
       ],
@@ -1144,10 +1145,11 @@ class _QuietDayRowState extends State<_QuietDayRow> {
                     ),
                     borderRadius: BorderRadius.circular(Corner.stamp),
                   ),
-                  child: Icon(
-                    Icons.check,
-                    size: 16,
-                    color: ready ? c.quill : c.inkFaint,
+                  child: Center(
+                    child: PenTick(
+                      size: 16,
+                      color: ready ? c.quill : c.inkFaint,
+                    ),
                   ),
                 ),
               ),

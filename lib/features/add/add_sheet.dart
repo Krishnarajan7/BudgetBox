@@ -11,6 +11,7 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/cat_mark.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/pickers.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
@@ -427,7 +428,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
             border: Border.all(color: c.rule),
             borderRadius: BorderRadius.circular(Corner.chip),
           ),
-          child: Icon(Icons.more_horiz, size: 16, color: c.inkFaint),
+          child: PenDots(size: 16, color: c.inkFaint),
         ),
       ),
     ];
@@ -597,7 +598,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         padding: const EdgeInsets.symmetric(vertical: Gap.x2),
         child: Row(
           children: [
-            Icon(Icons.history, size: 14, color: c.inkFaint),
+            PenLines(size: 14, color: c.inkFaint),
             const SizedBox(width: Gap.x2),
             if (cat != null) ...[
               CatMark(cat.icon, size: 12, color: c.quill),
@@ -697,7 +698,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
           ),
           const SizedBox(width: 2),
-          Icon(Icons.expand_more, size: 13, color: c.inkFaint),
+          PenChevron(size: 12, color: c.inkFaint),
         ],
       ),
     );
@@ -933,7 +934,7 @@ class _StampKey extends StatelessWidget {
                               BorderRadius.circular(Corner.stamp),
                         ),
                         child:
-                            Icon(Icons.check, size: 13, color: c.paperRaised),
+                            PenTick(size: 13, color: c.paperRaised),
                       ),
                       const SizedBox(height: 6),
                       Text(

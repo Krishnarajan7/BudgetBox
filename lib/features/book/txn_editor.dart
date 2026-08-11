@@ -10,6 +10,7 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/pickers.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
@@ -78,8 +79,7 @@ Future<void> showTxnActions(BuildContext context, WidgetRef ref, Txn txn) {
               if (canPin)
                 InkIn(
                   child: LedgerLine(
-                    mark: Icon(Icons.push_pin_outlined,
-                        size: 15, color: c.inkFaint),
+                    mark: SealOutline(size: 14, color: c.inkFaint),
                     title: 'pin as a repeat',
                     onTap: () async {
                       HapticFeedback.lightImpact();
@@ -97,7 +97,7 @@ Future<void> showTxnActions(BuildContext context, WidgetRef ref, Txn txn) {
               InkIn(
                 delay: const Duration(milliseconds: 24),
                 child: LedgerLine(
-                  mark: Icon(Icons.close, size: 15, color: c.seal),
+                  mark: PenCross(size: 13, color: c.seal),
                   title: 'strike it out',
                   last: true,
                   onTap: () async {
@@ -414,7 +414,7 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
           Text(Inr.format(_amountPaise), style: style),
           if (!_isTransfer) ...[
             const SizedBox(width: Gap.x2),
-            Icon(Icons.edit_outlined, size: 15, color: c.inkFaint),
+            PenLines(size: 14, color: c.inkFaint),
           ],
         ],
       ),
@@ -535,7 +535,6 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
           const Spacer(),
           LedgerChip(
             'note',
-            icon: Icons.notes_outlined,
             selected: _noteOpen,
             onTap: () {
               HapticFeedback.selectionClick();
@@ -564,7 +563,7 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
             style: LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
           ),
           const SizedBox(width: 2),
-          Icon(Icons.expand_more, size: 13, color: c.inkFaint),
+          PenChevron(size: 12, color: c.inkFaint),
         ],
       ),
     );

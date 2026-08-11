@@ -13,6 +13,8 @@ import 'package:http/testing.dart';
 /// Preferences are the one thing that never travelled. A reinstall used to
 /// bring the money back and lose the name on the cover.
 void main() {
+  _bodilessErrors();
+
   LedgerDb freshDb() => LedgerDb.forTesting(NativeDatabase.memory());
 
   /// A stand-in server that keeps whatever it is told.
@@ -136,5 +138,33 @@ void main() {
     expect(await repo.name(), 'Krish');
     expect(await repo.hasPin(), isFalse);
     expect((await repo.serverConfig()).wired, isFalse);
+  });
+}
+
+/// A bodiless error used to read as a successful empty response, which is the
+/// worst possible failure for a puller: it would conclude the server holds
+/// nothing and carry on agreeing with that.
+void _bodilessErrors() {
+  BbxClient clientFor(int status) => BbxClient(
+        const BbxConfig(baseUrl: 'https://x.test', token: 'bbx_x'),
+        inner: MockClient((_) async => http.Response('', status)),
+      );
+
+  test('an empty 400 is a refusal, not an empty answer', () async {
+    await expectLater(
+      clientFor(400).get('/v1/changes'),
+      throwsA(isA<BbxProblem>()),
+    );
+  });
+
+  test('an empty 502 is treated as offline, so the queue survives', () async {
+    await expectLater(
+      clientFor(502).get('/v1/changes'),
+      throwsA(isA<BbxOffline>()),
+    );
+  });
+
+  test('an empty 204 is still a perfectly good nothing', () async {
+    expect(await clientFor(204).get('/v1/changes'), isNull);
   });
 }

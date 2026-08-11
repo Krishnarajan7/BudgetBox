@@ -64,12 +64,17 @@ class BbxClient {
       throw BbxOffline(e.message);
     }
 
-    if (response.statusCode == 204 || response.body.isEmpty) return null;
+    // An empty body only means "nothing to say" when the server was happy.
+    // A proxy handing back a bodiless 502, or a 400 with nothing in it, must
+    // never read as a successful null — that way lies a sync that believes
+    // it pulled an empty world and quietly agrees with it.
+    final ok = response.statusCode >= 200 && response.statusCode < 300;
+    if (ok && (response.statusCode == 204 || response.body.isEmpty)) {
+      return null;
+    }
 
     final decoded = _decode(response);
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return decoded;
-    }
+    if (ok) return decoded;
     // 5xx is the server having a bad day, not a bad request — worth keeping
     // in the queue, so it reads as offline to the caller.
     if (response.statusCode >= 500) {

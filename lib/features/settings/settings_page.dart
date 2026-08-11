@@ -11,6 +11,7 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/api/api_config.dart';
 import '../../data/db.dart';
@@ -77,7 +78,8 @@ List<List<int>> salaryDayGrid() {
 
 /// A CSV cell, quoted only when it has to be.
 String csvCell(String value) {
-  final needsQuotes = value.contains(',') ||
+  final needsQuotes =
+      value.contains(',') ||
       value.contains('"') ||
       value.contains('\n') ||
       value.contains('\r');
@@ -114,16 +116,18 @@ String buildLedgerCsv(
     ]),
   ];
   for (final t in txns) {
-    lines.add(csvRow([
-      LedgerDates.dayKey(t.at),
-      _hhmm(t.at),
-      t.title,
-      t.type.name,
-      csvAmount(t.amountPaise),
-      t.categoryId == null ? '' : categories[t.categoryId] ?? '',
-      accounts[t.accountId] ?? '',
-      t.note ?? '',
-    ]));
+    lines.add(
+      csvRow([
+        LedgerDates.dayKey(t.at),
+        _hhmm(t.at),
+        t.title,
+        t.type.name,
+        csvAmount(t.amountPaise),
+        t.categoryId == null ? '' : categories[t.categoryId] ?? '',
+        accounts[t.accountId] ?? '',
+        t.note ?? '',
+      ]),
+    );
   }
   return '${lines.join('\n')}\n';
 }
@@ -186,11 +190,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<(int, int)> _countFacts() async {
     final db = ref.read(dbProvider);
     final entries = db.txns.id.count();
-    final entriesRow =
-        await (db.selectOnly(db.txns)..addColumns([entries])).getSingle();
+    final entriesRow = await (db.selectOnly(
+      db.txns,
+    )..addColumns([entries])).getSingle();
     final sealed = db.daySeals.date.count();
-    final sealedRow =
-        await (db.selectOnly(db.daySeals)..addColumns([sealed])).getSingle();
+    final sealedRow = await (db.selectOnly(
+      db.daySeals,
+    )..addColumns([sealed])).getSingle();
     return (entriesRow.read(entries) ?? 0, sealedRow.read(sealed) ?? 0);
   }
 
@@ -246,9 +252,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Future<void> _export() async {
     try {
       final db = ref.read(dbProvider);
-      final txns = await (db.select(db.txns)
-            ..orderBy([(t) => OrderingTerm.asc(t.at)]))
-          .get();
+      final txns = await (db.select(
+        db.txns,
+      )..orderBy([(t) => OrderingTerm.asc(t.at)])).get();
       final categories = {
         for (final c in await db.select(db.categories).get()) c.id: c.name,
       };
@@ -312,7 +318,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   Pressable(
                     scale: 0.9,
                     onTap: () => Navigator.of(context).pop(),
-                    child: Icon(Icons.arrow_back, size: 18, color: c.inkFaint),
+                    child: RotatedBox(
+                      quarterTurns: 1,
+                      child: PenChevron(size: 16, color: c.inkFaint),
+                    ),
                   ),
                   const SizedBox(width: Gap.x3),
                   Text(
@@ -332,18 +341,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     spacing: Gap.x2,
                     runSpacing: Gap.x2,
                     children: [
-                      for (final (m, icon, label) in const [
-                        (ThemeMode.light, Icons.light_mode_outlined, 'day'),
-                        (ThemeMode.dark, Icons.dark_mode_outlined, 'night'),
-                        (
-                          ThemeMode.system,
-                          Icons.brightness_auto_outlined,
-                          'follow the sun',
-                        ),
+                      // Words carry the choice — the book has no weather
+                      // icons, and 'night' says night better than a moon.
+                      for (final (m, label) in const [
+                        (ThemeMode.light, 'day'),
+                        (ThemeMode.dark, 'night'),
+                        (ThemeMode.system, 'follow the sun'),
                       ])
                         _ThemeChip(
                           label: label,
-                          icon: icon,
                           selected: mode == m,
                           onTap: () =>
                               ref.read(themeModeProvider.notifier).set(m),
@@ -392,8 +398,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       : yearFrameCaption(_yearFrame!),
                   onTap: _yearFrame == null ? null : _swapYearFrame,
                   goesSomewhere: false,
-                  trailing:
-                      Icon(Icons.swap_horiz, size: 15, color: c.inkFaint),
+                  trailing: Text('swap',
+                      style: LedgerType.bodyStrong
+                          .copyWith(fontSize: 11, color: c.quill)),
                 ),
               ],
             ),
@@ -401,25 +408,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               delay: next(),
               children: [
                 const RuleHeader('lock'),
-                _Row(
-                  'PIN',
-                  switch (_hasPin) {
-                    null => 'reading the book…',
-                    true => 'set — tap to change it',
-                    false => 'not set — tap to add one',
-                  },
-                  onTap: () => _setPin(),
-                ),
+                _Row('PIN', switch (_hasPin) {
+                  null => 'reading the book…',
+                  true => 'set — tap to change it',
+                  false => 'not set — tap to add one',
+                }, onTap: () => _setPin()),
                 // No toggle exists for the face: the cover asks for it
                 // whenever a PIN is set. A fact, not a dead switch.
-                _Row(
-                  'Face ID',
-                  switch (_hasPin) {
-                    null => 'reading the book…',
-                    true => 'already on — it asks first, the PIN waits behind',
-                    false => 'waits on a PIN — set one and the face takes over',
-                  },
-                ),
+                _Row('Face ID', switch (_hasPin) {
+                  null => 'reading the book…',
+                  true => 'already on — it asks first, the PIN waits behind',
+                  false => 'waits on a PIN — set one and the face takes over',
+                }),
               ],
             ),
             _Section(
@@ -451,15 +451,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               delay: next(),
               children: [
                 const RuleHeader('the other half'),
-                _Row(
-                  'Server',
-                  switch (_server) {
-                    null => 'reading the book…',
-                    final s when s.wired => 'syncing with ${s.host}',
-                    _ => 'not set — this book syncs with nothing',
-                  },
-                  onTap: _server == null ? null : _setServer,
-                ),
+                _Row('Server', switch (_server) {
+                  null => 'reading the book…',
+                  final s when s.wired => 'syncing with ${s.host}',
+                  _ => 'not set — this book syncs with nothing',
+                }, onTap: _server == null ? null : _setServer),
               ],
             ),
             _Section(
@@ -530,7 +526,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (!mounted) return;
     final settings = ref.read(settingsRepoProvider);
     switch (outcome) {
-      case _PinChosen(:final pin) when pin.length == 4 && int.tryParse(pin) != null:
+      case _PinChosen(:final pin)
+          when pin.length == 4 && int.tryParse(pin) != null:
         await settings.setPin(pin);
       case _PinRemoved() when _hasPin == true:
         await settings.clearPin();
@@ -585,9 +582,9 @@ class _ServerSheetState extends State<_ServerSheet> {
   }
 
   BbxConfig get _typed => BbxConfig(
-        baseUrl: _url.text.trim().replaceAll(RegExp(r'/+$'), ''),
-        token: _token.text.trim(),
-      );
+    baseUrl: _url.text.trim().replaceAll(RegExp(r'/+$'), ''),
+    token: _token.text.trim(),
+  );
 
   /// Better to find out here than to leave the book quietly out of touch.
   Future<void> _test() async {
@@ -608,64 +605,72 @@ class _ServerSheetState extends State<_ServerSheet> {
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final verdict = _verdict;
-    return Padding(
-      padding: EdgeInsets.only(
-        left: Gap.page,
-        right: Gap.page,
-        top: Gap.x4,
-        bottom: MediaQuery.of(context).viewInsets.bottom + Gap.x4,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SheetHandle(),
-          Text(
-            'The other half of the book.',
-            style: LedgerType.bodyStrong.copyWith(color: c.ink),
-          ),
-          const SizedBox(height: Gap.x1),
-          Text(
-            'Its address, and the one token that opens it.',
-            style: LedgerType.bodyText
-                .copyWith(fontSize: 12, color: c.inkFaint),
-          ),
-          const SizedBox(height: Gap.x3),
-          _field(c, _url, 'https://bbx.example.in', autofocus: true),
-          const SizedBox(height: Gap.x2),
-          _field(c, _token, 'bbx_…', obscure: true),
-          if (verdict != null) ...[
-            const SizedBox(height: Gap.x2),
+    // The sheet hands its content unbounded width, and a button asked to be
+    // infinitely wide takes the whole frame down with it. Pin the body to the
+    // screen so every child below lays out against a real number.
+    return SizedBox(
+      width: MediaQuery.sizeOf(context).width,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: Gap.page,
+          right: Gap.page,
+          top: Gap.x4,
+          bottom: MediaQuery.of(context).viewInsets.bottom + Gap.x4,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
             Text(
-              verdict,
+              'The other half of the book.',
+              style: LedgerType.bodyStrong.copyWith(color: c.ink),
+            ),
+            const SizedBox(height: Gap.x1),
+            Text(
+              'Its address, and the one token that opens it.',
               style: LedgerType.bodyText.copyWith(
                 fontSize: 12,
-                color: _ok ? c.jama : c.seal,
+                color: c.inkFaint,
               ),
             ),
-          ],
-          const SizedBox(height: Gap.x3),
-          Row(
-            children: [
-              TextButton(
-                onPressed: _testing ? null : _test,
-                child: Text(_testing ? 'asking…' : 'Test it'),
-              ),
-              const Spacer(),
-              FilledButton(
-                onPressed: () =>
-                    Navigator.of(context).pop(_ServerChosen(_typed)),
-                child: const Text('Save'),
+            const SizedBox(height: Gap.x3),
+            _field(c, _url, 'https://bbx.example.in', autofocus: true),
+            const SizedBox(height: Gap.x2),
+            _field(c, _token, 'bbx_…', obscure: true),
+            if (verdict != null) ...[
+              const SizedBox(height: Gap.x2),
+              Text(
+                verdict,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: _ok ? c.jama : c.seal,
+                ),
               ),
             ],
-          ),
-          if (widget.current.wired)
-            TextButton(
+            const SizedBox(height: Gap.x3),
+            // Stacked, never side by side. The book's theme gives every
+            // FilledButton `Size.fromHeight(52)` — an *infinite* minimum
+            // width — which is right in a column that hands down the sheet's
+            // width, and fatal in a Row, where non-flex children are measured
+            // against unbounded space.
+            FilledButton(
               onPressed: () =>
-                  Navigator.of(context).pop(const _ServerCleared()),
-              child: const Text('Stop syncing'),
+                  Navigator.of(context).pop(_ServerChosen(_typed)),
+              child: const Text('Save'),
             ),
-        ],
+            TextButton(
+              onPressed: _testing ? null : _test,
+              child: Text(_testing ? 'asking…' : 'Test it'),
+            ),
+            if (widget.current.wired)
+              TextButton(
+                onPressed: () =>
+                    Navigator.of(context).pop(const _ServerCleared()),
+                child: const Text('Stop syncing'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -771,14 +776,13 @@ class _PinSheetState extends State<_PinSheet> {
             ),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context)
-                .pop(_PinChosen(_controller.text.trim())),
+            onPressed: () =>
+                Navigator.of(context).pop(_PinChosen(_controller.text.trim())),
             child: const Text('Lock it down'),
           ),
           if (widget.canRemove)
             TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(const _PinRemoved()),
+              onPressed: () => Navigator.of(context).pop(const _PinRemoved()),
               child: const Text('Remove the PIN instead'),
             ),
         ],
@@ -853,14 +857,12 @@ class _Row extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: LedgerType.bodyText.copyWith(color: c.ink),
-                ),
+                Text(title, style: LedgerType.bodyText.copyWith(color: c.ink)),
                 const SizedBox(height: 1),
                 AnimatedSwitcher(
-                  duration:
-                      Motion.reduced(context) ? Duration.zero : Motion.quick,
+                  duration: Motion.reduced(context)
+                      ? Duration.zero
+                      : Motion.quick,
                   switchInCurve: Motion.curve,
                   child: Text(
                     caption,
@@ -876,13 +878,13 @@ class _Row extends StatelessWidget {
               ],
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: Gap.x2),
-            trailing!,
-          ],
+          if (trailing != null) ...[const SizedBox(width: Gap.x2), trailing!],
           if (onTap != null && goesSomewhere) ...[
             const SizedBox(width: Gap.x2),
-            Icon(Icons.chevron_right, size: 16, color: c.inkFaint),
+            RotatedBox(
+              quarterTurns: 3,
+              child: PenChevron(size: 13, color: c.inkFaint),
+            ),
           ],
         ],
       ),
@@ -903,25 +905,16 @@ class _Facts extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final words = LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint);
-    final figures =
-        LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint);
+    final figures = LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint);
     return Center(
       child: Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text('home-cooked, for one · ', style: words),
-          CountUp(
-            value: entries,
-            format: (v) => '$v',
-            style: figures,
-          ),
+          CountUp(value: entries, format: (v) => '$v', style: figures),
           Text(entries == 1 ? ' entry · ' : ' entries · ', style: words),
-          CountUp(
-            value: daysClosed,
-            format: (v) => '$v',
-            style: figures,
-          ),
+          CountUp(value: daysClosed, format: (v) => '$v', style: figures),
           Text(daysClosed == 1 ? ' day closed' : ' days closed', style: words),
         ],
       ),
@@ -934,13 +927,11 @@ class _Facts extends StatelessWidget {
 class _ThemeChip extends StatelessWidget {
   const _ThemeChip({
     required this.label,
-    required this.icon,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
-  final IconData icon;
   final bool selected;
   final VoidCallback onTap;
 
@@ -957,13 +948,13 @@ class _ThemeChip extends StatelessWidget {
             duration: d,
             curve: Motion.curve,
             opacity: selected ? 1 : 0,
-            child: LedgerChip(label, icon: icon, selected: true),
+            child: LedgerChip(label, selected: true),
           ),
           AnimatedOpacity(
             duration: d,
             curve: Motion.curve,
             opacity: selected ? 0 : 1,
-            child: LedgerChip(label, icon: icon),
+            child: LedgerChip(label),
           ),
         ],
       ),
@@ -972,10 +963,7 @@ class _ThemeChip extends StatelessWidget {
 }
 
 /// 1–31 on ruled paper: the day the salary lands, picked in one tap.
-Future<int?> showSalaryDaySheet(
-  BuildContext context, {
-  required int current,
-}) {
+Future<int?> showSalaryDaySheet(BuildContext context, {required int current}) {
   return showLedgerSheet<int>(
     context,
     builder: (context) {
@@ -999,8 +987,10 @@ Future<int?> showSalaryDaySheet(
               const SizedBox(height: 2),
               Text(
                 'the book counts its months from this day',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 12, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x3),
               for (final (r, days) in grid.indexed)
@@ -1048,9 +1038,7 @@ class _DayCell extends StatelessWidget {
         ),
         child: Text(
           '$day',
-          style: LedgerType.amount.copyWith(
-            color: selected ? c.quill : c.ink,
-          ),
+          style: LedgerType.amount.copyWith(color: selected ? c.quill : c.ink),
         ),
       ),
     );

@@ -15,6 +15,7 @@ import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/pickers.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
@@ -236,7 +237,6 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                     'start on its own.',
                 action: LedgerChip(
                   'draw the first line',
-                  icon: Icons.add,
                   selected: true,
                   onTap: () => _newBudget(context),
                 ),
@@ -310,8 +310,7 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.sync, size: 14, color: c.quill),
-                          const SizedBox(width: 5),
+
                           Text(
                             'rebalance to match how the month actually went',
                             style: LedgerType.bodyStrong.copyWith(
@@ -339,7 +338,10 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
           onTap: () => _flip(-1),
           child: Padding(
             padding: const EdgeInsets.all(4),
-            child: Icon(Icons.chevron_left, size: 18, color: c.inkFaint),
+            child: RotatedBox(
+              quarterTurns: 1,
+              child: PenChevron(size: 15, color: c.inkFaint),
+            ),
           ),
         ),
         const SizedBox(width: Gap.x1),
@@ -352,15 +354,17 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
           onTap: onNow ? null : () => _flip(1),
           child: Padding(
             padding: const EdgeInsets.all(4),
-            child: Icon(Icons.chevron_right,
-                size: 18, color: onNow ? c.rule : c.inkFaint),
+            child: RotatedBox(
+              quarterTurns: 3,
+              child: PenChevron(
+                  size: 15, color: onNow ? c.rule : c.inkFaint),
+            ),
           ),
         ),
         const Spacer(),
         if (!onNow)
           LedgerChip(
             'this month',
-            icon: Icons.undo,
             selected: true,
             onTap: _toThisMonth,
           ),
@@ -428,7 +432,6 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                       const SizedBox(width: Gap.x3),
                       LedgerChip(
                         'adopt',
-                        icon: Icons.check,
                         selected: true,
                         onTap: () async {
                           // The bar gliding to its new line is the
@@ -820,7 +823,6 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
                 'forgetting about.',
             action: LedgerChip(
               'add a bill',
-              icon: Icons.add,
               selected: true,
               onTap: _addRecurring,
             ),
@@ -852,22 +854,45 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
                         ),
                       ),
                     ),
-                    if (due.isNotEmpty) ...[
-                      const RuleHeader('how the month lands'),
-                      FutureBuilder<int?>(
-                        future: _salaryDay,
-                        builder: (context, sal) => _MonthTickStrip(
-                          due: due,
-                          salaryDay: sal.data,
+                    if (due.isNotEmpty)
+                      LedgerCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const RuleHeader('how the month lands'),
+                            FutureBuilder<int?>(
+                              future: _salaryDay,
+                              builder: (context, sal) => _MonthTickStrip(
+                                due: due,
+                                salaryDay: sal.data,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                    if (bills.isNotEmpty) const RuleHeader('bills'),
-                    for (final (i, d) in bills.indexed)
-                      _dueRow(d, i, last: i == bills.length - 1),
-                    if (subs.isNotEmpty) const RuleHeader('subscriptions'),
-                    for (final (i, d) in subs.indexed)
-                      _dueRow(d, bills.length + i, last: i == subs.length - 1),
+                    if (bills.isNotEmpty)
+                      LedgerCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const RuleHeader('bills'),
+                            for (final (i, d) in bills.indexed)
+                              _dueRow(d, i, last: i == bills.length - 1),
+                          ],
+                        ),
+                      ),
+                    if (subs.isNotEmpty)
+                      LedgerCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const RuleHeader('subscriptions'),
+                            for (final (i, d) in subs.indexed)
+                              _dueRow(d, bills.length + i,
+                                  last: i == subs.length - 1),
+                          ],
+                        ),
+                      ),
                     _addLine(c),
                     const SizedBox(height: Gap.x3),
                     FutureBuilder<int>(
@@ -915,7 +940,7 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
         ),
         child: Row(
           children: [
-            Icon(Icons.add, size: 14, color: c.quill),
+            PenPlus(size: 14, color: c.quill),
             const SizedBox(width: 7),
             Text(
               'add a bill or a subscription',
@@ -1131,7 +1156,6 @@ class _GoalsTab extends ConsumerWidget {
             sub: 'A goal here is just entries in the book, added up.',
             action: LedgerChip(
               'name the first thing',
-              icon: Icons.add,
               selected: true,
               onTap: () => _newGoal(context, ref),
             ),
@@ -1361,7 +1385,6 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
             children: [
               LedgerChip(
                 'add to this',
-                icon: Icons.add,
                 selected: true,
                 onTap: () => _contribute(context),
               ),
@@ -1626,7 +1649,10 @@ class _PocketLine extends StatelessWidget {
               style:
                   LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint),
             ),
-            Icon(Icons.chevron_right, size: 16, color: c.inkFaint),
+            RotatedBox(
+              quarterTurns: 3,
+              child: PenChevron(size: 13, color: c.inkFaint),
+            ),
           ],
         ),
       ),

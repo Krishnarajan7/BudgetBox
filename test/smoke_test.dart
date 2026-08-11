@@ -59,7 +59,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('today'), findsWidgets);
-    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byKey(const ValueKey('nav-add')), findsOneWidget);
 
     // Walk the spine: Book, Plans, Worth all render.
     await tester.tap(find.text('book'));

@@ -4,6 +4,7 @@ import '../../features/shelf/shelf_overlay.dart';
 import '../tokens.dart';
 import '../typography.dart';
 import 'motion.dart';
+import 'pen_marks.dart';
 
 /// The frame every non-Money book lives in: module name up top (tap to open
 /// the shelf and switch books), back always available, content below. Same
@@ -38,7 +39,10 @@ class ModuleScaffold extends StatelessWidget {
                   Pressable(
                     scale: 0.9,
                     onTap: () => Navigator.of(context).pop(),
-                    child: Icon(Icons.arrow_back, size: 18, color: c.inkFaint),
+                    child: RotatedBox(
+                      quarterTurns: 1,
+                      child: PenChevron(size: 16, color: c.inkFaint),
+                    ),
                   ),
                   const SizedBox(width: Gap.x3),
                   Pressable(
@@ -50,7 +54,7 @@ class ModuleScaffold extends StatelessWidget {
                         Text(title,
                             style: LedgerType.wordmark.copyWith(color: c.ink)),
                         const SizedBox(width: 2),
-                        Icon(Icons.expand_more, size: 14, color: c.inkFaint),
+                        PenChevron(size: 12, color: c.inkFaint),
                       ],
                     ),
                   ),

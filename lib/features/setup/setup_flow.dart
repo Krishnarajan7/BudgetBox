@@ -10,10 +10,12 @@ import '../../core/typography.dart';
 import '../../core/widgets/cat_mark.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../lock/lock_page.dart';
+import 'restore_page.dart';
 
 /// One account as it's being written into the book during setup. The id keeps
 /// a line's identity stable so an added row inks itself in without the rows
@@ -217,6 +219,24 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                       style: LedgerType.amount
                           .copyWith(fontSize: 12, color: c.inkFaint)),
                   const Spacer(),
+                  // The way out for someone who would rather look around
+                  // first: every default is already sensible, so the closing
+                  // page is always one tap away.
+                  if (_page < _progress.length - 1)
+                    Pressable(
+                      onTap: _skipAll,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Gap.x2,
+                          vertical: Gap.x1,
+                        ),
+                        child: Text(
+                          'skip all',
+                          style: LedgerType.amount
+                              .copyWith(fontSize: 12, color: c.quill),
+                        ),
+                      ),
+                    ),
                   // First launch has nothing to close into; the preview does.
                   if (!widget.real)
                     Pressable(
@@ -224,7 +244,7 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                       child: Padding(
                         padding: const EdgeInsets.all(Gap.x1),
                         child:
-                            Icon(Icons.close, size: 18, color: c.inkFaint),
+                            PenCross(size: 15, color: c.inkFaint),
                       ),
                     ),
                 ],
@@ -253,11 +273,25 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
     );
   }
 
+  /// Jump past the questions entirely and land on the closing page, where
+  /// every default is already filled in and one tap opens the book.
+  void _skipAll() {
+    _controller.animateToPage(
+      _progress.length - 1,
+      duration: Motion.settle,
+      curve: Motion.curve,
+    );
+  }
+
   Widget _frame(
     LedgerColors c, {
     required List<Widget> children,
     String cta = 'Next',
     VoidCallback? onCta,
+    // Nothing asked here is load-bearing: every answer has a sensible default
+    // and lives in Settings afterwards. Being made to answer a question you
+    // do not yet have an opinion about is its own kind of friction.
+    bool skippable = true,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Gap.page),
@@ -286,7 +320,27 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
             delay: const Duration(milliseconds: 320),
             child: _Cta(label: cta, onTap: onCta ?? _next),
           ),
-          const SizedBox(height: Gap.x6),
+          if (skippable)
+            InkIn(
+              delay: const Duration(milliseconds: 380),
+              child: Center(
+                child: Pressable(
+                  onTap: _next,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: Gap.x3,
+                      horizontal: Gap.x4,
+                    ),
+                    child: Text(
+                      'skip — you can change this later in Settings',
+                      style: LedgerType.bodyText
+                          .copyWith(fontSize: 12, color: c.inkFaint),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          SizedBox(height: skippable ? Gap.x3 : Gap.x6),
         ],
       ),
     );
@@ -327,6 +381,29 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
       ),
       _hint(c,
           "Just a name. There's no account — this book lives on this phone, and it's yours."),
+      // The other door: someone reinstalling should not have to re-enact the
+      // ritual and hope the adopter marries their accounts by name.
+      if (widget.real)
+        Padding(
+          padding: const EdgeInsets.only(top: Gap.x6),
+          child: Pressable(
+            onTap: () => Navigator.of(context).push(
+              LedgerRoute<void>(builder: (_) => const RestorePage()),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'I already have a book',
+                  style: LedgerType.bodyStrong
+                      .copyWith(fontSize: 13, color: c.quill),
+                ),
+                const SizedBox(width: Gap.x1),
+                PenArrow(size: 13, color: c.quill),
+              ],
+            ),
+          ),
+        ),
     ]);
   }
 
@@ -529,7 +606,6 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
             for (final k in const ['bank', 'UPI', 'cash', 'card'])
               LedgerChip(
                 k,
-                icon: Icons.add,
                 selected: _pendingKind == k,
                 onTap: () {
                   HapticFeedback.selectionClick();
@@ -729,10 +805,13 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
   Widget _lockDown(LedgerColors c) {
     return _frame(c, cta: 'Lock it down', children: [
       _q(c, 'This book locks.'),
+      // This used to promise nothing ever left the phone. That was true
+      // before the book had a server; saying it now would be a lie about
+      // exactly the thing a person is trusting you with.
       _hint(c,
-          'Four digits below, Face ID in front of them. Nothing leaves this '
-          'phone — there is no cloud to leak from. Leave it blank to skip '
-          'for now.'),
+          'Four digits below, Face ID in front of them. The PIN stays on this '
+          'phone — it guards this device and is never sent to your server. '
+          'Leave it blank to skip for now.'),
       const SizedBox(height: Gap.x6),
       Center(
         child: SizedBox(
@@ -759,7 +838,7 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
         ),
       ),
       const SizedBox(height: Gap.x6),
-      Center(child: Icon(Icons.face_outlined, size: 36, color: c.inkFaint)),
+      Center(child: SealOutline(size: 36, color: c.inkFaint)),
     ]);
   }
 
@@ -784,6 +863,8 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
                 ? 'Open the book'
                 : 'Close the preview',
         onCta: _finish,
+        // The closing page is the destination; there is nothing past it.
+        skippable: false,
         children: [
           _q(c,
               'Your box is set up${_name.trim().isEmpty ? '' : ', ${_name.trim()}'}.'),
