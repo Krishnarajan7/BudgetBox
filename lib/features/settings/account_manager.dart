@@ -32,8 +32,7 @@ class AccountManagerPage extends ConsumerStatefulWidget {
   const AccountManagerPage({super.key});
 
   @override
-  ConsumerState<AccountManagerPage> createState() =>
-      _AccountManagerPageState();
+  ConsumerState<AccountManagerPage> createState() => _AccountManagerPageState();
 }
 
 class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
@@ -58,7 +57,11 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
     return [for (final id in wanted) byId[id]!];
   }
 
-  Future<void> _reorder(List<Account> accounts, int oldIndex, int newIndex) async {
+  Future<void> _reorder(
+    List<Account> accounts,
+    int oldIndex,
+    int newIndex,
+  ) async {
     final next = [...accounts];
     next.insert(newIndex, next.removeAt(oldIndex));
     HapticFeedback.lightImpact();
@@ -83,8 +86,9 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
       await Future<void>.delayed(const Duration(milliseconds: 320));
     }
     final db = ref.read(dbProvider);
-    await (db.update(db.accounts)..where((a) => a.id.equals(account.id)))
-        .write(const AccountsCompanion(archived: Value(true)));
+    await (db.update(db.accounts)..where((a) => a.id.equals(account.id))).write(
+      const AccountsCompanion(archived: Value(true)),
+    );
     if (mounted) setState(() => _leaving.remove(account.id));
   }
 
@@ -132,13 +136,13 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
           if (snapshot.hasData && accounts.isEmpty) {
             return const EmptyPage(
               line: 'Nowhere for the money to sit yet.',
-              sub: 'The plus above opens the first one — '
+              sub:
+                  'The plus above opens the first one — '
                   'rough is fine, all of it can be corrected.',
             );
           }
 
-          final footing =
-              accounts.fold(0, (int sum, a) => sum + _signed(a));
+          final footing = accounts.fold(0, (int sum, a) => sum + _signed(a));
 
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
@@ -180,8 +184,10 @@ class _AccountManagerPageState extends ConsumerState<AccountManagerPage> {
                   'Balances move with the book. Drag by the grip to put them '
                   'in your order, tap a line to rename it or change what kind '
                   'of thing it is.',
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 12, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
                 ),
               ],
               const SizedBox(height: Gap.x8),
@@ -286,7 +292,9 @@ class _AccountRow extends ConsumerWidget {
             ReorderableDragStartListener(
               index: index,
               child: PenLines(
-                size: 15, color: c.inkFaint.withValues(alpha: 0.55)),
+                size: 15,
+                color: c.inkFaint.withValues(alpha: 0.55),
+              ),
             ),
           ],
         ),
@@ -307,8 +315,9 @@ class _AccountSheet extends ConsumerStatefulWidget {
 }
 
 class _AccountSheetState extends ConsumerState<_AccountSheet> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.existing?.name ?? '');
+  late final TextEditingController _name = TextEditingController(
+    text: widget.existing?.name ?? '',
+  );
   final _opening = TextEditingController();
   late AccountKind _kind = widget.existing?.kind ?? AccountKind.bank;
 
@@ -333,7 +342,9 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
     HapticFeedback.lightImpact();
     final existing = widget.existing;
     if (existing == null) {
-      await ref.read(accountRepoProvider).create(
+      await ref
+          .read(accountRepoProvider)
+          .create(
             name: name,
             kind: _kind,
             openingBalancePaise: _openingPaise(),
@@ -391,12 +402,16 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
                   controller: _name,
                   autofocus: adding,
                   textCapitalization: TextCapitalization.words,
-                  style:
-                      LedgerType.bodyText.copyWith(fontSize: 16, color: c.ink),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 16,
+                    color: c.ink,
+                  ),
                   decoration: InputDecoration(
                     hintText: 'what you call it',
-                    hintStyle: LedgerType.bodyText
-                        .copyWith(fontSize: 16, color: c.inkFaint),
+                    hintStyle: LedgerType.bodyText.copyWith(
+                      fontSize: 16,
+                      color: c.inkFaint,
+                    ),
                     border: InputBorder.none,
                     isDense: true,
                   ),
@@ -436,17 +451,22 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
                   ),
                   child: TextField(
                     controller: _opening,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
                     ],
-                    style: LedgerType.amountTotal
-                        .copyWith(fontSize: 22, color: c.ink),
+                    style: LedgerType.amountTotal.copyWith(
+                      fontSize: 22,
+                      color: c.ink,
+                    ),
                     decoration: InputDecoration(
                       hintText: '0',
-                      hintStyle: LedgerType.amountTotal
-                          .copyWith(fontSize: 22, color: c.inkFaint),
+                      hintStyle: LedgerType.amountTotal.copyWith(
+                        fontSize: 22,
+                        color: c.inkFaint,
+                      ),
                       border: InputBorder.none,
                       isDense: true,
                     ),
@@ -455,8 +475,10 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
               ] else
                 Text(
                   'Balance moves with the book — correct it from Worth.',
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 12, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
                 ),
               const SizedBox(height: Gap.x4),
               ValueListenableBuilder<TextEditingValue>(
@@ -489,10 +511,15 @@ class _AccountSheetState extends ConsumerState<_AccountSheet> {
                         )
                       : TextButton(
                           onPressed: null,
+                          // "Holds −₹5,800 — empty it first" is nonsense; a
+                          // line below zero needs setting right, not emptying.
                           child: Text(
-                            'It still holds '
-                            '${Inr.format(existing.balancePaise)} — '
-                            'empty it first',
+                            existing.balancePaise > 0
+                                ? 'It still holds '
+                                      '${Inr.format(existing.balancePaise)} — '
+                                      'empty it first'
+                                : 'It sits ${Inr.format(-existing.balancePaise)} '
+                                      'below zero — set it right from Worth first',
                           ),
                         ),
                 ),

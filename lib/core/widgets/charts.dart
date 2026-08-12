@@ -71,8 +71,13 @@ class _PacePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final base = size.height - 8;
-    canvas.drawLine(Offset(0, base), Offset(size.width, base),
-        Paint()..color = rule..strokeWidth = 1);
+    canvas.drawLine(
+      Offset(0, base),
+      Offset(size.width, base),
+      Paint()
+        ..color = rule
+        ..strokeWidth = 1,
+    );
 
     if (daily.isEmpty || totalDays == 0) return;
     final maxSpend = math.max(daily.last, 1);
@@ -108,8 +113,9 @@ class _PacePainter extends CustomPainter {
     final drawn = Path();
     for (final metric in path.computeMetrics()) {
       drawn.addPath(
-          metric.extractPath(0, metric.length * progress.clamp(0, 1)),
-          Offset.zero);
+        metric.extractPath(0, metric.length * progress.clamp(0, 1)),
+        Offset.zero,
+      );
     }
     canvas.drawPath(
       drawn,
@@ -126,10 +132,16 @@ class _PacePainter extends CustomPainter {
 
     // Dashed vertical today-marker.
     final vx = x(elapsedDays);
-    final vpaint = Paint()..color = faint..strokeWidth = 1;
+    final vpaint = Paint()
+      ..color = faint
+      ..strokeWidth = 1;
     var vy = 6.0;
     while (vy < base) {
-      canvas.drawLine(Offset(vx, vy), Offset(vx, math.min(vy + 2, base)), vpaint);
+      canvas.drawLine(
+        Offset(vx, vy),
+        Offset(vx, math.min(vy + 2, base)),
+        vpaint,
+      );
       vy += 6;
     }
   }
@@ -224,7 +236,9 @@ class _VDashPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = color..strokeWidth = 1;
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 1;
     var y = 0.0;
     while (y < size.height) {
       canvas.drawLine(Offset(0, y), Offset(0, math.min(y + 2, size.height)), p);
@@ -268,7 +282,8 @@ class _SparkPainter extends CustomPainter {
     final path = Path();
     for (var i = 0; i < points.length; i++) {
       final x = size.width * i / (points.length - 1);
-      final y = size.height - (size.height - 2) * ((points[i] - min) / range) - 1;
+      final y =
+          size.height - (size.height - 2) * ((points[i] - min) / range) - 1;
       i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
     }
     canvas.drawPath(
@@ -292,6 +307,8 @@ class HeatGrid extends StatelessWidget {
     super.key,
     required this.dayTotalsPaise,
     this.stagger = false,
+    this.totalDays,
+    this.today,
     this.onDayTap,
     this.onDayLongPress,
   });
@@ -302,6 +319,14 @@ class HeatGrid extends StatelessWidget {
   /// True inks the cells in top-left to bottom-right, once, on entry.
   final bool stagger;
 
+  /// Rule the whole month: days past [dayTotalsPaise] lie ahead — drawn
+  /// fainter, ruled but unwritten, so the table never looks half-finished.
+  final int? totalDays;
+
+  /// The day of month (1-based) the pen is resting on. Its cell carries a
+  /// small ink mark under the figure.
+  final int? today;
+
   /// Both receive the day of month (1-based).
   final ValueChanged<int>? onDayTap;
   final ValueChanged<int>? onDayLongPress;
@@ -309,8 +334,13 @@ class HeatGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    final maxSpend =
-        dayTotalsPaise.isEmpty ? 1 : math.max(dayTotalsPaise.reduce(math.max), 1);
+    final maxSpend = dayTotalsPaise.isEmpty
+        ? 1
+        : math.max(dayTotalsPaise.reduce(math.max), 1);
+    final count = math.max(
+      totalDays ?? dayTotalsPaise.length,
+      dayTotalsPaise.length,
+    );
     // A month ruled into the page: shared hairlines, square corners, ink
     // wash where money moved. Detached rounded tiles are the contribution
     // graph every dashboard wears; a ledger draws its calendar as a table.
@@ -321,38 +351,73 @@ class HeatGrid extends StatelessWidget {
       // Wider than tall: a table's rows, not a wall of boxes.
       childAspectRatio: 1.45,
       children: [
-        for (final (i, v) in dayTotalsPaise.indexed)
-          InkIn(
-            play: stagger,
-            delay: Duration(milliseconds: 14 * i),
-            child: Pressable(
-              haptic: onDayTap != null,
-              onTap: onDayTap == null ? null : () => onDayTap!(i + 1),
-              onLongPress: onDayLongPress == null
-                  ? null
-                  : () => onDayLongPress!(i + 1),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: v == 0
-                      ? null
-                      : Color.lerp(c.paper, c.quill, 0.10 + 0.55 * v / maxSpend),
-                  // Half-width strokes meet their neighbours' to rule single
-                  // hairlines through the table rather than doubled walls.
-                  border: Border.all(color: c.rule, width: 0.5),
-                ),
-                alignment: Alignment.topLeft,
-                padding: const EdgeInsets.only(top: 3, left: 4),
-                child: Text(
-                  '${i + 1}',
-                  style: LedgerType.amount.copyWith(
-                    fontSize: 9,
-                    color: v > maxSpend * 0.55 ? c.paper : c.inkFaint,
-                  ),
-                ),
-              ),
-            ),
+        for (var i = 0; i < count; i++)
+          _cell(
+            c,
+            i,
+            i < dayTotalsPaise.length ? dayTotalsPaise[i] : null,
+            maxSpend,
           ),
       ],
+    );
+  }
+
+  /// One day's cell; [v] null means the day hasn't arrived yet.
+  Widget _cell(LedgerColors c, int i, int? v, int maxSpend) {
+    final isToday = today != null && i + 1 == today;
+    return InkIn(
+      play: stagger,
+      delay: Duration(milliseconds: 14 * i),
+      child: Pressable(
+        haptic: v != null && onDayTap != null,
+        onTap: v == null || onDayTap == null ? null : () => onDayTap!(i + 1),
+        onLongPress: v == null || onDayLongPress == null
+            ? null
+            : () => onDayLongPress!(i + 1),
+        child: Container(
+          decoration: BoxDecoration(
+            // The wash is the writing ink, not the pen: iron-gall indigo
+            // deepening with the day's spend, so the grid reads as pages
+            // that took more or less ink — colour without a verdict.
+            color: (v == null || v == 0)
+                ? null
+                : Color.lerp(c.paper, c.heat, 0.12 + 0.62 * v / maxSpend),
+            // Half-width strokes meet their neighbours' to rule single
+            // hairlines through the table rather than doubled walls.
+            border: Border.all(
+              color: v == null ? c.rule.withValues(alpha: 0.5) : c.rule,
+              width: 0.5,
+            ),
+          ),
+          alignment: Alignment.topLeft,
+          padding: const EdgeInsets.only(top: 3, left: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${i + 1}',
+                style: LedgerType.amount.copyWith(
+                  fontSize: 9,
+                  color: v == null
+                      ? c.inkFaint.withValues(alpha: 0.45)
+                      : v > maxSpend * 0.55
+                      ? c.paper
+                      : c.inkFaint,
+                ),
+              ),
+              // Where the pen rests: a short stroke under today's figure.
+              if (isToday)
+                Container(
+                  margin: const EdgeInsets.only(top: 1.5),
+                  width: 8,
+                  height: 1.6,
+                  color: (v ?? 0) > maxSpend * 0.55 ? c.paper : c.quill,
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

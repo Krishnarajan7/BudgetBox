@@ -17,17 +17,21 @@ class RuleHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
+    // The seed is the label's letters, not hashCode: the same header draws
+    // the same line every run, on every platform. A book's rules hold still.
+    final seed = label.codeUnits.fold(0, (a, b) => a + b);
     return Padding(
       padding: const EdgeInsets.only(top: Gap.x6, bottom: Gap.x1),
       child: Row(
         children: [
           Text(label, style: LedgerType.label.copyWith(color: c.inkFaint)),
           const SizedBox(width: Gap.x3),
-          Expanded(child: Container(height: 1, color: c.rule)),
-          if (trailing != null) ...[
-            const SizedBox(width: Gap.x3),
-            trailing!,
-          ],
+          // Ruled by hand, not by machine — each header's line wanders its
+          // own hair off true, the way the same pen never rules twice alike.
+          Expanded(
+            child: InkRule(color: c.rule, seed: seed),
+          ),
+          if (trailing != null) ...[const SizedBox(width: Gap.x3), trailing!],
         ],
       ),
     );
@@ -46,15 +50,17 @@ class LedgerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    // Hard corners, no outline: a plate of lacquer, not the borderless-soft
-    // card every dark app ships. The edge is the tone change itself.
+    // Hard corners and one hairline of the rule: a printed plate, not the
+    // borderless-soft card every app ships. At night the tone change carries
+    // the edge; in daylight white-on-cream needs the rule to read as print.
     return Container(
       margin: const EdgeInsets.only(top: Gap.x3),
-      padding: padding ??
-          const EdgeInsets.fromLTRB(Gap.x4, Gap.x1, Gap.x4, Gap.x4),
+      padding:
+          padding ?? const EdgeInsets.fromLTRB(Gap.x4, Gap.x1, Gap.x4, Gap.x4),
       decoration: BoxDecoration(
         color: c.paperRaised,
         borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: c.rule.withValues(alpha: 0.8), width: 0.75),
       ),
       child: child,
     );
@@ -141,9 +147,7 @@ class LedgerLine extends StatelessWidget {
       onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(
-          border: last
-              ? null
-              : Border(bottom: BorderSide(color: c.rule)),
+          border: last ? null : Border(bottom: BorderSide(color: c.rule)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 9),
         child: Row(
@@ -155,8 +159,10 @@ class LedgerLine extends StatelessWidget {
                 width: 44,
                 child: Text(
                   leading!,
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 12, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
                 ),
               ),
             if (mark != null) ...[
@@ -175,13 +181,17 @@ class LedgerLine extends StatelessWidget {
                     if (detail != null)
                       TextSpan(
                         text: '  $detail',
-                        style: LedgerType.bodyText
-                            .copyWith(fontSize: 12, color: c.inkFaint),
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
                       ),
                   ],
                 ),
-                style: LedgerType.bodyText
-                    .copyWith(color: inkColor, decoration: strike),
+                style: LedgerType.bodyText.copyWith(
+                  color: inkColor,
+                  decoration: strike,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -240,7 +250,12 @@ class CountHero extends StatelessWidget {
 
 /// A day's header: "Today · Thu 31 ——— ₹340", underlined in ink.
 class DayHeader extends StatelessWidget {
-  const DayHeader({super.key, required this.label, required this.total, this.sealed = false});
+  const DayHeader({
+    super.key,
+    required this.label,
+    required this.total,
+    this.sealed = false,
+  });
 
   final String label;
   final String total;
@@ -257,16 +272,20 @@ class DayHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(label,
-              style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.ink)),
+          Text(
+            label,
+            style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.ink),
+          ),
           if (sealed) ...[
             const SizedBox(width: Gap.x2),
             // The chop that closed it, in miniature — not a checkmark badge.
             SealOutline(size: 13, color: c.seal),
           ],
           const Spacer(),
-          Text(total,
-              style: LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint)),
+          Text(
+            total,
+            style: LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint),
+          ),
         ],
       ),
     );
@@ -277,12 +296,7 @@ class DayHeader extends StatelessWidget {
 /// a faint second thought beneath. No illustrations, no icons — the copy is
 /// the empty state.
 class EmptyPage extends StatelessWidget {
-  const EmptyPage({
-    super.key,
-    required this.line,
-    this.sub,
-    this.action,
-  });
+  const EmptyPage({super.key, required this.line, this.sub, this.action});
 
   /// The page's one sentence — wry, first person, no exclamation marks.
   final String line;
@@ -296,7 +310,9 @@ class EmptyPage extends StatelessWidget {
       child: InkIn(
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: Gap.x8, vertical: Gap.x12),
+            horizontal: Gap.x8,
+            vertical: Gap.x12,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -310,14 +326,13 @@ class EmptyPage extends StatelessWidget {
                 Text(
                   sub!,
                   textAlign: TextAlign.center,
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 13, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 13,
+                    color: c.inkFaint,
+                  ),
                 ),
               ],
-              if (action != null) ...[
-                const SizedBox(height: Gap.x4),
-                action!,
-              ],
+              if (action != null) ...[const SizedBox(height: Gap.x4), action!],
             ],
           ),
         ),
@@ -356,24 +371,28 @@ class SwipeRow extends StatelessWidget {
       key: rowKey,
       direction: onEdit == null
           ? (onDelete == null
-              ? DismissDirection.none
-              : DismissDirection.endToStart)
+                ? DismissDirection.none
+                : DismissDirection.endToStart)
           : (onDelete == null
-              ? DismissDirection.startToEnd
-              : DismissDirection.horizontal),
+                ? DismissDirection.startToEnd
+                : DismissDirection.horizontal),
       background: Container(
         color: c.paperRaised,
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: Gap.x4),
-        child: Text(editLabel,
-            style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill)),
+        child: Text(
+          editLabel,
+          style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill),
+        ),
       ),
       secondaryBackground: Container(
         color: c.paperRaised,
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: Gap.x4),
-        child: Text(deleteLabel,
-            style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.seal)),
+        child: Text(
+          deleteLabel,
+          style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.seal),
+        ),
       ),
       confirmDismiss: (dir) async {
         if (dir == DismissDirection.startToEnd) {
@@ -393,8 +412,13 @@ class SwipeRow extends StatelessWidget {
 /// A pill chip; selected state wears the quill. [icon] draws a small line
 /// icon before the label — the only ornament chips are allowed.
 class LedgerChip extends StatelessWidget {
-  const LedgerChip(this.label,
-      {super.key, this.icon, this.selected = false, this.onTap});
+  const LedgerChip(
+    this.label, {
+    super.key,
+    this.icon,
+    this.selected = false,
+    this.onTap,
+  });
 
   final String label;
   final IconData? icon;
@@ -448,6 +472,7 @@ class WhereRow extends StatelessWidget {
     required this.frac,
     required this.stagger,
     required this.last,
+    this.ink,
     this.onTap,
   });
 
@@ -459,6 +484,11 @@ class WhereRow extends StatelessWidget {
   final double frac;
   final int stagger;
   final bool last;
+
+  /// A print ink from the drawer: the row's wash takes the tint and a small
+  /// swatch ties the row to its slice of whatever chart it legends. Absent,
+  /// the wash stays the quill's own — a bare list, no chart to answer to.
+  final Color? ink;
   final VoidCallback? onTap;
 
   @override
@@ -468,7 +498,9 @@ class WhereRow extends StatelessWidget {
     final row = Container(
       decoration: last
           ? null
-          : BoxDecoration(border: Border(bottom: BorderSide(color: c.rule))),
+          : BoxDecoration(
+              border: Border(bottom: BorderSide(color: c.rule)),
+            ),
       child: Stack(
         children: [
           Positioned.fill(
@@ -479,7 +511,11 @@ class WhereRow extends StatelessWidget {
                 return FractionallySizedBox(
                   alignment: Alignment.centerLeft,
                   widthFactor: (frac.clamp(0.0, 1.0)) * p,
-                  child: ColoredBox(color: c.quill.withValues(alpha: 0.10)),
+                  child: ColoredBox(
+                    color: (ink ?? c.quill).withValues(
+                      alpha: ink == null ? 0.10 : 0.16,
+                    ),
+                  ),
                 );
               },
             ),
@@ -488,6 +524,17 @@ class WhereRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 9),
             child: Row(
               children: [
+                if (ink != null) ...[
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: ink,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: Gap.x2),
+                ],
                 CatMark(iconKey, size: 14),
                 const SizedBox(width: Gap.x2),
                 Expanded(

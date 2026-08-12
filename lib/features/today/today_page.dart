@@ -1,3 +1,4 @@
+import 'dart:async' show Timer, unawaited;
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart' show InsertMode, Value;
@@ -17,6 +18,8 @@ import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
+import '../../data/api/api_client.dart';
+import '../../data/api/endpoints/coaching_api.dart';
 import '../../data/providers.dart';
 import '../../data/repos/budget_math.dart';
 import '../../data/repos/goal_repo.dart';
@@ -38,8 +41,17 @@ class TodayPage extends ConsumerStatefulWidget {
 /// Small counts in the book's hand: 'three', not '3'.
 String _spelled(int n) {
   const words = [
-    'two', 'three', 'four', 'five', 'six', 'seven',
-    'eight', 'nine', 'ten', 'eleven', 'twelve',
+    'two',
+    'three',
+    'four',
+    'five',
+    'six',
+    'seven',
+    'eight',
+    'nine',
+    'ten',
+    'eleven',
+    'twelve',
   ];
   return (n >= 2 && n <= 12) ? words[n - 2] : '$n';
 }
@@ -53,6 +65,17 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   bool _burst = false;
   final Set<int> _seenTxnIds = {};
   bool _firstEmission = true;
+
+  /// A one-breath acknowledgment when fresh money lands on a past page —
+  /// shown in place of the subline, then it lets the normal line back.
+  String? _pastNote;
+  Timer? _pastTimer;
+
+  @override
+  void dispose() {
+    _pastTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -78,9 +101,9 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       await settings.markBirthdayBurst(now.year);
     }
     final yKey = LedgerDates.dayKey(DateTime(now.year, now.month, now.day - 1));
-    final ySeal = await (db.select(db.daySeals)
-          ..where((s) => s.date.equals(yKey)))
-        .getSingleOrNull();
+    final ySeal = await (db.select(
+      db.daySeals,
+    )..where((s) => s.date.equals(yKey))).getSingleOrNull();
     if (mounted) {
       setState(() {
         _name = name;
@@ -117,12 +140,27 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 
   static String _dateLabel(DateTime d) {
     const days = [
-      'monday', 'tuesday', 'wednesday', 'thursday',
-      'friday', 'saturday', 'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+      'sunday',
     ];
     const months = [
-      'january', 'february', 'march', 'april', 'may', 'june',
-      'july', 'august', 'september', 'october', 'november', 'december',
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
     ];
     return '${days[d.weekday - 1]} ${d.day} ${months[d.month - 1]}';
   }
@@ -140,43 +178,66 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final c = LedgerColors.of(context);
     final txns = ref.watch(txnRepoProvider);
     final budgets = ref.watch(budgetRepoProvider);
+    final coaching = ref.watch(coachingFeedProvider);
     final now = DateTime.now();
 
     return StreamBuilder<List<Budget>>(
       stream: budgets.watchAll(),
       builder: (context, budgetSnap) {
-        final monthLimit = (budgetSnap.data ?? const <Budget>[])
-            .fold<int>(0, (s, b) => s + b.limitPaise);
+        final monthLimit = (budgetSnap.data ?? const <Budget>[]).fold<int>(
+          0,
+          (s, b) => s + b.limitPaise,
+        );
         return StreamBuilder<List<Txn>>(
           stream: txns.watchRange(
-              LedgerDates.monthStart(now), LedgerDates.monthEnd(now)),
+            LedgerDates.monthStart(now),
+            LedgerDates.monthEnd(now),
+          ),
           builder: (context, snapshot) {
             final month = snapshot.data ?? const <Txn>[];
-            final expenses =
-                month.where((t) => t.type == TxnType.expense).toList();
-            final today =
-                expenses.where((t) => t.at.day == now.day).toList()
-                  ..sort((a, b) => b.at.compareTo(a.at));
-            final todayPaise =
-                today.fold(0, (s, t) => s + t.amountPaise);
+            final expenses = month
+                .where((t) => t.type == TxnType.expense)
+                .toList();
+            final today = expenses.where((t) => t.at.day == now.day).toList()
+              ..sort((a, b) => b.at.compareTo(a.at));
+            final todayPaise = today.fold(0, (s, t) => s + t.amountPaise);
             final yesterdayPaise = now.day > 1
                 ? expenses
-                    .where((t) => t.at.day == now.day - 1)
-                    .fold(0, (s, t) => s + t.amountPaise)
+                      .where((t) => t.at.day == now.day - 1)
+                      .fold(0, (s, t) => s + t.amountPaise)
                 : null;
-            final monthPaise =
-                expenses.fold(0, (s, t) => s + t.amountPaise);
+            final monthPaise = expenses.fold(0, (s, t) => s + t.amountPaise);
 
-            // Which of today's lines are genuinely new since last frame.
+            // Which of the month's lines are genuinely new since last frame.
+            // Today's fresh lines ink into the list below; fresh lines on
+            // PAST days (the catch-up sheet, a back-dated entry) get spoken
+            // instead — the hero counts only to-day, and money written onto
+            // an old page with no acknowledgment reads as money lost.
             final freshIds = <int>{};
             if (snapshot.hasData) {
-              for (final t in today) {
-                if (!_seenTxnIds.contains(t.id) && !_firstEmission) {
+              final freshPast = <Txn>[];
+              for (final t in month) {
+                if (_seenTxnIds.contains(t.id) || _firstEmission) continue;
+                if (t.at.day == now.day) {
                   freshIds.add(t.id);
+                } else if (t.type == TxnType.expense) {
+                  freshPast.add(t);
                 }
               }
-              _seenTxnIds.addAll(today.map((t) => t.id));
+              _seenTxnIds.addAll(month.map((t) => t.id));
               _firstEmission = false;
+              if (freshPast.isNotEmpty) {
+                final paise = freshPast.fold(0, (s, t) => s + t.amountPaise);
+                final days = {for (final t in freshPast) t.at.day};
+                _pastNote = days.length == 1
+                    ? '${Inr.format(paise)} written onto '
+                          '${LedgerDates.dayLabel(freshPast.first.at).toLowerCase()}'
+                    : '${Inr.format(paise)} written onto the quiet days';
+                _pastTimer?.cancel();
+                _pastTimer = Timer(const Duration(seconds: 6), () {
+                  if (mounted) setState(() => _pastNote = null);
+                });
+              }
             }
 
             final cumulative = <int>[];
@@ -206,94 +267,102 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                     child: Text(
                       'No budget lines yet — the month runs unmeasured. '
                       'Draw them in plans when you want a pace to keep.',
-                      style: LedgerType.bodyText
-                          .copyWith(fontSize: 13, color: c.inkFaint),
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 13,
+                        color: c.inkFaint,
+                      ),
                     ),
                   ),
                 )
               else
-              LedgerCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const RuleHeader('this month'),
-                    const SizedBox(height: Gap.x3),
-                    // The number that decides the evening is what is LEFT —
-                    // so it leads, in the book's own serif, with the verdict
-                    // stamped beside it and the arithmetic as a footnote.
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CountUp(
-                                value:
-                                    (monthLimit - monthPaise).clamp(0, 1 << 62),
-                                format: Inr.format,
-                                style: LedgerType.heroAmount
-                                    .copyWith(fontSize: 34, color: c.ink),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'left · ${_daysToSalary(now)} '
-                                '${_daysToSalary(now) == 1 ? 'day' : 'days'} to salary',
-                                style: LedgerType.amount.copyWith(
-                                    fontSize: 11, color: c.inkFaint),
-                              ),
-                            ],
+                LedgerCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const RuleHeader('this month'),
+                      const SizedBox(height: Gap.x3),
+                      // The number that decides the evening is what is LEFT —
+                      // so it leads, in the book's own serif, with the verdict
+                      // stamped beside it and the arithmetic as a footnote.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                CountUp(
+                                  value: (monthLimit - monthPaise).clamp(
+                                    0,
+                                    1 << 62,
+                                  ),
+                                  format: Inr.format,
+                                  style: LedgerType.heroAmount.copyWith(
+                                    fontSize: 34,
+                                    color: c.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'left · ${_daysToSalary(now)} '
+                                  '${_daysToSalary(now) == 1 ? 'day' : 'days'} to salary',
+                                  style: LedgerType.amount.copyWith(
+                                    fontSize: 11,
+                                    color: c.inkFaint,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        _VerdictChip(pace: pace),
-                      ],
-                    ),
-                    const SizedBox(height: Gap.x3),
-                    DrawIn(
-                      builder: (context, p) => PaceChart(
-                        daily: cumulative,
-                        elapsedDays: now.day,
-                        totalDays: LedgerDates.daysInMonth(now),
-                        progress: p,
+                          _VerdictChip(pace: pace),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: Gap.x2),
-                    Row(
-                      children: [
-                        Text(
-                          '${Inr.format(monthPaise)} spent',
-                          style: LedgerType.amount
-                              .copyWith(fontSize: 11, color: c.inkFaint),
+                      const SizedBox(height: Gap.x3),
+                      DrawIn(
+                        builder: (context, p) => PaceChart(
+                          daily: cumulative,
+                          elapsedDays: now.day,
+                          totalDays: LedgerDates.daysInMonth(now),
+                          progress: p,
                         ),
-                        const Spacer(),
-                        Text(
-                          'of ${Inr.format(monthLimit)}',
-                          style: LedgerType.amount
-                              .copyWith(fontSize: 11, color: c.inkFaint),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: Gap.x2),
+                      Row(
+                        children: [
+                          Text(
+                            '${Inr.format(monthPaise)} spent',
+                            style: LedgerType.amount.copyWith(
+                              fontSize: 11,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'of ${Inr.format(monthLimit)}',
+                            style: LedgerType.amount.copyWith(
+                              fontSize: 11,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ];
-            const goalModule = <Widget>[
-              LedgerCard(child: _GoalStrip()),
-            ];
+            // The strip draws its own card so that a goal-less book leaves
+            // no blank plate on the page — an empty card is a dead spot.
+            const goalModule = <Widget>[_GoalStrip()];
             const upcomingModule = <Widget>[
               LedgerCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RuleHeader('coming up'),
-                    _Upcoming(),
-                  ],
+                  children: [RuleHeader('coming up'), _Upcoming()],
                 ),
               ),
             ];
             final whereModule = <Widget>[
-              if (expenses.isNotEmpty)
-                _WhereCard(expenses: expenses),
+              if (expenses.isNotEmpty) _WhereCard(expenses: expenses),
             ];
             final heatModule = <Widget>[
               LedgerCard(
@@ -301,38 +370,55 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const RuleHeader('the month, day by day'),
-                    _MonthHeat(
-                        expenses: expenses, monthTxns: month, now: now),
+                    _MonthHeat(expenses: expenses, monthTxns: month, now: now),
                   ],
                 ),
               ),
             ];
+            final coachingModule = <Widget>[
+              ...coaching.maybeWhen(
+                data: (items) => items.isEmpty
+                    ? const <Widget>[]
+                    : <Widget>[_CoachingCard(insight: items.first)],
+                orElse: () => const <Widget>[],
+              ),
+            ];
             final ordered = switch (_intent) {
               'leaks' => [
-                  ...monthModule,
-                  ...whereModule,
-                  ...upcomingModule,
-                  ...goalModule,
-                  ...heatModule,
-                ],
+                ...coachingModule,
+                ...monthModule,
+                ...whereModule,
+                ...upcomingModule,
+                ...goalModule,
+                ...heatModule,
+              ],
               'goal' => [
-                  ...goalModule,
-                  ...monthModule,
-                  ...whereModule,
-                  ...upcomingModule,
-                  ...heatModule,
-                ],
+                ...goalModule,
+                ...coachingModule,
+                ...monthModule,
+                ...whereModule,
+                ...upcomingModule,
+                ...heatModule,
+              ],
               _ => [
-                  ...monthModule,
-                  ...whereModule,
-                  ...goalModule,
-                  ...upcomingModule,
-                  ...heatModule,
-                ],
+                ...coachingModule,
+                ...monthModule,
+                ...whereModule,
+                ...goalModule,
+                ...upcomingModule,
+                ...heatModule,
+              ],
             };
 
             final page = ListView(
-              padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+              // Room for the floating glass bar: the page scrolls under
+              // it, but its last line must still be able to rise above it.
+              padding: EdgeInsets.fromLTRB(
+                Gap.page,
+                0,
+                Gap.page,
+                MediaQuery.paddingOf(context).bottom + Gap.x4,
+              ),
               children: [
                 const LedgerAppBar(),
                 const SizedBox(height: Gap.x4),
@@ -347,34 +433,43 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                   style: LedgerType.heroAmount
                       .copyWith(fontSize: 64, color: c.ink)
                       .copyWith(
-                          fontFeatures: const [FontFeature.tabularFigures()]),
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                 ),
                 const SizedBox(height: Gap.x2),
                 // The day's entry underlined in the binding's vermilion —
                 // the one stroke of red the page carries while it is open.
-                InkIn(
-                  delay: const Duration(milliseconds: 150),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(width: 72, height: 3, color: c.quill),
+                // Keyed on the total: whenever the figure above changes, the
+                // pen crosses the page again and re-underlines the new sum.
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: DrawIn(
+                    key: ValueKey('underline-$todayPaise'),
+                    duration: const Duration(milliseconds: 280),
+                    builder: (context, p) =>
+                        QuillStroke(width: 72, progress: p, color: c.seal),
                   ),
                 ),
                 const SizedBox(height: 2),
                 _reactiveSubline(c, today.length, todayPaise, yesterdayPaise),
                 const SizedBox(height: Gap.x3),
                 const _PinStrip(),
-                ...ordered,
+                // The page writes itself top to bottom when the book opens:
+                // each module inks in a beat after the one above it.
+                for (final (i, module) in ordered.indexed)
+                  InkIn(
+                    delay: Duration(milliseconds: 120 + 70 * i),
+                    child: module,
+                  ),
                 const RuleHeader("today's page"),
                 if (today.isEmpty)
                   InkIn(
                     delay: const Duration(milliseconds: 250),
                     child: Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: Gap.x3),
+                      padding: const EdgeInsets.symmetric(vertical: Gap.x3),
                       child: Text(
                         'A blank page. The plus below fills it.',
-                        style: LedgerType.bodyText
-                            .copyWith(color: c.inkFaint),
+                        style: LedgerType.bodyText.copyWith(color: c.inkFaint),
                       ),
                     ),
                   )
@@ -394,7 +489,8 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 Positioned.fill(
                   child: IgnorePointer(
                     child: _BirthdayRain(
-                        onDone: () => setState(() => _burst = false)),
+                      onDone: () => setState(() => _burst = false),
+                    ),
                   ),
                 ),
               ],
@@ -406,9 +502,16 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   }
 
   Widget _reactiveSubline(
-      LedgerColors c, int count, int todayPaise, int? yesterdayPaise) {
+    LedgerColors c,
+    int count,
+    int todayPaise,
+    int? yesterdayPaise,
+  ) {
     final String line;
-    if (count == 0) {
+    if (_pastNote != null) {
+      // Money just landed on an old page — say so before anything else.
+      line = _pastNote!;
+    } else if (count == 0) {
       line = 'nothing written yet';
     } else {
       final entries = '$count ${count == 1 ? 'entry' : 'entries'}';
@@ -433,7 +536,90 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       ),
     );
   }
+}
 
+class _CoachingCard extends ConsumerStatefulWidget {
+  const _CoachingCard({required this.insight});
+
+  final CoachingInsight insight;
+
+  @override
+  ConsumerState<_CoachingCard> createState() => _CoachingCardState();
+}
+
+class _CoachingCardState extends ConsumerState<_CoachingCard> {
+  bool _closing = false;
+
+  Future<void> _dismiss() async {
+    if (_closing) return;
+    setState(() => _closing = true);
+    final config = await ref.read(settingsRepoProvider).serverConfig();
+    if (!config.wired) return;
+    final client = BbxClient(config);
+    try {
+      await CoachingApi(client).dismiss(widget.insight.id);
+      ref.invalidate(coachingFeedProvider);
+    } catch (_) {
+      if (mounted) setState(() => _closing = false);
+    } finally {
+      client.close();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final evidence = widget.insight.evidence;
+    final source = switch (widget.insight.kind) {
+      CoachingKind.merchantSurge =>
+        '${evidence.comparisonMonths.length} comparable months · ${evidence.transactionIds.length} entries',
+      CoachingKind.repeatedDiscretionary =>
+        '${evidence.count ?? evidence.transactionIds.length} entries · marked ${evidence.classification?.name ?? 'discretionary'} by you',
+      CoachingKind.budgetRisk =>
+        'current pace against ${evidence.budgetName ?? 'your budget'}',
+    };
+    return AnimatedOpacity(
+      opacity: _closing ? 0.35 : 1,
+      duration: const Duration(milliseconds: 180),
+      child: LedgerCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const RuleHeader('worth noticing'),
+            const SizedBox(height: Gap.x2),
+            Text(
+              widget.insight.title,
+              style: LedgerType.title.copyWith(fontSize: 19, color: c.ink),
+            ),
+            const SizedBox(height: Gap.x2),
+            Text(
+              widget.insight.message,
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                height: 1.45,
+                color: c.ink,
+              ),
+            ),
+            const SizedBox(height: Gap.x2),
+            Text(
+              'why: $source',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 10,
+                color: c.inkFaint,
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _closing ? null : _dismiss,
+                child: Text(_closing ? 'putting it away…' : 'not useful'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// The next two things the recurring shelf will ask for. Each line answers a
@@ -463,12 +649,15 @@ class _BirthdayRain extends StatelessWidget {
               children: [
                 for (var i = 0; i < 40; i++)
                   Positioned(
-                    left: n(i, 1) * box.maxWidth +
+                    left:
+                        n(i, 1) * box.maxWidth +
                         math.sin(t * 6.28 * (1 + n(i, 2)) + i) * 18,
-                    top: -40 +
+                    top:
+                        -40 +
                         (box.maxHeight + 80) *
                             Curves.easeIn.transform(
-                                ((t * (0.7 + 0.5 * n(i, 3))).clamp(0.0, 1.0))),
+                              ((t * (0.7 + 0.5 * n(i, 3))).clamp(0.0, 1.0)),
+                            ),
                     child: Opacity(
                       opacity: (1 - t).clamp(0.0, 1.0) * 0.9,
                       child: Transform.rotate(
@@ -477,10 +666,12 @@ class _BirthdayRain extends StatelessWidget {
                           width: 6 + 6 * n(i, 5),
                           height: 6 + 6 * n(i, 5),
                           decoration: BoxDecoration(
-                            color: colors[i % colors.length]
-                                .withValues(alpha: 0.9),
-                            borderRadius:
-                                BorderRadius.circular(i % 3 == 0 ? 99 : 2),
+                            color: colors[i % colors.length].withValues(
+                              alpha: 0.9,
+                            ),
+                            borderRadius: BorderRadius.circular(
+                              i % 3 == 0 ? 99 : 2,
+                            ),
                           ),
                         ),
                       ),
@@ -512,10 +703,9 @@ class _WhereCard extends ConsumerWidget {
         final cats = {
           for (final cat in snap.data ?? const <Category>[]) cat.id: cat,
         };
-        final slices = whereItWent(
-          [for (final t in expenses) (t.categoryId, t.amountPaise)],
-          top: 4,
-        );
+        final slices = whereItWent([
+          for (final t in expenses) (t.categoryId, t.amountPaise),
+        ], top: 4);
         if (slices.isEmpty) return const SizedBox.shrink();
         return LedgerCard(
           child: Column(
@@ -532,8 +722,10 @@ class _WhereCard extends ConsumerWidget {
                     children: [
                       Text(
                         'the whole story',
-                        style: LedgerType.bodyStrong
-                            .copyWith(fontSize: 11, color: c.quill),
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 11,
+                          color: c.quill,
+                        ),
                       ),
                       const SizedBox(width: 3),
                       PenArrow(size: 11, color: c.quill),
@@ -564,7 +756,9 @@ class _WhereCard extends ConsumerWidget {
 }
 
 /// The month's verdict, stamped small: a hard-cornered chip in the status
-/// ink, washed faint behind. One glance, one colour, no gauge.
+/// ink, washed faint behind. One glance, one colour, no gauge. A settled
+/// verdict sits a degree off square — pressed by a hand, like every chop in
+/// the book; only "waiting" sits straight, because nothing stamped it yet.
 class _VerdictChip extends StatelessWidget {
   const _VerdictChip({required this.pace});
 
@@ -576,22 +770,31 @@ class _VerdictChip extends StatelessWidget {
     final (label, tone) = switch (pace.status) {
       BudgetStatus.onPace => ('on pace', c.jama),
       BudgetStatus.projectedOver => (
-          '${Inr.format(pace.projectedOverspendPaise)} over at this rate',
-          c.warn
-        ),
-      BudgetStatus.over =>
-        ('${Inr.format(-pace.remainingPaise)} past the line', c.warn),
+        '${Inr.format(pace.projectedOverspendPaise)} over at this rate',
+        c.warn,
+      ),
+      BudgetStatus.over => (
+        '${Inr.format(-pace.remainingPaise)} past the line',
+        c.warn,
+      ),
       BudgetStatus.pending => ('waiting on bills', c.inkFaint),
     };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.x2, vertical: 5),
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        label,
-        style: LedgerType.bodyStrong.copyWith(fontSize: 11, color: tone),
+    final stamped = pace.status != BudgetStatus.pending;
+    return InkIn(
+      delay: const Duration(milliseconds: 200),
+      child: Transform.rotate(
+        angle: (stamped ? -1.6 : 0) * math.pi / 180,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.x2, vertical: 5),
+          decoration: BoxDecoration(
+            color: tone.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            label,
+            style: LedgerType.bodyStrong.copyWith(fontSize: 11, color: tone),
+          ),
+        ),
       ),
     );
   }
@@ -611,9 +814,11 @@ class _Upcoming extends ConsumerWidget {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.x2),
             child: Text(
-              'Nothing due soon.',
-              style: LedgerType.bodyText
-                  .copyWith(fontSize: 13, color: c.inkFaint),
+              'Nothing due soon — the book owes no one.',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
             ),
           );
         }
@@ -640,15 +845,18 @@ class _Upcoming extends ConsumerWidget {
                           children: [
                             Text(
                               LedgerDates.ddMmm(d.due).split(' ').last,
-                              style: LedgerType.label
-                                  .copyWith(fontSize: 9, color: c.inkFaint),
+                              style: LedgerType.label.copyWith(
+                                fontSize: 9,
+                                color: c.inkFaint,
+                              ),
                             ),
                             Text(
                               '${d.due.day}',
                               style: LedgerType.amount.copyWith(
-                                  fontSize: 17,
-                                  color: c.ink,
-                                  fontWeight: FontWeight.w600),
+                                fontSize: 17,
+                                color: c.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
@@ -660,22 +868,28 @@ class _Upcoming extends ConsumerWidget {
                           children: [
                             Text(
                               d.recurring.title,
-                              style: LedgerType.bodyStrong
-                                  .copyWith(fontSize: 14, color: c.ink),
+                              style: LedgerType.bodyStrong.copyWith(
+                                fontSize: 14,
+                                color: c.ink,
+                              ),
                             ),
                             const SizedBox(height: 1),
                             Text(
                               'the usual — tap when paid',
                               style: LedgerType.bodyText.copyWith(
-                                  fontSize: 11, color: c.inkFaint),
+                                fontSize: 11,
+                                color: c.inkFaint,
+                              ),
                             ),
                           ],
                         ),
                       ),
                       Text(
                         Inr.format(d.recurring.amountPaise),
-                        style: LedgerType.amount
-                            .copyWith(fontSize: 14, color: c.ink),
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 14,
+                          color: c.ink,
+                        ),
                       ),
                     ],
                   ),
@@ -687,16 +901,14 @@ class _Upcoming extends ConsumerWidget {
     );
   }
 
-  Future<void> _paySheet(
-      BuildContext context, WidgetRef ref, DueItem d) async {
+  Future<void> _paySheet(BuildContext context, WidgetRef ref, DueItem d) async {
     final recurring = ref.read(recurringRepoProvider);
     final paid = await showLedgerSheet<bool>(
       context,
       builder: (context) {
         final c = LedgerColors.of(context);
         return Padding(
-          padding:
-              const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -710,8 +922,10 @@ class _Upcoming extends ConsumerWidget {
               const SizedBox(height: 4),
               Text(
                 'lands ${LedgerDates.ddMmm(d.due)} · ${Inr.format(d.recurring.amountPaise)}',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               Pressable(
@@ -748,8 +962,20 @@ class _GoalStrip extends ConsumerWidget {
   const _GoalStrip();
 
   static String _month(DateTime d) {
-    const s = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'];
+    const s = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
     return s[d.month - 1];
   }
 
@@ -759,69 +985,78 @@ class _GoalStrip extends ConsumerWidget {
     return StreamBuilder<List<GoalView>>(
       stream: ref.watch(goalRepoProvider).watchViews(),
       builder: (context, snap) {
-        final goal =
-            (snap.data ?? const <GoalView>[]).where((g) => !g.reached).firstOrNull;
+        final goal = (snap.data ?? const <GoalView>[])
+            .where((g) => !g.reached)
+            .firstOrNull;
         if (goal == null) return const SizedBox.shrink();
         final eta = goal.etaFrom(DateTime.now());
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const RuleHeader('still saving'),
-            const SizedBox(height: Gap.x3),
-            // What has been put away is the object; where it is going is the
-            // caption; when it lands is the punchline.
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                CountUp(
-                  value: goal.donePaise,
-                  format: Inr.format,
-                  style: LedgerType.heroAmount
-                      .copyWith(fontSize: 30, color: c.ink),
+        return LedgerCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const RuleHeader('still saving'),
+              const SizedBox(height: Gap.x3),
+              // What has been put away is the object; where it is going is the
+              // caption; when it lands is the punchline.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  CountUp(
+                    value: goal.donePaise,
+                    format: Inr.format,
+                    style: LedgerType.heroAmount.copyWith(
+                      fontSize: 30,
+                      color: c.ink,
+                    ),
+                  ),
+                  const SizedBox(width: Gap.x2),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      'of ${Inr.format(goal.goal.targetPaise)} — ${goal.goal.name}',
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 12,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Gap.x2),
+              // The stroke of red the goal has earned so far.
+              DrawIn(
+                builder: (context, p) => SizedBox(
+                  height: 8,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: ((goal.fraction * p).clamp(0.004, 1.0) * 1000)
+                            .round(),
+                        child: Container(color: c.quill),
+                      ),
+                      Expanded(
+                        flex:
+                            1000 -
+                            ((goal.fraction * p).clamp(0.004, 1.0) * 1000)
+                                .round(),
+                        child: Container(color: c.rule.withValues(alpha: 0.45)),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: Gap.x2),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    'of ${Inr.format(goal.goal.targetPaise)} — ${goal.goal.name}',
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 12, color: c.inkFaint),
+              ),
+              if (eta != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'lands ${_month(eta)} ${eta.year}, at this pace',
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 11,
+                    color: c.inkFaint,
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: Gap.x2),
-            // The stroke of red the goal has earned so far.
-            DrawIn(
-              builder: (context, p) => SizedBox(
-                height: 8,
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: ((goal.fraction * p).clamp(0.004, 1.0) * 1000)
-                          .round(),
-                      child: Container(color: c.quill),
-                    ),
-                    Expanded(
-                      flex: 1000 -
-                          ((goal.fraction * p).clamp(0.004, 1.0) * 1000)
-                              .round(),
-                      child: Container(
-                          color: c.rule.withValues(alpha: 0.45)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (eta != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                'lands ${_month(eta)} ${eta.year}, at this pace',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 11, color: c.inkFaint),
-              ),
             ],
-          ],
+          ),
         );
       },
     );
@@ -853,8 +1088,7 @@ class _MonthHeat extends StatelessWidget {
       builder: (context) {
         final c = LedgerColors.of(context);
         return Padding(
-          padding:
-              const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -868,8 +1102,10 @@ class _MonthHeat extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 Inr.format(total),
-                style: LedgerType.heroAmount
-                    .copyWith(fontSize: 28, color: c.ink),
+                style: LedgerType.heroAmount.copyWith(
+                  fontSize: 28,
+                  color: c.ink,
+                ),
               ),
               const SizedBox(height: Gap.x2),
               if (lines.isEmpty)
@@ -877,8 +1113,10 @@ class _MonthHeat extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: Gap.x2),
                   child: Text(
                     'a quiet day — nothing written',
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 13, color: c.inkFaint),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 13,
+                      color: c.inkFaint,
+                    ),
                   ),
                 )
               else
@@ -924,14 +1162,21 @@ class _MonthHeat extends StatelessWidget {
           HeatGrid(
             dayTotalsPaise: dayTotals,
             stagger: true,
+            totalDays: LedgerDates.daysInMonth(now),
+            today: now.day,
+            // A tap answers with the day's page; the long-press stays for
+            // the hand that learned it first.
+            onDayTap: (day) => _peek(context, day),
             onDayLongPress: (day) => _peek(context, day),
           ),
           const SizedBox(height: Gap.x1),
           if (quiet.isEmpty)
             Text(
               'no quiet days this week',
-              style: LedgerType.bodyText
-                  .copyWith(fontSize: 11, color: c.inkFaint),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 11,
+                color: c.inkFaint,
+              ),
             )
           else
             Pressable(
@@ -943,13 +1188,17 @@ class _MonthHeat extends StatelessWidget {
                   children: [
                     TextSpan(
                       text: 'catch up the quiet days?',
-                      style: LedgerType.bodyStrong
-                          .copyWith(fontSize: 11, color: c.quill),
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 11,
+                        color: c.quill,
+                      ),
                     ),
                   ],
                 ),
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 11, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 11,
+                  color: c.inkFaint,
+                ),
               ),
             ),
         ],
@@ -1014,9 +1263,13 @@ class _PinStrip extends ConsumerWidget {
                 _PinChip(pin: p),
                 const SizedBox(width: Gap.x2),
               ],
-              Text('one tap, stamped',
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 11, color: c.inkFaint)),
+              Text(
+                'one tap, stamped',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 11,
+                  color: c.inkFaint,
+                ),
+              ),
             ],
           ),
         );
@@ -1075,9 +1328,7 @@ class _PinChipState extends ConsumerState<_PinChip> {
                 duration: const Duration(milliseconds: 180),
                 child: !_stamping
                     ? const SizedBox.shrink()
-                    : Center(
-                        child: StampIn(size: 24, onStamped: _landed),
-                      ),
+                    : Center(child: StampIn(size: 24, onStamped: _landed)),
               ),
             ),
           ),
@@ -1110,11 +1361,15 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
     await Future<void>.delayed(const Duration(milliseconds: 480));
     if (!mounted) return;
     final db = ref.read(dbProvider);
-    await db.into(db.daySeals).insert(
-          DaySealsCompanion(
-              date: Value(LedgerDates.dayKey(DateTime.now()))),
+    await db
+        .into(db.daySeals)
+        .insert(
+          DaySealsCompanion(date: Value(LedgerDates.dayKey(DateTime.now()))),
           mode: InsertMode.insertOrIgnore,
         );
+    if (!mounted) return;
+    // A sealed day needs no evening nudge — the ritual already happened.
+    unawaited(ref.read(nudgesProvider).resync());
   }
 
   /// Consecutive sealed days ending today (if sealed) or yesterday.
@@ -1150,8 +1405,10 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
                 padding: const EdgeInsets.only(top: Gap.x2),
                 child: Text(
                   '${_spelled(streak)} evenings in a row',
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 11, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 11,
+                    color: c.inkFaint,
+                  ),
                 ),
               )
             : null;
@@ -1177,8 +1434,10 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
                 delay: const Duration(milliseconds: 300),
                 child: Text(
                   'day closed · good night, ${widget.name}',
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 12, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
                 ),
               ),
               ?whisper,
@@ -1191,7 +1450,9 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
               onTap: _close,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: Gap.x4, vertical: Gap.x2),
+                  horizontal: Gap.x4,
+                  vertical: Gap.x2,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(color: c.rule, width: 1),
                   borderRadius: BorderRadius.circular(Corner.chip),
@@ -1203,9 +1464,13 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
                     // not a form's checkbox.
                     SealOutline(size: 15, color: c.inkFaint),
                     const SizedBox(width: Gap.x2),
-                    Text('close the day',
-                        style: LedgerType.bodyStrong
-                            .copyWith(fontSize: 13, color: c.inkFaint)),
+                    Text(
+                      'close the day',
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 13,
+                        color: c.inkFaint,
+                      ),
+                    ),
                   ],
                 ),
               ),

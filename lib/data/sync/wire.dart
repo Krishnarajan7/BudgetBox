@@ -4,6 +4,20 @@ import '../api/api_client.dart';
 import '../db.dart';
 import 'ids.dart';
 
+typedef SyncChange = ({
+  int sequence,
+  String resource,
+  String resourceId,
+  bool deleted,
+});
+
+typedef SyncChangePage = ({
+  DateTime serverTime,
+  List<SyncChange> items,
+  int nextCursor,
+  bool hasMore,
+});
+
 /// **Every** network call the sync engine makes lives in this file, on
 /// purpose. It talks to [BbxClient] in raw paths and maps rather than to the
 /// typed endpoint layer growing under `lib/data/api/endpoints/`, so that the
@@ -18,26 +32,26 @@ class SyncWire {
   /// minted on the phone, so the same request can be sent any number of times
   /// and mean the same thing.
   static String pathFor(String kind, String remoteId) => switch (kind) {
-        SyncKinds.txn => '/v1/txns/$remoteId',
-        SyncKinds.account => '/v1/accounts/$remoteId',
-        SyncKinds.anchor => '/v1/accounts/$remoteId/anchors',
-        SyncKinds.category => '/v1/categories/$remoteId',
-        SyncKinds.budget => '/v1/budgets/$remoteId',
-        SyncKinds.recurring => '/v1/recurring/$remoteId',
-        SyncKinds.goal => '/v1/goals/$remoteId',
-        SyncKinds.pinned => '/v1/pinned/$remoteId',
-        SyncKinds.seal => '/v1/seals/$remoteId',
-        SyncKinds.note => '/v1/notes/$remoteId',
-        SyncKinds.journal => '/v1/journal/$remoteId',
-        SyncKinds.focus => '/v1/focus/sessions/$remoteId',
-        SyncKinds.event => '/v1/events/$remoteId',
-        SyncKinds.vault => '/v1/vault/$remoteId',
-        _ => throw BbxProblem(
-            status: 400,
-            slug: 'unknown-kind',
-            detail: 'nothing upstream answers to "$kind"',
-          ),
-      };
+    SyncKinds.txn => '/v1/txns/$remoteId',
+    SyncKinds.account => '/v1/accounts/$remoteId',
+    SyncKinds.anchor => '/v1/accounts/$remoteId/anchors',
+    SyncKinds.category => '/v1/categories/$remoteId',
+    SyncKinds.budget => '/v1/budgets/$remoteId',
+    SyncKinds.recurring => '/v1/recurring/$remoteId',
+    SyncKinds.goal => '/v1/goals/$remoteId',
+    SyncKinds.pinned => '/v1/pinned/$remoteId',
+    SyncKinds.seal => '/v1/seals/$remoteId',
+    SyncKinds.note => '/v1/notes/$remoteId',
+    SyncKinds.journal => '/v1/journal/$remoteId',
+    SyncKinds.focus => '/v1/focus/sessions/$remoteId',
+    SyncKinds.event => '/v1/events/$remoteId',
+    SyncKinds.vault => '/v1/vault/$remoteId',
+    _ => throw BbxProblem(
+      status: 400,
+      slug: 'unknown-kind',
+      detail: 'nothing upstream answers to "$kind"',
+    ),
+  };
 
   /// Sends one queued write. Throws [BbxOffline] (still owed) or
   /// [BbxProblem] (refused) — the outbox tells those two apart.
@@ -67,19 +81,29 @@ class SyncWire {
 
   // ————— reads, for the puller —————
 
-  /// `{ now, changed: { resource: [id, …] } }` — which rows moved since an
-  /// instant. Ids only; the rows themselves come from the list endpoints.
-  Future<({DateTime now, Map<String, List<String>> changed})> changes(
-      DateTime since) async {
-    final body = await client.get('/v1/changes', {'since': isoOf(since)});
+  /// One durable page of the server's append-only change log. Unlike an
+  /// updated-at scan this includes deletion tombstones, and the cursor only
+  /// moves through rows the phone has actually received.
+  Future<SyncChangePage> changes(int after, {int limit = 200}) async {
+    final body = await client.get('/v1/changes', {
+      'after': after,
+      'limit': limit,
+    });
     final map = (body as Map).cast<String, dynamic>();
-    final changed = <String, List<String>>{};
-    for (final e in ((map['changed'] as Map?) ?? {}).entries) {
-      changed['${e.key}'] = [for (final v in e.value as List) '$v'];
-    }
+    final rawItems = (map['items'] as List?) ?? const [];
     return (
-      now: DateTime.parse('${map['now']}').toUtc(),
-      changed: changed,
+      serverTime: DateTime.parse('${map['server_time']}').toUtc(),
+      items: [
+        for (final raw in rawItems)
+          (
+            sequence: (raw as Map)['sequence'] as int,
+            resource: '${raw['resource']}',
+            resourceId: '${raw['resource_id']}',
+            deleted: raw['operation'] == 'delete',
+          ),
+      ],
+      nextCursor: map['next_cursor'] as int,
+      hasMore: map['has_more'] == true,
     );
   }
 

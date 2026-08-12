@@ -25,6 +25,22 @@ abstract final class LedgerType {
     letterSpacing: -0.5,
   );
 
+  /// A count carried inside a mark — the streak's figure in its flame.
+  /// Fraunces, because the number is the point; heavier and tighter than the
+  /// hero so it holds up against the fire behind it.
+  static const markCount = TextStyle(
+    fontFamily: display,
+    fontVariations: [
+      FontVariation('wght', 700),
+      FontVariation('opsz', 100),
+      FontVariation('SOFT', 0),
+      FontVariation('WONK', 1),
+    ],
+    fontSize: 22,
+    height: 1,
+    letterSpacing: -0.5,
+  );
+
   /// Screen titles and story lines.
   static const title = TextStyle(
     fontFamily: display,

@@ -16,6 +16,7 @@ import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
+import '../../data/repos/goal_repo.dart';
 import '../settings/account_manager.dart';
 import '../story/story_page.dart';
 
@@ -25,28 +26,27 @@ enum WorthRange { month, halfYear, fy, all }
 
 extension WorthRangeCopy on WorthRange {
   String get chip => switch (this) {
-        WorthRange.month => '1M',
-        WorthRange.halfYear => '6M',
-        WorthRange.fy => 'FY',
-        WorthRange.all => 'all',
-      };
+    WorthRange.month => '1M',
+    WorthRange.halfYear => '6M',
+    WorthRange.fy => 'FY',
+    WorthRange.all => 'all',
+  };
 
   /// Trailing days handed to `netWorthHistory(days:)`.
   int days(DateTime now) => switch (this) {
-        WorthRange.month => 30,
-        WorthRange.halfYear => 180,
-        WorthRange.fy =>
-          now.difference(LedgerDates.fyStart(now)).inDays + 1,
-        WorthRange.all => 36500,
-      };
+    WorthRange.month => 30,
+    WorthRange.halfYear => 180,
+    WorthRange.fy => now.difference(LedgerDates.fyStart(now)).inDays + 1,
+    WorthRange.all => 36500,
+  };
 
   /// What the delta line calls this window, in the book's voice.
   String phrase(DateTime now) => switch (this) {
-        WorthRange.month => 'over the past month',
-        WorthRange.halfYear => 'over six months',
-        WorthRange.fy => 'so far this ${LedgerDates.fyLabel(now)}',
-        WorthRange.all => 'since the book opened',
-      };
+    WorthRange.month => 'over the past month',
+    WorthRange.halfYear => 'over six months',
+    WorthRange.fy => 'so far this ${LedgerDates.fyLabel(now)}',
+    WorthRange.all => 'since the book opened',
+  };
 }
 
 class WorthPage extends ConsumerStatefulWidget {
@@ -78,9 +78,9 @@ class _WorthPageState extends ConsumerState<WorthPage> {
         .read(accountRepoProvider)
         .netWorthHistory(days: wanted.days(DateTime.now()))
         .then((series) {
-      if (!mounted || _range != wanted) return;
-      setState(() => _history = series);
-    });
+          if (!mounted || _range != wanted) return;
+          setState(() => _history = series);
+        });
   }
 
   void _pickRange(WorthRange r) {
@@ -113,7 +113,8 @@ class _WorthPageState extends ConsumerState<WorthPage> {
               Expanded(
                 child: EmptyPage(
                   line: 'Nothing on the shelf yet.',
-                  sub: 'Add an account in the box and this page '
+                  sub:
+                      'Add an account in the box and this page '
                       'starts keeping count.',
                   action: Pressable(
                     onTap: () => Navigator.of(context).push(
@@ -123,8 +124,10 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                     ),
                     child: Text(
                       'open the box ›',
-                      style: LedgerType.bodyStrong
-                          .copyWith(fontSize: 13, color: c.quill),
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 13,
+                        color: c.quill,
+                      ),
                     ),
                   ),
                 ),
@@ -133,18 +136,31 @@ class _WorthPageState extends ConsumerState<WorthPage> {
           );
         }
 
-        final assets =
-            all.where((a) => a.kind != AccountKind.liability).toList();
+        final assets = all
+            .where((a) => a.kind != AccountKind.liability)
+            .toList();
         final owed = all.where((a) => a.kind == AccountKind.liability).toList();
-        final net = assets.fold<int>(0, (s, a) => s + a.balancePaise) -
-            owed.fold<int>(0, (s, a) => s + a.balancePaise);
+        final assetTotal = assets.fold<int>(0, (s, a) => s + a.balancePaise);
+        final owedTotal = owed.fold<int>(0, (s, a) => s + a.balancePaise);
+        final net = assetTotal - owedTotal;
+
+        // Each account keeps its ink for as long as it sits on the shelf —
+        // colour follows the entity, never this month's ranking. Beyond the
+        // four inks in the drawer, the book files the rest in rule grey.
+        Color inkFor(int i) => i < c.chartInks.length ? c.chartInks[i] : c.rule;
 
         _ensureHistory(net);
 
         final fetched = _history;
-        final history =
-            (fetched == null || fetched.isEmpty) ? <int>[net] : fetched;
+        final history = (fetched == null || fetched.isEmpty)
+            ? <int>[net]
+            : fetched;
         final delta = net - history.first;
+
+        // A young book has one reading — an empty 80px chart and range
+        // chips that do nothing are dead paper. The line and its chips
+        // appear only once there are two mornings to join.
+        final hasLine = history.length > 1;
 
         // The high-water mark, and roughly when it was set: the series is one
         // reading per day, ending to-day.
@@ -154,21 +170,33 @@ class _WorthPageState extends ConsumerState<WorthPage> {
         }
         final peak = history[peakIndex];
         final belowPeak = peak - net >= 100 && history.length > 2;
-        final peakOn =
-            now.subtract(Duration(days: history.length - 1 - peakIndex));
+        final peakOn = now.subtract(
+          Duration(days: history.length - 1 - peakIndex),
+        );
 
         return ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+          // Room for the floating glass bar: the page scrolls under it,
+          // but its last line must still be able to rise above it.
+          padding: EdgeInsets.fromLTRB(
+            Gap.page,
+            0,
+            Gap.page,
+            MediaQuery.paddingOf(context).bottom + Gap.x4,
+          ),
           children: [
             LedgerAppBar(
               title: 'Worth',
               trailing: Pressable(
-                onTap: () => Navigator.of(context).push(
-                  LedgerRoute<void>(builder: (_) => const StoryPage()),
+                onTap: () => Navigator.of(
+                  context,
+                ).push(LedgerRoute<void>(builder: (_) => const StoryPage())),
+                child: Text(
+                  'the month\'s story ›',
+                  style: LedgerType.bodyStrong.copyWith(
+                    fontSize: 13,
+                    color: c.quill,
+                  ),
                 ),
-                child: Text('the month\'s story ›',
-                    style: LedgerType.bodyStrong
-                        .copyWith(fontSize: 13, color: c.quill)),
               ),
             ),
             const SizedBox(height: Gap.x4),
@@ -183,67 +211,142 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 key: ValueKey('delta-$_drawToken'),
                 delay: const Duration(milliseconds: 450),
                 child: Text.rich(
-                  TextSpan(children: [
-                    TextSpan(
-                      text: delta == 0
-                          ? 'level'
-                          : '${delta > 0 ? 'up' : 'down'} '
-                              '${Inr.format(delta.abs())}',
-                      style: LedgerType.bodyText.copyWith(
-                        fontSize: 13,
-                        // Falling isn't a verdict — only a rise gets a mark.
-                        color: delta > 0 ? c.jama : c.ink,
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: delta == 0
+                            ? 'level'
+                            : '${delta > 0 ? 'up' : 'down'} '
+                                  '${Inr.format(delta.abs())}',
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 13,
+                          // Falling isn't a verdict — only a rise gets a mark.
+                          color: delta > 0 ? c.jama : c.ink,
+                        ),
                       ),
-                    ),
-                    TextSpan(
-                      text: ' ${_range.phrase(now)}',
-                      style: LedgerType.bodyText
-                          .copyWith(fontSize: 13, color: c.inkFaint),
-                    ),
-                  ]),
+                      TextSpan(
+                        text: hasLine
+                            ? ' ${_range.phrase(now)}'
+                            : ' — first reading taken to-day',
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 13,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
             const SizedBox(height: Gap.x3),
-            Row(
-              children: [
-                for (final r in WorthRange.values) ...[
-                  LedgerChip(
-                    r.chip,
-                    selected: r == _range,
-                    onTap: () => _pickRange(r),
-                  ),
-                  const SizedBox(width: Gap.x2),
+            if (!hasLine)
+              Text(
+                'the book takes one reading a day — the line below begins '
+                'when there are mornings to join',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+              )
+            else ...[
+              Row(
+                children: [
+                  for (final r in WorthRange.values) ...[
+                    LedgerChip(
+                      r.chip,
+                      selected: r == _range,
+                      onTap: () => _pickRange(r),
+                    ),
+                    const SizedBox(width: Gap.x2),
+                  ],
                 ],
-              ],
-            ),
-            const SizedBox(height: Gap.x3),
-            _NetWorthChart(
-              key: ValueKey('chart-$_drawToken'),
-              history: history,
-              peakIndex: belowPeak ? peakIndex : null,
-            ),
+              ),
+              const SizedBox(height: Gap.x3),
+              _NetWorthChart(
+                key: ValueKey('chart-$_drawToken'),
+                history: history,
+                peakIndex: belowPeak ? peakIndex : null,
+              ),
+              Row(
+                children: [
+                  Text(
+                    LedgerDates.ddMmm(
+                      now.subtract(Duration(days: history.length - 1)),
+                    ),
+                    style: LedgerType.amount.copyWith(
+                      fontSize: 9,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    'to-day',
+                    style: LedgerType.amount.copyWith(
+                      fontSize: 9,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (belowPeak) ...[
               const SizedBox(height: 6),
               Text(
                 'highest it\'s ever been was ${Inr.compact(peak)}, '
                 '${LedgerDates.ddMmm(peakOn)}',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 12, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
               ),
             ],
             LedgerCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const RuleHeader('assets'),
+                  RuleHeader(
+                    'assets',
+                    trailing: Text(
+                      Inr.compact(assetTotal),
+                      style: LedgerType.amount.copyWith(
+                        fontSize: 12,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                  ),
+                  if (assetTotal > 0) ...[
+                    const SizedBox(height: Gap.x3),
+                    // Where it sits: one strip, each account's share in its
+                    // own ink — the rows beneath are the legend. One account
+                    // still gets its full-width stroke of ink: the shelf is
+                    // small, not colourless.
+                    _CompositionStrip(
+                      parts: [
+                        for (final (i, a) in assets.indexed)
+                          (a.balancePaise, inkFor(i)),
+                      ],
+                    ),
+                    const SizedBox(height: Gap.x1),
+                  ] else if (assets.isNotEmpty) ...[
+                    const SizedBox(height: Gap.x2),
+                    Text(
+                      'below zero usually means an opening balance was '
+                      'never set — tap the line and stamp what\'s true',
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 12,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                  ],
                   for (final (i, a) in assets.indexed)
                     InkIn(
                       delay: Duration(milliseconds: 45 * i),
                       child: _AccountRow(
-                          account: a,
-                          stagger: i,
-                          last: i == assets.length - 1),
+                        account: a,
+                        ink: assetTotal > 0 ? inkFor(i) : null,
+                        stagger: i,
+                        last: i == assets.length - 1,
+                      ),
                     ),
                 ],
               ),
@@ -253,11 +356,19 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const RuleHeader('owed'),
+                    RuleHeader(
+                      'owed',
+                      trailing: Text(
+                        '− ${Inr.compact(owedTotal)}',
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                    ),
                     for (final (i, a) in owed.indexed)
                       InkIn(
-                        delay:
-                            Duration(milliseconds: 45 * (assets.length + i)),
+                        delay: Duration(milliseconds: 45 * (assets.length + i)),
                         child: _AccountRow(
                           account: a,
                           negative: true,
@@ -268,8 +379,171 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   ],
                 ),
               ),
+            const _GoalsCard(),
             const SizedBox(height: Gap.x6),
           ],
+        );
+      },
+    );
+  }
+}
+
+/// One strip, every asset's share laid end to end in its own ink, a 2px
+/// breath of the card between neighbours. It draws itself in left to right
+/// like everything the pen puts down.
+class _CompositionStrip extends StatelessWidget {
+  const _CompositionStrip({required this.parts});
+
+  /// (paise, ink) per account, in shelf order.
+  final List<(int, Color)> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = parts.fold<int>(0, (s, p) => s + p.$1);
+    if (total <= 0) return const SizedBox.shrink();
+    final visible = parts.where((p) => p.$1 > 0).toList();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 12,
+        child: DrawIn(
+          duration: const Duration(milliseconds: 550),
+          builder: (context, t) => ClipRect(
+            clipper: _RevealClipper(t),
+            child: Row(
+              children: [
+                for (final (i, p) in visible.indexed) ...[
+                  if (i > 0) const SizedBox(width: 2),
+                  Expanded(
+                    flex: p.$1,
+                    child: ColoredBox(color: p.$2),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Every unfinished goal, each with the stroke it has earned so far — what
+/// the worth is being built toward, not just what it is.
+class _GoalsCard extends ConsumerWidget {
+  const _GoalsCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    return StreamBuilder<List<GoalView>>(
+      stream: ref.watch(goalRepoProvider).watchViews(),
+      builder: (context, snap) {
+        final goals = (snap.data ?? const <GoalView>[])
+            .where((g) => !g.reached)
+            .toList();
+        if (goals.isEmpty) {
+          // Nothing while still loading; once the answer is truly "no
+          // goals", the card stays and says so — a vanished module reads
+          // as a bug, an invitation reads as a page with plans for itself.
+          if (!snap.hasData) return const SizedBox.shrink();
+          return LedgerCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const RuleHeader('being built'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+                  child: Text(
+                    'nothing being built yet — a goal in plans gives '
+                    'this page a direction',
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 13,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final put = goals.fold<int>(0, (s, g) => s + g.donePaise);
+        return LedgerCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              RuleHeader(
+                'being built',
+                trailing: Text(
+                  '${Inr.compact(put)} put away',
+                  style: LedgerType.amount.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
+                ),
+              ),
+              const SizedBox(height: Gap.x2),
+              for (final (i, g) in goals.indexed)
+                Padding(
+                  padding: EdgeInsets.only(
+                    bottom: i == goals.length - 1 ? 0 : Gap.x3,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              g.goal.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: LedgerType.bodyText.copyWith(
+                                fontSize: 14,
+                                color: c.ink,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${Inr.compact(g.donePaise)} of '
+                            '${Inr.compact(g.goal.targetPaise)}',
+                            style: LedgerType.amount.copyWith(
+                              fontSize: 12,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      DrawIn(
+                        builder: (context, p) => SizedBox(
+                          height: 6,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex:
+                                    ((g.fraction * p).clamp(0.004, 1.0) * 1000)
+                                        .round(),
+                                child: ColoredBox(color: c.quill),
+                              ),
+                              Expanded(
+                                flex:
+                                    1000 -
+                                    ((g.fraction * p).clamp(0.004, 1.0) * 1000)
+                                        .round(),
+                                child: ColoredBox(
+                                  color: c.rule.withValues(alpha: 0.45),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
@@ -279,12 +553,17 @@ class _WorthPageState extends ConsumerState<WorthPage> {
 class _AccountRow extends ConsumerWidget {
   const _AccountRow({
     required this.account,
+    this.ink,
     this.negative = false,
     this.last = false,
     this.stagger = 0,
   });
 
   final Account account;
+
+  /// The account's ink from the drawer — the swatch that ties its row to
+  /// its share of the strip above. Null when there is nothing to tie to.
+  final Color? ink;
   final bool negative;
   final bool last;
 
@@ -299,8 +578,8 @@ class _AccountRow extends ConsumerWidget {
     final asOf = ageDays <= 0
         ? 'as of to-day'
         : ageDays == 1
-            ? 'as of yesterday'
-            : 'as of ${LedgerDates.ddMmm(account.asOf)}';
+        ? 'as of yesterday'
+        : 'as of ${LedgerDates.ddMmm(account.asOf)}';
 
     return Pressable(
       onTap: () => _correctBalance(context, ref),
@@ -315,16 +594,31 @@ class _AccountRow extends ConsumerWidget {
         ),
         child: Row(
           children: [
+            if (ink != null) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: ink,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: Gap.x2),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(account.name,
-                      style: LedgerType.bodyText.copyWith(color: c.ink)),
+                  Text(
+                    account.name,
+                    style: LedgerType.bodyText.copyWith(color: c.ink),
+                  ),
                   Text(
                     stale ? '$asOf — update?' : asOf,
                     style: LedgerType.bodyText.copyWith(
-                        fontSize: 11, color: stale ? c.warn : c.inkFaint),
+                      fontSize: 11,
+                      color: stale ? c.warn : c.inkFaint,
+                    ),
                   ),
                 ],
               ),
@@ -334,9 +628,8 @@ class _AccountRow extends ConsumerWidget {
               child: FutureBuilder<List<double>>(
                 key: ValueKey('spark-${account.id}-${account.balancePaise}'),
                 future: ref.read(accountRepoProvider).spark(account.id),
-                builder: (context, spark) => Sparkline(
-                  spark.data ?? const [1, 1],
-                ),
+                builder: (context, spark) =>
+                    Sparkline(spark.data ?? const [1, 1]),
               ),
             ),
             const SizedBox(width: Gap.x3),
@@ -353,8 +646,7 @@ class _AccountRow extends ConsumerWidget {
   }
 
   /// Long-press: the readings behind the whisper, at a size worth reading.
-  Future<void> _historySheet(
-      BuildContext context, WidgetRef ref, String asOf) {
+  Future<void> _historySheet(BuildContext context, WidgetRef ref, String asOf) {
     final points = ref.read(accountRepoProvider).spark(account.id, points: 30);
     return showLedgerSheet<void>(
       context,
@@ -369,12 +661,18 @@ class _AccountRow extends ConsumerWidget {
             children: [
               const SheetHandle(),
               const SizedBox(height: Gap.x2),
-              Text(account.name,
-                  style: LedgerType.title.copyWith(fontSize: 22, color: c.ink)),
+              Text(
+                account.name,
+                style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+              ),
               const SizedBox(height: 2),
-              Text(asOf,
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 13, color: c.inkFaint)),
+              Text(
+                asOf,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
               const SizedBox(height: Gap.x4),
               FutureBuilder<List<double>>(
                 future: points,
@@ -403,24 +701,33 @@ class _AccountRow extends ConsumerWidget {
                         Text(
                           'Only one reading so far. Correct the balance a '
                           'few times and a shape shows up here.',
-                          style: LedgerType.bodyText
-                              .copyWith(fontSize: 13, color: c.inkFaint),
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 13,
+                            color: c.inkFaint,
+                          ),
                         )
                       else
                         Text.rich(
-                          TextSpan(children: [
-                            TextSpan(
-                              text: 'low ${Inr.format(data.reduce(math.min).round())}'
-                                  '  ·  high ${Inr.format(data.reduce(math.max).round())}',
-                              style: LedgerType.amount
-                                  .copyWith(fontSize: 12, color: c.ink),
-                            ),
-                            TextSpan(
-                              text: '  ·  $readings readings',
-                              style: LedgerType.bodyText
-                                  .copyWith(fontSize: 12, color: c.inkFaint),
-                            ),
-                          ]),
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text:
+                                    'low ${Inr.format(data.reduce(math.min).round())}'
+                                    '  ·  high ${Inr.format(data.reduce(math.max).round())}',
+                                style: LedgerType.amount.copyWith(
+                                  fontSize: 12,
+                                  color: c.ink,
+                                ),
+                              ),
+                              TextSpan(
+                                text: '  ·  $readings readings',
+                                style: LedgerType.bodyText.copyWith(
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                     ],
                   );
@@ -458,7 +765,8 @@ class _CorrectBalanceSheet extends StatefulWidget {
 
 class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
   late final TextEditingController _field = TextEditingController(
-      text: (widget.account.balancePaise ~/ 100).toString());
+    text: (widget.account.balancePaise ~/ 100).toString(),
+  );
   bool _stamping = false;
 
   @override
@@ -497,13 +805,18 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
         children: [
           const SheetHandle(),
           const SizedBox(height: Gap.x2),
-          Text('${widget.account.name} — what\'s true right now?',
-              style: LedgerType.title.copyWith(fontSize: 22, color: c.ink)),
           Text(
-              'This SETS the balance — it does not add to it. Money coming '
-              'in belongs in the add sheet, flipped to "money in".',
-              style: LedgerType.bodyText
-                  .copyWith(fontSize: 13, color: c.inkFaint)),
+            '${widget.account.name} — what\'s true right now?',
+            style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+          ),
+          Text(
+            'This SETS the balance — it does not add to it. Money coming '
+            'in belongs in the add sheet, flipped to "money in".',
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
+          ),
           const SizedBox(height: Gap.x2),
           TextField(
             controller: _field,
@@ -515,8 +828,10 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
             style: LedgerType.heroAmount.copyWith(fontSize: 32, color: c.ink),
             decoration: InputDecoration(
               prefixText: '₹',
-              prefixStyle: LedgerType.heroAmount
-                  .copyWith(fontSize: 32, color: c.inkFaint),
+              prefixStyle: LedgerType.heroAmount.copyWith(
+                fontSize: 32,
+                color: c.inkFaint,
+              ),
               border: InputBorder.none,
             ),
           ),
@@ -545,9 +860,7 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
                   ),
                 ),
                 if (_stamping)
-                  IgnorePointer(
-                    child: StampIn(size: 34, onStamped: _landed),
-                  ),
+                  IgnorePointer(child: StampIn(size: 34, onStamped: _landed)),
               ],
             ),
           ),
@@ -646,17 +959,22 @@ class _AreaPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
     final base = size.height - 8;
-    canvas.drawLine(Offset(0, base), Offset(size.width, base),
-        Paint()..color = rule..strokeWidth = 1);
+    canvas.drawLine(
+      Offset(0, base),
+      Offset(size.width, base),
+      Paint()
+        ..color = rule
+        ..strokeWidth = 1,
+    );
 
     final min = points.reduce(math.min);
     final max = points.reduce(math.max);
     final range = (max - min) == 0 ? 1.0 : max - min;
 
     Offset at(int i) => Offset(
-          size.width * i / (points.length - 1),
-          base - (base - 10) * ((points[i] - min) / range) * 0.9 - 4,
-        );
+      size.width * i / (points.length - 1),
+      base - (base - 10) * ((points[i] - min) / range) * 0.9 - 4,
+    );
 
     final path = Path()..moveTo(at(0).dx, at(0).dy);
     for (var i = 1; i < points.length; i++) {
@@ -683,7 +1001,10 @@ class _AreaPainter extends CustomPainter {
       var x = 0.0;
       while (x < size.width) {
         canvas.drawLine(
-            Offset(x, y), Offset(math.min(x + 3, size.width), y), mark);
+          Offset(x, y),
+          Offset(math.min(x + 3, size.width), y),
+          mark,
+        );
         x += 7;
       }
     }

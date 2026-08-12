@@ -17,6 +17,7 @@ export 'activities_api.dart';
 export 'budgets_api.dart';
 export 'categories_api.dart';
 export 'changes_api.dart';
+export 'coaching_api.dart';
 export 'events_api.dart';
 export 'export_api.dart';
 export 'focus_api.dart';

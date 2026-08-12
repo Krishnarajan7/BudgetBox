@@ -34,8 +34,19 @@ DateTime bookMonthShift(DateTime month, int delta) =>
 /// stay as figures — and figures are set in mono, never mid-sentence prose.
 ({String text, bool mono}) bookCount(int n) {
   const words = [
-    'no', 'one', 'two', 'three', 'four', 'five', 'six',
-    'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+    'no',
+    'one',
+    'two',
+    'three',
+    'four',
+    'five',
+    'six',
+    'seven',
+    'eight',
+    'nine',
+    'ten',
+    'eleven',
+    'twelve',
   ];
   return (n >= 0 && n < words.length)
       ? (text: words[n], mono: false)
@@ -83,10 +94,7 @@ class WhereSlice {
 
 /// Category totals for a month's expenses, heaviest first: the top [top]
 /// categories plus one "everything else" line folding up the rest.
-List<WhereSlice> whereItWent(
-  Iterable<(int?, int)> expenses, {
-  int top = 6,
-}) {
+List<WhereSlice> whereItWent(Iterable<(int?, int)> expenses, {int top = 6}) {
   final totals = <int?, int>{};
   for (final (id, paise) in expenses) {
     totals[id] = (totals[id] ?? 0) + paise;
@@ -237,12 +245,14 @@ class _BookPageState extends ConsumerState<BookPage> {
     _strikeRepo = repo;
     _struck.remove(t.id)?.timer.cancel();
     late final _Strike strike;
-    strike = _Strike(Timer(bookStrikeGrace, () {
-      strike.committed = true;
-      _struck.remove(t.id);
-      unawaited(repo.deleteTxn(t.id));
-      if (mounted) setState(() {});
-    }));
+    strike = _Strike(
+      Timer(bookStrikeGrace, () {
+        strike.committed = true;
+        _struck.remove(t.id);
+        unawaited(repo.deleteTxn(t.id));
+        if (mounted) setState(() {});
+      }),
+    );
     setState(() => _struck[t.id] = strike);
   }
 
@@ -304,8 +314,7 @@ class _BookPageState extends ConsumerState<BookPage> {
                 final sealed = {
                   for (final s in sealSnap.data ?? const <DaySeal>[]) s.date,
                 };
-                return _page(
-                    c, now, onNow, all, cats, catById, fresh, sealed);
+                return _page(c, now, onNow, all, cats, catById, fresh, sealed);
               },
             );
           },
@@ -338,7 +347,14 @@ class _BookPageState extends ConsumerState<BookPage> {
         .fold(0, (s, t) => s + t.amountPaise);
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+      // Room for the floating glass bar: the page scrolls under it, but
+      // its last line must still be able to rise above it.
+      padding: EdgeInsets.fromLTRB(
+        Gap.page,
+        0,
+        Gap.page,
+        MediaQuery.paddingOf(context).bottom + Gap.x4,
+      ),
       children: [
         LedgerAppBar(
           title: 'Book',
@@ -359,8 +375,10 @@ class _BookPageState extends ConsumerState<BookPage> {
                 const SizedBox(width: 4),
                 Text(
                   _heat ? 'list' : 'heat',
-                  style: LedgerType.bodyStrong
-                      .copyWith(fontSize: 13, color: c.quill),
+                  style: LedgerType.bodyStrong.copyWith(
+                    fontSize: 13,
+                    color: c.quill,
+                  ),
                 ),
               ],
             ),
@@ -389,8 +407,7 @@ class _BookPageState extends ConsumerState<BookPage> {
             child: AnimatedSwitcher(
               // The page turn: the new month slides in from the side it was
               // reached from, the old one leaves the other way.
-              duration:
-                  Motion.reduced(context) ? Duration.zero : Motion.spring,
+              duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
               switchInCurve: Motion.curve,
               switchOutCurve: Motion.curve,
               layoutBuilder: _topAligned,
@@ -410,17 +427,26 @@ class _BookPageState extends ConsumerState<BookPage> {
               },
               child: KeyedSubtree(
                 key: ValueKey('month-$_flipSeq'),
-                // List ↔ heat: cross-fade with a slight rise, size-stable.
+                // List ↔ heat: a fade-through, not a cross-fade. The two
+                // views are dense and nothing alike — painted over each
+                // other mid-fade they turn to mud — so the old one leaves
+                // the page entirely before the new one inks in.
                 child: AnimatedSwitcher(
-                  duration: Motion.spring,
-                  switchInCurve: Motion.curve,
-                  switchOutCurve: Motion.curve,
+                  duration: Motion.reduced(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 380),
+                  switchInCurve: const Interval(
+                    0.45,
+                    1,
+                    curve: Curves.easeOutCubic,
+                  ),
+                  switchOutCurve: const Interval(0.55, 1, curve: Curves.easeIn),
                   layoutBuilder: _topAligned,
                   transitionBuilder: (child, anim) => FadeTransition(
                     opacity: anim,
                     child: SlideTransition(
                       position: Tween(
-                        begin: const Offset(0, 0.02),
+                        begin: const Offset(0, 0.015),
                         end: Offset.zero,
                       ).animate(anim),
                       child: child,
@@ -431,7 +457,13 @@ class _BookPageState extends ConsumerState<BookPage> {
                           key: const ValueKey('view-heat'),
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: _heatView(
-                              c, now, all, monthSpent, catById, onNow),
+                            c,
+                            now,
+                            all,
+                            monthSpent,
+                            catById,
+                            onNow,
+                          ),
                         )
                       : Column(
                           key: const ValueKey('view-list'),
@@ -447,10 +479,16 @@ class _BookPageState extends ConsumerState<BookPage> {
                               layoutBuilder: _topAligned,
                               child: Column(
                                 key: ValueKey('book-$_query'),
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.stretch,
-                                children: _ledgerView(c, now, rows, catById,
-                                    fresh, onNow, sealedDays),
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: _ledgerView(
+                                  c,
+                                  now,
+                                  rows,
+                                  catById,
+                                  fresh,
+                                  onNow,
+                                  sealedDays,
+                                ),
                               ),
                             ),
                           ],
@@ -488,9 +526,13 @@ class _BookPageState extends ConsumerState<BookPage> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label,
-                  style: LedgerType.bodyStrong
-                      .copyWith(fontSize: 14, color: c.ink)),
+              Text(
+                label,
+                style: LedgerType.bodyStrong.copyWith(
+                  fontSize: 14,
+                  color: c.ink,
+                ),
+              ),
               const SizedBox(width: 2),
               PenChevron(size: 12, color: c.inkFaint),
             ],
@@ -505,8 +547,7 @@ class _BookPageState extends ConsumerState<BookPage> {
             padding: const EdgeInsets.all(4),
             child: RotatedBox(
               quarterTurns: 3,
-              child: PenChevron(
-                  size: 15, color: onNow ? c.rule : c.inkFaint),
+              child: PenChevron(size: 15, color: onNow ? c.rule : c.inkFaint),
             ),
           ),
         ),
@@ -538,30 +579,36 @@ class _BookPageState extends ConsumerState<BookPage> {
                 const SheetHandle(),
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.x2, bottom: Gap.x2),
-                  child: Text('flip back to',
-                      style: LedgerType.title
-                          .copyWith(fontSize: 18, color: c.ink)),
+                  child: Text(
+                    'flip back to',
+                    style: LedgerType.title.copyWith(
+                      fontSize: 18,
+                      color: c.ink,
+                    ),
+                  ),
                 ),
                 for (var i = 0; i < 12; i++)
-                  Builder(builder: (context) {
-                    final m = bookMonthShift(current, -i);
-                    final selected = m == _month;
-                    final label = m.year == current.year
-                        ? _monthName(m.month)
-                        : '${_monthName(m.month)} ${m.year}';
-                    return InkIn(
-                      delay: Duration(milliseconds: 18 * i),
-                      child: LedgerLine(
-                        title: label,
-                        detail: i == 0 ? 'now' : null,
-                        amountWidget: selected
-                            ? PenTick(size: 15, color: c.quill)
-                            : const SizedBox.shrink(),
-                        last: i == 11,
-                        onTap: () => Navigator.of(sheetContext).pop(m),
-                      ),
-                    );
-                  }),
+                  Builder(
+                    builder: (context) {
+                      final m = bookMonthShift(current, -i);
+                      final selected = m == _month;
+                      final label = m.year == current.year
+                          ? _monthName(m.month)
+                          : '${_monthName(m.month)} ${m.year}';
+                      return InkIn(
+                        delay: Duration(milliseconds: 18 * i),
+                        child: LedgerLine(
+                          title: label,
+                          detail: i == 0 ? 'now' : null,
+                          amountWidget: selected
+                              ? PenTick(size: 15, color: c.quill)
+                              : const SizedBox.shrink(),
+                          last: i == 11,
+                          onTap: () => Navigator.of(sheetContext).pop(m),
+                        ),
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -612,8 +659,10 @@ class _BookPageState extends ConsumerState<BookPage> {
   }
 
   Widget _filters(LedgerColors c, List<Category> cats) {
-    final used =
-        cats.where((x) => x.kind == CategoryKind.expense).take(3).toList();
+    final used = cats
+        .where((x) => x.kind == CategoryKind.expense)
+        .take(3)
+        .toList();
     // A category picked from the bar-list still gets its chip.
     if (_categoryFilter != null && !used.any((x) => x.id == _categoryFilter)) {
       used.addAll(cats.where((x) => x.id == _categoryFilter));
@@ -626,16 +675,22 @@ class _BookPageState extends ConsumerState<BookPage> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              LedgerChip('all',
-                  selected: _categoryFilter == null,
-                  onTap: () => setState(() => _categoryFilter = null)),
+              LedgerChip(
+                'all',
+                selected: _categoryFilter == null,
+                onTap: () => setState(() => _categoryFilter = null),
+              ),
               const SizedBox(width: Gap.x2),
               for (final x in used) ...[
-                LedgerChip(x.name.split(' ').first.toLowerCase(),
-                    icon: LedgerIcons.resolve(x.icon),
-                    selected: _categoryFilter == x.id,
-                    onTap: () => setState(() => _categoryFilter =
-                        _categoryFilter == x.id ? null : x.id)),
+                LedgerChip(
+                  x.name.split(' ').first.toLowerCase(),
+                  icon: LedgerIcons.resolve(x.icon),
+                  selected: _categoryFilter == x.id,
+                  onTap: () => setState(
+                    () =>
+                        _categoryFilter = _categoryFilter == x.id ? null : x.id,
+                  ),
+                ),
                 const SizedBox(width: Gap.x2),
               ],
             ],
@@ -660,8 +715,10 @@ class _BookPageState extends ConsumerState<BookPage> {
             style: LedgerType.bodyText.copyWith(color: c.ink, fontSize: 14),
             decoration: InputDecoration(
               hintText: 'search the book…',
-              hintStyle:
-                  LedgerType.bodyText.copyWith(fontSize: 14, color: c.inkFaint),
+              hintStyle: LedgerType.bodyText.copyWith(
+                fontSize: 14,
+                color: c.inkFaint,
+              ),
               icon: AnimatedSwitcher(
                 duration: Motion.quick,
                 switchInCurve: Motion.curve,
@@ -686,7 +743,11 @@ class _BookPageState extends ConsumerState<BookPage> {
 
   /// One quiet line under the filters — the month keeps score in the margin.
   Widget _monthLine(
-      LedgerColors c, int monthSpent, int entryCount, bool onNow) {
+    LedgerColors c,
+    int monthSpent,
+    int entryCount,
+    bool onNow,
+  ) {
     final style = LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint);
     return Padding(
       padding: const EdgeInsets.only(top: Gap.x3),
@@ -727,8 +788,8 @@ class _BookPageState extends ConsumerState<BookPage> {
           child: Text(
             _query.isEmpty
                 ? (onNow
-                    ? 'This month\'s pages are blank so far.'
-                    : 'Nothing was written in ${_monthName(_month.month)}.')
+                      ? 'This month\'s pages are blank so far.'
+                      : 'Nothing was written in ${_monthName(_month.month)}.')
                 : 'Nothing in the book matches "$_query".',
             style: LedgerType.bodyText.copyWith(color: c.inkFaint),
           ),
@@ -749,15 +810,17 @@ class _BookPageState extends ConsumerState<BookPage> {
           .where((t) => t.type == TxnType.expense)
           .fold(0, (s, t) => s + t.amountPaise);
       final date = DateTime(_month.year, _month.month, day);
-      widgets.add(_CountingDayHeader(
-        key: ValueKey('day-header-$day'),
-        label: onNow && day == now.day
-            ? 'Today · ${LedgerDates.weekdays[date.weekday - 1]} $day'
-            : '${LedgerDates.weekdays[date.weekday - 1]} $day',
-        totalPaise: spent,
-        sealed: sealedDays.contains(LedgerDates.dayKey(date)),
-        onLongPress: () => _openDayPage(date, list, cats),
-      ));
+      widgets.add(
+        _CountingDayHeader(
+          key: ValueKey('day-header-$day'),
+          label: onNow && day == now.day
+              ? 'Today · ${LedgerDates.weekdays[date.weekday - 1]} $day'
+              : '${LedgerDates.weekdays[date.weekday - 1]} $day',
+          totalPaise: spent,
+          sealed: sealedDays.contains(LedgerDates.dayKey(date)),
+          onLongPress: () => _openDayPage(date, list, cats),
+        ),
+      );
       for (final (i, t) in list.indexed) {
         final struck = _struck.containsKey(t.id);
         final reink = _reinked[t.id] ?? 0;
@@ -805,8 +868,14 @@ class _BookPageState extends ConsumerState<BookPage> {
     return widgets;
   }
 
-  List<Widget> _heatView(LedgerColors c, DateTime now, List<Txn> all,
-      int monthSpent, Map<int, Category> catById, bool onNow) {
+  List<Widget> _heatView(
+    LedgerColors c,
+    DateTime now,
+    List<Txn> all,
+    int monthSpent,
+    Map<int, Category> catById,
+    bool onNow,
+  ) {
     final days = List<int>.filled(LedgerDates.daysInMonth(_month), 0);
     for (final t in all.where((t) => t.type == TxnType.expense)) {
       days[t.at.day - 1] += t.amountPaise;
@@ -856,9 +925,13 @@ class _BookPageState extends ConsumerState<BookPage> {
               ),
             ),
             const SizedBox(height: Gap.x2),
-            Text('pale = quiet day',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 11, color: c.inkFaint)),
+            Text(
+              'pale = quiet day',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 11,
+                color: c.inkFaint,
+              ),
+            ),
             ?whisper,
           ],
         ),
@@ -885,9 +958,9 @@ class _BookPageState extends ConsumerState<BookPage> {
                   onTap: (s.isOther || s.categoryId == null)
                       ? null
                       : () => setState(() {
-                            _heat = false;
-                            _categoryFilter = s.categoryId;
-                          }),
+                          _heat = false;
+                          _categoryFilter = s.categoryId;
+                        }),
                 ),
             ],
           ),
@@ -908,7 +981,12 @@ class _BookPageState extends ConsumerState<BookPage> {
   /// The month's shape, said in one breath — figures set in mono where the
   /// number is too large to spell.
   Widget _monthShapeLine(
-      LedgerColors c, int quiet, int entries, int heaviestDay, bool hasSpend) {
+    LedgerColors c,
+    int quiet,
+    int entries,
+    int heaviestDay,
+    bool hasSpend,
+  ) {
     final faint = LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint);
     final mono = LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint);
 
@@ -930,7 +1008,8 @@ class _BookPageState extends ConsumerState<BookPage> {
             TextSpan(text: quiet == 1 ? ' quiet day; ' : ' quiet days; '),
             count(entries),
             TextSpan(
-                text: entries == 1 ? ' entry written' : ' entries written'),
+              text: entries == 1 ? ' entry written' : ' entries written',
+            ),
             if (hasSpend) ...[
               const TextSpan(text: ' — the '),
               TextSpan(text: bookOrdinal(heaviestDay), style: mono),
@@ -945,8 +1024,7 @@ class _BookPageState extends ConsumerState<BookPage> {
 
   /// One line took an outsized share of the month — worth saying out loud,
   /// and only then.
-  Widget? _biggestEntryWhisper(
-      LedgerColors c, List<Txn> all, int monthSpent) {
+  Widget? _biggestEntryWhisper(LedgerColors c, List<Txn> all, int monthSpent) {
     final expenses = all.where((t) => t.type == TxnType.expense).toList();
     if (expenses.length < 3) return null;
     var big = expenses.first;
@@ -981,12 +1059,16 @@ class _BookPageState extends ConsumerState<BookPage> {
   /// stamp that closes it. Reached by long-pressing a day header or tapping
   /// a heat cell.
   Future<void> _openDayPage(
-      DateTime date, List<Txn> entries, Map<int, Category> cats) async {
+    DateTime date,
+    List<Txn> entries,
+    Map<int, Category> cats,
+  ) async {
     HapticFeedback.selectionClick();
     final db = ref.read(dbProvider);
     final key = LedgerDates.dayKey(date);
-    final row = await (db.select(db.daySeals)..where((s) => s.date.equals(key)))
-        .getSingleOrNull();
+    final row = await (db.select(
+      db.daySeals,
+    )..where((s) => s.date.equals(key))).getSingleOrNull();
     if (!mounted) return;
 
     Txn? toEdit;
@@ -1001,7 +1083,9 @@ class _BookPageState extends ConsumerState<BookPage> {
           toEdit = t;
           Navigator.of(sheetContext).pop();
         },
-        onSeal: () => db.into(db.daySeals).insert(
+        onSeal: () => db
+            .into(db.daySeals)
+            .insert(
               DaySealsCompanion(date: Value(key)),
               mode: InsertMode.insertOrIgnore,
             ),
@@ -1017,7 +1101,8 @@ class _BookPageState extends ConsumerState<BookPage> {
   static String _time(DateTime at) =>
       '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
 
-  static String _monthName(int m) => LedgerDates.monthsFull[m - 1].toLowerCase();
+  static String _monthName(int m) =>
+      LedgerDates.monthsFull[m - 1].toLowerCase();
 }
 
 /// The book's own swipe. [SwipeRow] tears the line out of the page; here a
@@ -1046,16 +1131,19 @@ class _StrikeSwipe extends StatelessWidget {
         color: c.paperRaised,
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.only(left: Gap.x4),
-        child: Text('correct',
-            style:
-                LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill)),
+        child: Text(
+          'correct',
+          style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill),
+        ),
       ),
       secondaryBackground: Container(
         color: c.paperRaised,
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: Gap.x4),
-        child: Text('strike',
-            style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.seal)),
+        child: Text(
+          'strike',
+          style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.seal),
+        ),
       ),
       confirmDismiss: (dir) async {
         if (dir == DismissDirection.startToEnd) {
@@ -1106,17 +1194,19 @@ class _CountingDayHeaderState extends State<_CountingDayHeader> {
   @override
   Widget build(BuildContext context) {
     Widget header(int paise) => DayHeader(
-          label: widget.label,
-          total: Inr.format(paise),
-          sealed: widget.sealed,
-        );
+      label: widget.label,
+      total: Inr.format(paise),
+      sealed: widget.sealed,
+    );
 
     final child = Motion.reduced(context)
         ? header(widget.totalPaise)
         : TweenAnimationBuilder<double>(
             key: ValueKey(widget.totalPaise),
             tween: Tween(
-                begin: _from.toDouble(), end: widget.totalPaise.toDouble()),
+              begin: _from.toDouble(),
+              end: widget.totalPaise.toDouble(),
+            ),
             duration: const Duration(milliseconds: 400),
             curve: Motion.curve,
             builder: (context, v, _) => header(v.round()),
@@ -1202,22 +1292,28 @@ class _DayPageState extends State<_DayPage> {
             const SizedBox(height: 2),
             Text.rich(
               TextSpan(
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 12, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
                 children: widget.entries.isEmpty
                     ? [const TextSpan(text: 'Nothing was written here.')]
                     : [
                         TextSpan(
                           text: Inr.format(spent),
-                          style: LedgerType.amount
-                              .copyWith(fontSize: 12, color: c.inkFaint),
+                          style: LedgerType.amount.copyWith(
+                            fontSize: 12,
+                            color: c.inkFaint,
+                          ),
                         ),
                         const TextSpan(text: ' across '),
                         TextSpan(
                           text: count.text,
                           style: count.mono
-                              ? LedgerType.amount
-                                  .copyWith(fontSize: 12, color: c.inkFaint)
+                              ? LedgerType.amount.copyWith(
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                )
                               : null,
                         ),
                         TextSpan(
@@ -1255,8 +1351,10 @@ class _DayPageState extends State<_DayPage> {
                       padding: const EdgeInsets.symmetric(vertical: Gap.x2),
                       child: Text(
                         _sealed ? 'reopen this page' : 'close this day',
-                        style: LedgerType.bodyStrong
-                            .copyWith(fontSize: 14, color: c.quill),
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 14,
+                          color: c.quill,
+                        ),
                       ),
                     ),
                   ),
@@ -1267,8 +1365,10 @@ class _DayPageState extends State<_DayPage> {
                   child: Text(
                     'Closed. Nothing stops you writing on it again.',
                     textAlign: TextAlign.center,
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 11, color: c.inkFaint),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 11,
+                      color: c.inkFaint,
+                    ),
                   ),
                 ),
             ],

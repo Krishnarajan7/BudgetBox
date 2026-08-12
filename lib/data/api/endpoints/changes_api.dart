@@ -1,36 +1,66 @@
 import '../api_client.dart';
 import 'wire.dart';
 
-/// A cheap cache-refresh affordance, not a sync protocol: which rows changed
-/// since an instant, per resource. It says *what* moved, never *how* — the
-/// caller still fetches the rows it cares about.
+enum ChangeOperation { upsert, delete }
+
+/// One durable mutation from the server's append-only synchronization log.
+class ChangeOut {
+  const ChangeOut({
+    required this.sequence,
+    required this.resource,
+    required this.resourceId,
+    required this.operation,
+  });
+
+  final int sequence;
+  final String resource;
+  final String resourceId;
+  final ChangeOperation operation;
+
+  factory ChangeOut.fromJson(Map<String, dynamic> json) => ChangeOut(
+    sequence: json.whole('sequence'),
+    resource: json.text('resource'),
+    resourceId: json.text('resource_id'),
+    operation: switch (json.text('operation')) {
+      'upsert' => ChangeOperation.upsert,
+      'delete' => ChangeOperation.delete,
+      final value => throw WireFormatException(
+        'operation: unknown change operation "$value"',
+      ),
+    },
+  );
+}
+
+class ChangesOut {
+  const ChangesOut({
+    required this.serverTime,
+    required this.items,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+
+  final DateTime serverTime;
+  final List<ChangeOut> items;
+  final int nextCursor;
+  final bool hasMore;
+
+  factory ChangesOut.fromJson(Map<String, dynamic> json) => ChangesOut(
+    serverTime: json.instant('server_time'),
+    items: wireList(json['items'], ChangeOut.fromJson),
+    nextCursor: json.whole('next_cursor'),
+    hasMore: json.flag('has_more'),
+  );
+}
+
 class ChangesApi {
   const ChangesApi(this._c);
 
   final BbxClient _c;
 
-  /// [since] is normally the [ChangesOut.now] of the previous poll, which is
-  /// the server's clock rather than the phone's — the only one that can't
-  /// drift a window of edits into invisibility.
-  Future<ChangesOut> since(DateTime since) async => ChangesOut.fromJson(
-        wireObject(await _c.get('/v1/changes', {'since': wireInstant(since)})),
-      );
-}
-
-class ChangesOut {
-  const ChangesOut({required this.now, required this.changed});
-
-  /// The server's clock at the moment of the answer — pass it back as the next
-  /// [ChangesApi.since] so nothing falls between two polls.
-  final DateTime now;
-
-  /// Resource name to the ids that moved: 'txns', 'accounts', 'day_seals',
-  /// 'settings'… A resource with nothing to report is absent, not empty, so
-  /// iterate the keys rather than asking for one by name.
-  final Map<String, List<String>> changed;
-
-  factory ChangesOut.fromJson(Map<String, dynamic> json) => ChangesOut(
-        now: json.instant('now'),
-        changed: json.stringLists('changed'),
+  Future<ChangesOut> after(int cursor, {int limit = 200}) async =>
+      ChangesOut.fromJson(
+        wireObject(
+          await _c.get('/v1/changes', {'after': cursor, 'limit': limit}),
+        ),
       );
 }

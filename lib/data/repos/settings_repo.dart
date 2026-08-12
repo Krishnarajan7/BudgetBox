@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
@@ -24,6 +25,10 @@ class SettingsRepo {
   static const _birthday = 'birthday';
   static const _nudgeTime = 'nudgeTime';
   static const _kuralDay = 'kuralDay';
+  static const _kuralPosition = 'kuralPosition';
+  static const _kuralSeed = 'kuralSeed';
+  // Read only as a migration fallback for books that used the old sequential
+  // counter. New progress is written to [_kuralPosition].
   static const _kuralIndex = 'kuralIndex';
   static const _kuralStreak = 'kuralStreak';
   static const _birthdayBurstYear = 'birthdayBurstYear';
@@ -48,14 +53,16 @@ class SettingsRepo {
   ];
 
   Future<String?> _get(String key) async {
-    final row = await (_db.select(_db.settings)
-          ..where((s) => s.key.equals(key)))
-        .getSingleOrNull();
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(key))).getSingleOrNull();
     return row?.value;
   }
 
   Future<void> _set(String key, String value) {
-    return _db.into(_db.settings).insertOnConflictUpdate(
+    return _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
           SettingsCompanion(key: Value(key), value: Value(value)),
         );
   }
@@ -115,24 +122,92 @@ class SettingsRepo {
 
   Future<String?> kuralDay() => _get(_kuralDay);
 
-  /// 0-based position of the NEXT kural to show.
-  Future<int> kuralIndex() async =>
-      int.tryParse(await _get(_kuralIndex) ?? '') ?? 0;
+  /// 0-based position inside the current shuffled cycle.
+  Future<int> kuralPosition() async {
+    final current = int.tryParse(await _get(_kuralPosition) ?? '');
+    if (current != null) return current;
+    return int.tryParse(await _get(_kuralIndex) ?? '') ?? 0;
+  }
+
+  /// Kept as a source-compatible name for older tests/callers. It is a
+  /// position now, never the actual Kural number.
+  Future<int> kuralIndex() => kuralPosition();
+
+  /// Stable for a whole 1,330-Kural cycle. Creating the seed does not consume
+  /// today's reading, so killing the app on the page reopens the same Kural.
+  Future<int> kuralCycleSeed() async {
+    final existing = int.tryParse(await _get(_kuralSeed) ?? '');
+    if (existing != null && existing != 0) return existing;
+    final seed = _newKuralSeed();
+    await _set(_kuralSeed, '$seed');
+    return seed;
+  }
+
+  int _newKuralSeed({int? excluding}) {
+    int seed;
+    do {
+      seed = Random.secure().nextInt(0x7ffffffe) + 1;
+    } while (seed == excluding);
+    return seed;
+  }
 
   Future<void> setKuralShown(String day, int nextIndex) async {
     await _set(_kuralDay, day);
-    await _set(_kuralIndex, '$nextIndex');
+    await _set(_kuralPosition, '$nextIndex');
+  }
+
+  int _nextStreak(String today, String? lastDay, int previous) {
+    final t = DateTime.parse(today);
+    final yesterday = DateTime(t.year, t.month, t.day - 1);
+    final yKey =
+        '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
+    return lastDay == yKey ? previous + 1 : 1;
+  }
+
+  /// What the streak will become if today's page is completed. This is a
+  /// preview only: opening the page earns and consumes nothing.
+  Future<int> previewKuralStreak(String today, String? lastDay) async {
+    final previous = int.tryParse(await _get(_kuralStreak) ?? '') ?? 0;
+    return _nextStreak(today, lastDay, previous);
+  }
+
+  /// The single commit point behind “படித்தேன்”. Idempotent for a double tap
+  /// and guarded by the expected position so an old page cannot consume a
+  /// newer one. Finishing a cycle rotates the seed and starts a fresh shuffle.
+  Future<int> completeDailyKural(
+    String today, {
+    required int expectedPosition,
+    required int total,
+  }) {
+    return _db.transaction(() async {
+      final previous = int.tryParse(await _get(_kuralStreak) ?? '') ?? 0;
+      final lastDay = await kuralDay();
+      if (lastDay == today) return previous;
+
+      final current = await kuralPosition();
+      if (current != expectedPosition) return previous;
+
+      final streak = _nextStreak(today, lastDay, previous);
+      final next = expectedPosition + 1;
+      await _set(_kuralDay, today);
+      await _set(_kuralStreak, '$streak');
+      if (next >= total) {
+        await _set(_kuralPosition, '0');
+        final oldSeed = int.tryParse(await _get(_kuralSeed) ?? '');
+        final seed = _newKuralSeed(excluding: oldSeed);
+        await _set(_kuralSeed, '$seed');
+      } else {
+        await _set(_kuralPosition, '$next');
+      }
+      return streak;
+    });
   }
 
   /// Consecutive reading days, today included: yesterday read → +1,
   /// otherwise the streak starts over at one.
   Future<int> bumpKuralStreak(String today, String? lastDay) async {
     final prev = int.tryParse(await _get(_kuralStreak) ?? '') ?? 0;
-    final t = DateTime.parse(today);
-    final yesterday = DateTime(t.year, t.month, t.day - 1);
-    final yKey =
-        '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
-    final streak = lastDay == yKey ? prev + 1 : 1;
+    final streak = _nextStreak(today, lastDay, prev);
     await _set(_kuralStreak, '$streak');
     return streak;
   }
@@ -141,8 +216,7 @@ class SettingsRepo {
   Future<bool> birthdayBurstDue(int year) async =>
       await _get(_birthdayBurstYear) != '$year';
 
-  Future<void> markBirthdayBurst(int year) =>
-      _set(_birthdayBurstYear, '$year');
+  Future<void> markBirthdayBurst(int year) => _set(_birthdayBurstYear, '$year');
 
   /// How the year is framed: 'calendar' or 'fy' (Apr–Mar).
   Future<String> yearFrame() async => await _get(_yearFrame) ?? 'calendar';
@@ -177,18 +251,17 @@ class SettingsRepo {
     await _set(_serverToken, token.trim());
   }
 
-  Future<void> clearServer() =>
-      (_db.delete(_db.settings)
-            ..where((s) => s.key.isIn(const [_serverUrl, _serverToken])))
-          .go();
+  Future<void> clearServer() => (_db.delete(
+    _db.settings,
+  )..where((s) => s.key.isIn(const [_serverUrl, _serverToken]))).go();
 
   // ————— for the settings sync —————
 
   /// Every syncable preference this book has actually set.
   Future<Map<String, String>> syncableValues() async {
-    final rows = await (_db.select(_db.settings)
-          ..where((s) => s.key.isIn(syncableKeys)))
-        .get();
+    final rows = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.isIn(syncableKeys))).get();
     return {for (final r in rows) r.key: r.value};
   }
 
@@ -217,9 +290,9 @@ class SettingsRepo {
   }
 
   Future<void> clearPin() async {
-    await (_db.delete(_db.settings)
-          ..where((s) => s.key.isIn(const [_pinHash, _pinSalt])))
-        .go();
+    await (_db.delete(
+      _db.settings,
+    )..where((s) => s.key.isIn(const [_pinHash, _pinSalt]))).go();
   }
 
   static String _hash(String pin, String salt) =>

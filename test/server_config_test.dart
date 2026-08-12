@@ -114,8 +114,12 @@ void main() {
           seen.add('${req.method} ${req.url.path}');
           if (req.url.path == '/v1/changes') {
             return http.Response(
-              jsonEncode({'now': DateTime.now().toUtc().toIso8601String(),
-                          'changed': <String, dynamic>{}}),
+              jsonEncode({
+                'server_time': DateTime.now().toUtc().toIso8601String(),
+                'items': <dynamic>[],
+                'next_cursor': 0,
+                'has_more': false,
+              }),
               200,
               headers: {'content-type': 'application/json'},
             );

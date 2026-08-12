@@ -1,11 +1,11 @@
 {
-    "name": "budgetbox",
-    "short_name": "budgetbox",
+    "name": "BudgetBox",
+    "short_name": "BudgetBox",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0B0A08",
+    "theme_color": "#0B0A08",
+    "description": "Krish's book \u2014 a personal life ledger.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

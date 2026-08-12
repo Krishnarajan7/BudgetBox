@@ -53,8 +53,11 @@ class _PenPlusPainter extends CustomPainter {
     // The downstroke lands first, as it would on paper; the crossbar rides
     // a hair high of centre.
     canvas.drawLine(Offset(0, -arm), Offset(0, arm), pen);
-    canvas.drawLine(Offset(-arm, -size.height * 0.015),
-        Offset(arm, -size.height * 0.015), pen);
+    canvas.drawLine(
+      Offset(-arm, -size.height * 0.015),
+      Offset(arm, -size.height * 0.015),
+      pen,
+    );
     canvas.restore();
   }
 
@@ -231,11 +234,7 @@ class _PenSearchPainter extends CustomPainter {
     final centre = Offset(size.width * 0.42, size.height * 0.42);
     canvas.drawCircle(centre, r, pen);
     final dir = const Offset(0.707, 0.707);
-    canvas.drawLine(
-      centre + dir * r,
-      centre + dir * (size.width * 0.46),
-      pen,
-    );
+    canvas.drawLine(centre + dir * r, centre + dir * (size.width * 0.46), pen);
   }
 
   @override
@@ -271,12 +270,22 @@ class _PenGridPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     final inset = size.width * 0.14;
     final rect = Rect.fromLTRB(
-        inset, inset, size.width - inset, size.height - inset);
+      inset,
+      inset,
+      size.width - inset,
+      size.height - inset,
+    );
     canvas.drawRect(rect, pen);
-    canvas.drawLine(Offset(size.width / 2, inset),
-        Offset(size.width / 2, size.height - inset), pen);
-    canvas.drawLine(Offset(inset, size.height / 2),
-        Offset(size.width - inset, size.height / 2), pen);
+    canvas.drawLine(
+      Offset(size.width / 2, inset),
+      Offset(size.width / 2, size.height - inset),
+      pen,
+    );
+    canvas.drawLine(
+      Offset(inset, size.height / 2),
+      Offset(size.width - inset, size.height / 2),
+      pen,
+    );
   }
 
   @override
@@ -312,8 +321,11 @@ class _PenLinesPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     final inset = size.width * 0.14;
     for (final t in [0.28, 0.52, 0.76]) {
-      canvas.drawLine(Offset(inset, size.height * t),
-          Offset(size.width - inset, size.height * t), pen);
+      canvas.drawLine(
+        Offset(inset, size.height * t),
+        Offset(size.width - inset, size.height * t),
+        pen,
+      );
     }
   }
 
@@ -462,7 +474,11 @@ class _PenArrowPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
     final y = size.height / 2;
-    canvas.drawLine(Offset(size.width * 0.16, y), Offset(size.width * 0.80, y), pen);
+    canvas.drawLine(
+      Offset(size.width * 0.16, y),
+      Offset(size.width * 0.80, y),
+      pen,
+    );
     final head = Path()
       ..moveTo(size.width * 0.58, size.height * 0.30)
       ..lineTo(size.width * 0.82, y)
@@ -472,6 +488,212 @@ class _PenArrowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_PenArrowPainter old) => old.color != color;
+}
+
+/// The pen's slack, shared by the ruled strokes below: 0..1, stable for
+/// (i, seed) — a hand wavers, but a book's lines never shimmer between
+/// glances, so the waver is seeded, never random.
+double _penNoise(int i, int seed) =>
+    (math.sin(i * 127.1 + seed * 311.7) + 1) / 2;
+
+/// A rule laid down by hand: it wanders a hair off true the way a pen
+/// crosses a page, smoothed so it wavers rather than jitters. Same [seed],
+/// same line, forever. For headers and flourishes — tables keep their
+/// machine-true hairlines, because a ledger's columns are not a sketch.
+class InkRule extends StatelessWidget {
+  const InkRule({
+    super.key,
+    required this.color,
+    this.thickness = 1.0,
+    this.seed = 0,
+  });
+
+  final Color color;
+  final double thickness;
+  final int seed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: thickness + 2.4,
+      width: double.infinity,
+      child: CustomPaint(painter: _InkRulePainter(color, thickness, seed)),
+    );
+  }
+}
+
+class _InkRulePainter extends CustomPainter {
+  const _InkRulePainter(this.color, this.thickness, this.seed);
+
+  final Color color;
+  final double thickness;
+  final int seed;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0) return;
+    final pen = Paint()
+      ..color = color
+      ..strokeWidth = thickness
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final segs = math.max(4, (size.width / 16).round());
+    final raw = List<double>.generate(
+      segs + 1,
+      (i) => (_penNoise(i, seed) - 0.5) * 1.5,
+    );
+    final y0 = size.height / 2;
+    final path = Path();
+    for (var i = 0; i <= segs; i++) {
+      // 3-point moving average: the wrist smooths what the fingers do.
+      final y =
+          y0 +
+          (raw[math.max(0, i - 1)] + raw[i] + raw[math.min(segs, i + 1)]) / 3;
+      final x = size.width * i / segs;
+      i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+    }
+    canvas.drawPath(path, pen);
+  }
+
+  @override
+  bool shouldRepaint(_InkRulePainter old) =>
+      old.color != color || old.thickness != thickness || old.seed != seed;
+}
+
+/// The heavier underline stroke — the quill pressed down and drawn across.
+/// [progress] draws it left to right; drive it with [DrawIn] keyed on the
+/// figure above, so the pen re-crosses the page every time the number it
+/// underlines changes. The stroke drifts a touch at its end: the nib lifting.
+class QuillStroke extends StatelessWidget {
+  const QuillStroke({
+    super.key,
+    required this.width,
+    required this.color,
+    this.thickness = 3,
+    this.progress = 1,
+    this.seed = 2,
+  });
+
+  final double width;
+  final Color color;
+  final double thickness;
+  final double progress;
+  final int seed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(width, thickness + 3),
+      painter: _QuillStrokePainter(color, thickness, progress, seed),
+    );
+  }
+}
+
+class _QuillStrokePainter extends CustomPainter {
+  const _QuillStrokePainter(
+    this.color,
+    this.thickness,
+    this.progress,
+    this.seed,
+  );
+
+  final Color color;
+  final double thickness;
+  final double progress;
+  final int seed;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || progress <= 0) return;
+    final pen = Paint()
+      ..color = color
+      ..strokeWidth = thickness
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final segs = math.max(4, (size.width / 12).round());
+    final raw = List<double>.generate(
+      segs + 1,
+      (i) => (_penNoise(i, seed) - 0.5) * 1.2,
+    );
+    raw[segs] += 0.9; // the lift
+    final y0 = size.height / 2;
+    final path = Path();
+    for (var i = 0; i <= segs; i++) {
+      final y =
+          y0 +
+          (raw[math.max(0, i - 1)] + raw[i] + raw[math.min(segs, i + 1)]) / 3;
+      final x = size.width * i / segs;
+      i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+    }
+    final drawn = Path();
+    for (final metric in path.computeMetrics()) {
+      drawn.addPath(
+        metric.extractPath(0, metric.length * progress.clamp(0.0, 1.0)),
+        Offset.zero,
+      );
+    }
+    canvas.drawPath(drawn, pen);
+  }
+
+  @override
+  bool shouldRepaint(_QuillStrokePainter old) =>
+      old.color != color ||
+      old.thickness != thickness ||
+      old.progress != progress ||
+      old.seed != seed;
+}
+
+/// The character's face alone, key-sized — the biometric mark. The same two
+/// uneven eyes and too-wide smile that greet from the cover, asking to see
+/// yours in return.
+class PenFace extends StatelessWidget {
+  const PenFace({super.key, this.size = 20, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _PenFacePainter(color),
+    );
+  }
+}
+
+class _PenFacePainter extends CustomPainter {
+  const _PenFacePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final pen = Paint()
+      ..color = color
+      ..strokeWidth = w * 0.10
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    // Left eye shorter, right a touch taller — the character's own asymmetry.
+    canvas.drawLine(
+      Offset(w * 0.32, h * 0.30),
+      Offset(w * 0.32, h * 0.52),
+      pen,
+    );
+    canvas.drawLine(
+      Offset(w * 0.64, h * 0.26),
+      Offset(w * 0.64, h * 0.52),
+      pen,
+    );
+    final smile = Path()
+      ..moveTo(w * 0.28, h * 0.66)
+      ..quadraticBezierTo(w * 0.48, h * 0.84, w * 0.70, h * 0.64);
+    canvas.drawPath(smile, pen);
+  }
+
+  @override
+  bool shouldRepaint(_PenFacePainter old) => old.color != color;
 }
 
 /// The book with a face — the app's character. A monogram is a logo; a face
@@ -542,12 +764,18 @@ class MarkFacePainter extends CustomPainter {
     final left = Path()
       ..moveTo(w * 0.34, eyeTop)
       ..lineTo(w * 0.34, eyeBottom - h * 0.045)
-      ..arcToPoint(Offset(w * 0.27, eyeBottom - h * 0.045),
-          radius: Radius.circular(w * 0.045), clockwise: true);
+      ..arcToPoint(
+        Offset(w * 0.27, eyeBottom - h * 0.045),
+        radius: Radius.circular(w * 0.045),
+        clockwise: true,
+      );
     canvas.drawPath(left, pen);
     // Right eye: straight, a touch taller — the one paying attention.
     canvas.drawLine(
-        Offset(w * 0.62, eyeTop - h * 0.03), Offset(w * 0.62, eyeBottom), pen);
+      Offset(w * 0.62, eyeTop - h * 0.03),
+      Offset(w * 0.62, eyeBottom),
+      pen,
+    );
 
     // The smile, a touch too wide, riding low.
     final smile = Path()
@@ -560,5 +788,3 @@ class MarkFacePainter extends CustomPainter {
   bool shouldRepaint(MarkFacePainter old) =>
       old.body != body || old.face != face;
 }
-
-

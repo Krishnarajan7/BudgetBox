@@ -4,7 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'db.dart';
+import 'api/api_client.dart';
+import 'api/endpoints/coaching_api.dart';
 import 'dev_seed.dart';
+import 'nudges.dart';
 import 'repos/account_repo.dart';
 import 'repos/budget_repo.dart';
 import 'repos/goal_repo.dart';
@@ -27,18 +30,21 @@ final dbProvider = Provider<LedgerDb>((ref) {
   return db;
 });
 
-final txnRepoProvider =
-    Provider<TxnRepo>((ref) => TxnRepo(ref.watch(dbProvider)));
+final txnRepoProvider = Provider<TxnRepo>(
+  (ref) => TxnRepo(ref.watch(dbProvider)),
+);
 
-final accountRepoProvider =
-    Provider<AccountRepo>((ref) => AccountRepo(ref.watch(dbProvider)));
+final accountRepoProvider = Provider<AccountRepo>(
+  (ref) => AccountRepo(ref.watch(dbProvider)),
+);
 
 final pinnedRepoProvider = Provider<PinnedRepo>(
   (ref) => PinnedRepo(ref.watch(dbProvider), ref.watch(txnRepoProvider)),
 );
 
-final budgetRepoProvider =
-    Provider<BudgetRepo>((ref) => BudgetRepo(ref.watch(dbProvider)));
+final budgetRepoProvider = Provider<BudgetRepo>(
+  (ref) => BudgetRepo(ref.watch(dbProvider)),
+);
 
 final recurringRepoProvider = Provider<RecurringRepo>(
   (ref) => RecurringRepo(ref.watch(dbProvider), ref.watch(txnRepoProvider)),
@@ -48,5 +54,35 @@ final goalRepoProvider = Provider<GoalRepo>(
   (ref) => GoalRepo(ref.watch(dbProvider), ref.watch(txnRepoProvider)),
 );
 
-final settingsRepoProvider =
-    Provider<SettingsRepo>((ref) => SettingsRepo(ref.watch(dbProvider)));
+final settingsRepoProvider = Provider<SettingsRepo>(
+  (ref) => SettingsRepo(ref.watch(dbProvider)),
+);
+
+final nudgesProvider = Provider<Nudges>(
+  (ref) => Nudges(
+    ref.watch(dbProvider),
+    ref.watch(settingsRepoProvider),
+    ref.watch(txnRepoProvider),
+    ref.watch(recurringRepoProvider),
+  ),
+);
+
+/// Evidence-backed server coaching. An unwired book stays silent; network
+/// failure also stays out of Today's way and remains visible through sync
+/// status rather than replacing the ledger with an error panel.
+final coachingFeedProvider = FutureProvider.autoDispose<List<CoachingInsight>>((
+  ref,
+) async {
+  final config = await ref.watch(settingsRepoProvider).serverConfig();
+  if (!config.wired) return const [];
+  final client = BbxClient(config);
+  try {
+    return await CoachingApi(client).feed();
+  } on BbxOffline {
+    return const [];
+  } on BbxProblem {
+    return const [];
+  } finally {
+    client.close();
+  }
+});

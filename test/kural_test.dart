@@ -7,37 +7,84 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('the reading streak counts consecutive days and resets on a gap',
-      () async {
+  test('a seeded cycle is shuffled, deterministic, and has no repeats', () {
+    final first = shuffledKuralOrder(kuralCount, 424242);
+    final again = shuffledKuralOrder(kuralCount, 424242);
+    final another = shuffledKuralOrder(kuralCount, 99);
+
+    expect(first, again);
+    expect(first.toSet(), hasLength(kuralCount));
+    expect(first.toSet(), equals({for (var i = 0; i < kuralCount; i++) i}));
+    expect(first, isNot(equals(List<int>.generate(kuralCount, (i) => i))));
+    expect(another, isNot(equals(first)));
+  });
+
+  test(
+    'the reading streak counts consecutive days and resets on a gap',
+    () async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final s = SettingsRepo(db);
+
+      expect(await s.bumpKuralStreak('2026-08-12', null), 1);
+      expect(await s.bumpKuralStreak('2026-08-13', '2026-08-12'), 2);
+      // A missed day starts over — quietly, no shaming copy anywhere.
+      expect(await s.bumpKuralStreak('2026-08-16', '2026-08-13'), 1);
+    },
+  );
+
+  test(
+    'progress advances only on completion and completion is idempotent',
+    () async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final s = SettingsRepo(db);
+      expect(await s.kuralIndex(), 0);
+
+      expect(await s.previewKuralStreak('2026-08-12', null), 1);
+      expect(await s.kuralDay(), isNull, reason: 'a preview earns nothing');
+      expect(await s.kuralIndex(), 0);
+
+      await s.completeDailyKural(
+        '2026-08-12',
+        expectedPosition: 0,
+        total: kuralCount,
+      );
+      expect(await s.kuralDay(), '2026-08-12');
+      expect(await s.kuralIndex(), 1);
+
+      await s.completeDailyKural(
+        '2026-08-12',
+        expectedPosition: 0,
+        total: kuralCount,
+      );
+      expect(await s.kuralIndex(), 1, reason: 'a double tap cannot skip one');
+    },
+  );
+
+  test('finishing a cycle resets its position and rotates its seed', () async {
     final db = LedgerDb.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
     final s = SettingsRepo(db);
+    final before = await s.kuralCycleSeed();
 
-    expect(await s.bumpKuralStreak('2026-08-12', null), 1);
-    expect(await s.bumpKuralStreak('2026-08-13', '2026-08-12'), 2);
-    // A missed day starts over — quietly, no shaming copy anywhere.
-    expect(await s.bumpKuralStreak('2026-08-16', '2026-08-13'), 1);
+    await s.completeDailyKural('2026-08-12', expectedPosition: 0, total: 1);
+
+    expect(await s.kuralPosition(), 0);
+    expect(await s.kuralCycleSeed(), isNot(before));
   });
 
-  test('the sequence walks forward and never repeats within a cycle',
-      () async {
-    final db = LedgerDb.forTesting(NativeDatabase.memory());
-    addTearDown(db.close);
-    final s = SettingsRepo(db);
-    expect(await s.kuralIndex(), 0);
-    await s.setKuralShown('2026-08-12', 1);
-    expect(await s.kuralDay(), '2026-08-12');
-    expect(await s.kuralIndex(), 1);
-  });
-
-  testWidgets('the page carries the couplet, the urai, and the words',
-      (tester) async {
+  testWidgets('the page carries the couplet, the urai, and the words', (
+    tester,
+  ) async {
     // Asset IO is real IO — run it outside the fake clock.
     await tester.runAsync(() async {
-      await tester.pumpWidget(MaterialApp(
-        theme: ledgerDayTheme(),
-        home: const KuralPage(index: 0, streak: 3),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ledgerDayTheme(),
+          home: const KuralPage(index: 0, streak: 3),
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 300));
     });
     await tester.pumpAndSettle();
@@ -51,25 +98,34 @@ void main() {
     expect(find.textContaining('1329 left in the book'), findsOneWidget);
   });
 
-  testWidgets('படித்தேன் plays the streak moment, then the page leaves',
-      (tester) async {
+  testWidgets('படித்தேன் plays the streak moment, then the page leaves', (
+    tester,
+  ) async {
+    var completed = false;
     await tester.runAsync(() async {
-      await tester.pumpWidget(MaterialApp(
-        theme: ledgerDayTheme(),
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const KuralPage(index: 0, streak: 2)),
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ledgerDayTheme(),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => KuralPage(
+                        index: 0,
+                        streak: 2,
+                        onRead: () async => completed = true,
+                      ),
+                    ),
+                  ),
+                  child: const Text('open'),
                 ),
-                child: const Text('open'),
               ),
             ),
           ),
         ),
-      ));
+      );
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     await tester.pumpAndSettle();
@@ -77,17 +133,22 @@ void main() {
     // The scripture loads over real IO — wait until the page has built.
     for (var i = 0; i < 20; i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 100)));
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
       await tester.pump();
       if (find.byType(Scrollable).evaluate().isNotEmpty) break;
     }
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-        find.textContaining('படித்தேன்'), 300,
-        scrollable: find.byType(Scrollable).first);
+      find.textContaining('படித்தேன்'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(completed, isFalse, reason: 'opening the page is not reading it');
     await tester.tap(find.textContaining('படித்தேன்'));
     await tester.pump(const Duration(milliseconds: 600));
+    expect(completed, isTrue);
 
     // Mid-hold: the banner is down, the seal has bloomed.
     expect(find.text('day 2 of your reading streak'), findsOneWidget);

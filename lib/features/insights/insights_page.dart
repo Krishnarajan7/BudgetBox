@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -123,8 +125,7 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
               padding: const EdgeInsets.all(4),
               child: RotatedBox(
                 quarterTurns: 3,
-                child: PenChevron(
-                    size: 14, color: onNow ? c.rule : c.inkFaint),
+                child: PenChevron(size: 14, color: onNow ? c.rule : c.inkFaint),
               ),
             ),
           ),
@@ -162,20 +163,19 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
     Map<int, Category> cats,
   ) {
     List<(int?, int)> spend(List<Txn> all) => [
-          for (final t in all.where((t) => t.type == TxnType.expense))
-            (t.categoryId, t.amountPaise),
-        ];
+      for (final t in all.where((t) => t.type == TxnType.expense))
+        (t.categoryId, t.amountPaise),
+    ];
     final nowSpend = spend(nowAll);
     final thenSpend = spend(thenAll);
     final nowTotal = nowSpend.fold(0, (s, e) => s + e.$2);
     final thenTotal = thenSpend.fold(0, (s, e) => s + e.$2);
     final delta = nowTotal - thenTotal;
 
-    final slices = whereItWent(nowSpend);
+    // Four slices at most — one per ink in the drawer; the rest folds.
+    final slices = whereItWent(nowSpend, top: 4);
     final shifts = categoryShifts(nowSpend, thenSpend);
-    final heaviest = nowAll
-        .where((t) => t.type == TxnType.expense)
-        .toList()
+    final heaviest = nowAll.where((t) => t.type == TxnType.expense).toList()
       ..sort((a, b) => b.amountPaise.compareTo(a.amountPaise));
 
     String catName(int? id) =>
@@ -197,8 +197,10 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
       children: [
         const SizedBox(height: Gap.x4),
         // ————— the month, in one figure —————
-        Text(_label.toLowerCase(),
-            style: LedgerType.label.copyWith(color: c.inkFaint)),
+        Text(
+          _label.toLowerCase(),
+          style: LedgerType.label.copyWith(color: c.inkFaint),
+        ),
         const SizedBox(height: 2),
         CountUp(
           value: nowTotal,
@@ -213,8 +215,8 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
                 label: delta == 0
                     ? 'dead even with last month'
                     : delta < 0
-                        ? '${Inr.format(-delta)} lighter than last month'
-                        : '${Inr.format(delta)} heavier than last month',
+                    ? '${Inr.format(-delta)} lighter than last month'
+                    : '${Inr.format(delta)} heavier than last month',
                 tone: delta > 0 ? c.warn : c.jama,
               ),
             ],
@@ -240,9 +242,10 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
                                 slices.fold<int>(0, (a, b) => a + b.paise),
                         ],
                         sweep: t,
-                        ink: c.quill,
+                        inks: c.chartInks,
                         rest: c.rule,
                         hole: c.paperRaised,
+                        foldedLast: slices.last.isOther,
                       ),
                     ),
                   ),
@@ -251,12 +254,19 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
                 for (final (i, s) in slices.indexed)
                   WhereRow(
                     key: ValueKey('iw-${s.isOther ? 'other' : s.categoryId}'),
-                    label: s.isOther ? 'everything else' : catName(s.categoryId),
+                    label: s.isOther
+                        ? 'everything else'
+                        : catName(s.categoryId),
                     iconKey: s.isOther ? null : catIcon(s.categoryId),
                     amount: Inr.format(s.paise),
                     frac: slices.first.paise <= 0
                         ? 0
                         : s.paise / slices.first.paise,
+                    // The row wears its slice's ink — colour follows the
+                    // category from wheel to legend.
+                    ink: s.isOther
+                        ? c.rule
+                        : c.chartInks[i % c.chartInks.length],
                     stagger: i,
                     last: i == slices.length - 1,
                   ),
@@ -278,10 +288,10 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
                     detail: s.isNew
                         ? 'new this month'
                         : s.wentQuiet
-                            ? 'went quiet'
-                            : s.deltaPaise > 0
-                                ? 'more than last month'
-                                : 'less than last month',
+                        ? 'went quiet'
+                        : s.deltaPaise > 0
+                        ? 'more than last month'
+                        : 'less than last month',
                     amount:
                         '${s.deltaPaise > 0 ? '+' : '−'}${Inr.format(s.deltaPaise.abs())}',
                     amountColor: s.deltaPaise > 0 ? c.warn : c.jama,
@@ -338,29 +348,33 @@ class _DeltaChip extends StatelessWidget {
   }
 }
 
-/// A donut of one ink: each slice a step fainter than the last, heaviest
-/// first, "everything else" in rule grey. The bars beneath are its legend —
-/// the wheel shows the shape of the month, the rows name it.
+/// A wheel of the drawer's four print inks, heaviest slice first,
+/// "everything else" in rule grey — each slice parted from its neighbour by
+/// a hairline of the card, the way inked areas never quite touch on paper.
+/// The bars beneath are its legend, each wearing its slice's ink — the
+/// wheel shows the shape of the month, the rows name it.
 class _WheelPainter extends CustomPainter {
   const _WheelPainter({
     required this.fractions,
     required this.sweep,
-    required this.ink,
+    required this.inks,
     required this.rest,
     required this.hole,
+    required this.foldedLast,
   });
 
-  /// Slice shares in row order (already heaviest-first); the last one is
-  /// "everything else" when the caller folded a remainder.
+  /// Slice shares in row order (already heaviest-first).
   final List<double> fractions;
 
   /// Draw-in progress, 0–1: the wheel sweeps itself clockwise.
   final double sweep;
-  final Color ink;
+  final List<Color> inks;
   final Color rest;
   final Color hole;
 
-  static const _steps = [1.0, 0.72, 0.52, 0.38, 0.27, 0.19, 0.13];
+  /// True when the last share is a folded "everything else" — only then
+  /// does it wear rule grey instead of an ink.
+  final bool foldedLast;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -370,14 +384,15 @@ class _WheelPainter extends CustomPainter {
     final total = fractions.fold<double>(0, (a, b) => a + b);
     if (total <= 0) return;
 
+    final bounds = <double>[start];
     for (final (i, f) in fractions.indexed) {
       final full = (f / total) * 6.2831853;
       final drawn = (sweep * 6.2831853) - (start + 1.5707963);
       if (drawn <= 0) break;
       final paint = Paint()
-        ..color = i == fractions.length - 1 && fractions.length > 1
+        ..color = foldedLast && i == fractions.length - 1
             ? rest
-            : ink.withValues(alpha: _steps[i.clamp(0, _steps.length - 1)]);
+            : inks[i % inks.length];
       canvas.drawArc(
         Rect.fromCircle(center: centre, radius: radius),
         start,
@@ -386,6 +401,20 @@ class _WheelPainter extends CustomPainter {
         paint,
       );
       start += full;
+      bounds.add(start);
+    }
+    // The breath of card between slices — none when one slice is the wheel.
+    if (fractions.length > 1) {
+      final gap = Paint()
+        ..color = hole
+        ..strokeWidth = 2;
+      for (final b in bounds) {
+        canvas.drawLine(
+          centre,
+          centre + Offset(math.cos(b), math.sin(b)) * radius,
+          gap,
+        );
+      }
     }
     // The hole that makes it a wheel, not a pie chart from a template.
     canvas.drawCircle(centre, radius * 0.62, Paint()..color = hole);
@@ -393,5 +422,5 @@ class _WheelPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WheelPainter old) =>
-      old.sweep != sweep || old.fractions != fractions || old.ink != ink;
+      old.sweep != sweep || old.fractions != fractions || old.inks != inks;
 }

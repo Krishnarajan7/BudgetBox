@@ -63,7 +63,14 @@ class _PlansPageState extends ConsumerState<PlansPage> {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+      // Room for the floating glass bar: the page scrolls under it, but
+      // its last line must still be able to rise above it.
+      padding: EdgeInsets.fromLTRB(
+        Gap.page,
+        0,
+        Gap.page,
+        MediaQuery.paddingOf(context).bottom + Gap.x4,
+      ),
       children: [
         const LedgerAppBar(title: 'Plans'),
         const SizedBox(height: Gap.x3),
@@ -95,11 +102,7 @@ class _PlansPageState extends ConsumerState<PlansPage> {
 /// travel, on the book's one spring. [tag] names the page on show; [dir] is
 /// +1 when the book moves forward.
 class _PageTurn extends StatelessWidget {
-  const _PageTurn({
-    required this.tag,
-    required this.dir,
-    required this.child,
-  });
+  const _PageTurn({required this.tag, required this.dir, required this.child});
 
   final Object tag;
   final int dir;
@@ -162,10 +165,12 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
   /// +1 when the last flip went forward in time.
   int _dir = 1;
 
-  late final Future<Map<int, int>> _upcoming =
-      ref.read(recurringRepoProvider).upcomingByCategory();
-  late final Future<Map<int, int>> _suggested =
-      ref.read(budgetRepoProvider).suggestFromHistory();
+  late final Future<Map<int, int>> _upcoming = ref
+      .read(recurringRepoProvider)
+      .upcomingByCategory();
+  late final Future<Map<int, int>> _suggested = ref
+      .read(budgetRepoProvider)
+      .suggestFromHistory();
 
   Stream<List<BudgetView>>? _viewStream;
   DateTime? _streamMonth;
@@ -238,7 +243,8 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
             if (snapshot.hasData && views.isEmpty) {
               return EmptyPage(
                 line: 'No lines drawn yet.',
-                sub: 'The setup ritual proposes them — or one category can '
+                sub:
+                    'The setup ritual proposes them — or one category can '
                     'start on its own.',
                 action: LedgerChip(
                   'draw the first line',
@@ -291,7 +297,8 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                 for (final (i, v) in views.indexed)
                   InkIn(
                     key: ValueKey(
-                        'budget-${v.budget.id}-$i-${_month.year}-${_month.month}'),
+                      'budget-${v.budget.id}-$i-${_month.year}-${_month.month}',
+                    ),
                     delay: Duration(milliseconds: 40 * i),
                     child: _BudgetRow(
                       view: v,
@@ -311,8 +318,10 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                         const SizedBox(width: Gap.x2),
                         Text(
                           'draw another line',
-                          style: LedgerType.bodyStrong
-                              .copyWith(fontSize: 13, color: c.quill),
+                          style: LedgerType.bodyStrong.copyWith(
+                            fontSize: 13,
+                            color: c.quill,
+                          ),
                         ),
                       ],
                     ),
@@ -327,12 +336,13 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                         haptic: false,
                         onTap: _putBack,
                         child: Padding(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: Gap.x2),
+                          padding: const EdgeInsets.symmetric(vertical: Gap.x2),
                           child: Text(
                             'put the lines back as they were',
-                            style: LedgerType.bodyStrong
-                                .copyWith(fontSize: 12, color: c.inkFaint),
+                            style: LedgerType.bodyStrong.copyWith(
+                              fontSize: 12,
+                              color: c.inkFaint,
+                            ),
                           ),
                         ),
                       ),
@@ -389,18 +399,13 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
             padding: const EdgeInsets.all(4),
             child: RotatedBox(
               quarterTurns: 3,
-              child: PenChevron(
-                  size: 15, color: onNow ? c.rule : c.inkFaint),
+              child: PenChevron(size: 15, color: onNow ? c.rule : c.inkFaint),
             ),
           ),
         ),
         const Spacer(),
         if (!onNow)
-          LedgerChip(
-            'this month',
-            selected: true,
-            onTap: _toThisMonth,
-          ),
+          LedgerChip('this month', selected: true, onTap: _toThisMonth),
       ],
     );
   }
@@ -490,8 +495,7 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
   /// What "rebalance" actually does, said before it does it: the month's
   /// total stays the same, but each line is redrawn to the share that
   /// category has actually been taking. And it is not a one-way door.
-  Future<void> _rebalance(
-      BuildContext context, List<BudgetView> views) async {
+  Future<void> _rebalance(BuildContext context, List<BudgetView> views) async {
     final sure = await showLedgerSheet<bool>(
       context,
       builder: (context) {
@@ -514,8 +518,10 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                 'redrawn to the share that category has actually been taking '
                 '— a budget shaped like your life instead of a guess. '
                 '"Put the lines back" undoes it.',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               FilledButton(
@@ -534,9 +540,7 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
     if (sure != true || !mounted) return;
 
     // Remember the way back before anything moves.
-    final before = {
-      for (final v in views) v.budget.id: v.pace.limitPaise,
-    };
+    final before = {for (final v in views) v.budget.id: v.pace.limitPaise};
     await ref.read(budgetRepoProvider).rebalance(views);
     HapticFeedback.lightImpact();
     if (mounted) setState(() => _beforeRebalance = before);
@@ -555,12 +559,15 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
 
   Future<void> _newBudget(BuildContext context) async {
     final db = ref.read(dbProvider);
-    final cats = await (db.select(db.categories)
-          ..where((t) =>
-              t.kind.equalsValue(CategoryKind.expense) &
-              t.archived.equals(false))
-          ..orderBy([(t) => OrderingTerm.asc(t.sortOrder)]))
-        .get();
+    final cats =
+        await (db.select(db.categories)
+              ..where(
+                (t) =>
+                    t.kind.equalsValue(CategoryKind.expense) &
+                    t.archived.equals(false),
+              )
+              ..orderBy([(t) => OrderingTerm.asc(t.sortOrder)]))
+            .get();
     if (cats.isEmpty || !context.mounted) return;
     final picked = await showLedgerSheet<(int, int)>(
       context,
@@ -569,7 +576,9 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
     if (picked == null) return;
     final (categoryId, rupees) = picked;
     final cat = cats.firstWhere((x) => x.id == categoryId);
-    await ref.read(budgetRepoProvider).create(
+    await ref
+        .read(budgetRepoProvider)
+        .create(
           name: cat.name,
           limitPaise: rupees * 100,
           categoryId: categoryId,
@@ -615,11 +624,13 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
     final out = <int>[];
     for (var i = 6; i >= 1; i--) {
       final m = DateTime(widget.month.year, widget.month.month - i);
-      out.add(await repo.spentBetween(
-        LedgerDates.monthStart(m),
-        LedgerDates.monthEnd(m),
-        categoryId: _catId,
-      ));
+      out.add(
+        await repo.spentBetween(
+          LedgerDates.monthStart(m),
+          LedgerDates.monthEnd(m),
+          categoryId: _catId,
+        ),
+      );
     }
     return out;
   }
@@ -631,11 +642,13 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
     final days = view.pace.elapsedDays.clamp(1, view.pace.totalDays);
     final out = <int>[];
     for (var d = 1; d <= days; d++) {
-      out.add(await repo.spentBetween(
-        from,
-        DateTime(from.year, from.month, d + 1),
-        categoryId: _catId,
-      ));
+      out.add(
+        await repo.spentBetween(
+          from,
+          DateTime(from.year, from.month, d + 1),
+          categoryId: _catId,
+        ),
+      );
     }
     return out;
   }
@@ -666,8 +679,8 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
     final finalized = widget.finalized;
     final verdict = finalized
         ? (pace.spentPaise > pace.limitPaise
-            ? '${Inr.format(pace.spentPaise - pace.limitPaise)} past its line'
-            : 'held its line')
+              ? '${Inr.format(pace.spentPaise - pace.limitPaise)} past its line'
+              : 'held its line')
         : switch (pace.status) {
             BudgetStatus.onPace => 'on pace',
             BudgetStatus.projectedOver =>
@@ -682,8 +695,8 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
     final tail = pending
         ? ' · lands soon'
         : (!finalized && pace.remainingPaise > 0
-            ? ' · ${Inr.format(pace.remainingPaise)} left'
-            : '');
+              ? ' · ${Inr.format(pace.remainingPaise)} left'
+              : '');
 
     return Pressable(
       onTap: _toggle,
@@ -746,9 +759,7 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
                     }
                     return Padding(
                       padding: const EdgeInsets.only(left: Gap.x2),
-                      child: Sparkline([
-                        for (final v in months) v.toDouble(),
-                      ]),
+                      child: Sparkline([for (final v in months) v.toDouble()]),
                     );
                   },
                 ),
@@ -775,7 +786,10 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
                 );
               },
             ),
-            // The signature element, one tap away on every budget.
+            // The signature element, one tap away on every budget. The fold
+            // grows on AnimatedSize while the rows ink in inside it — the
+            // two together are what make opening read like closing run
+            // backwards instead of a mute box growing.
             AnimatedSize(
               duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
               curve: Motion.curve,
@@ -802,30 +816,35 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
           if (daily == null || daily.isEmpty) {
             return const SizedBox(width: double.infinity, height: 74);
           }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DrawIn(
-                builder: (context, p) => PaceChart(
-                  daily: daily,
-                  elapsedDays: pace.elapsedDays,
-                  totalDays: pace.totalDays,
-                  progress: p,
+          // The rows arrive a beat after the fold opens (the daily totals
+          // are read lazily) — so they ink in rather than popping onto an
+          // already-open page.
+          return InkIn(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DrawIn(
+                  builder: (context, p) => PaceChart(
+                    daily: daily,
+                    elapsedDays: pace.elapsedDays,
+                    totalDays: pace.totalDays,
+                    progress: p,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                widget.finalized
-                    ? 'even pace for the month read ${Inr.format(even)}; '
-                        'this line spent ${Inr.format(pace.spentPaise)}'
-                    : 'even pace by today reads ${Inr.format(even)}; '
-                        'spent so far ${Inr.format(pace.spentPaise)}',
-                style: LedgerType.bodyText.copyWith(
-                  fontSize: 11,
-                  color: c.inkFaint,
+                const SizedBox(height: 4),
+                Text(
+                  widget.finalized
+                      ? 'even pace for the month read ${Inr.format(even)}; '
+                            'this line spent ${Inr.format(pace.spentPaise)}'
+                      : 'even pace by today reads ${Inr.format(even)}; '
+                            'spent so far ${Inr.format(pace.spentPaise)}',
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 11,
+                    color: c.inkFaint,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -876,42 +895,45 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
   Future<int?> _findSalaryDay() async {
     final db = ref.read(dbProvider);
     final now = DateTime.now();
-    final rows = await (db.select(db.txns)
-          ..where((t) =>
-              t.type.equalsValue(TxnType.income) &
-              t.at.isBiggerOrEqualValue(LedgerDates.monthStart(now)) &
-              t.at.isSmallerThanValue(LedgerDates.monthEnd(now)))
-          ..orderBy([(t) => OrderingTerm.desc(t.amountPaise)])
-          ..limit(1))
-        .get();
+    final rows =
+        await (db.select(db.txns)
+              ..where(
+                (t) =>
+                    t.type.equalsValue(TxnType.income) &
+                    t.at.isBiggerOrEqualValue(LedgerDates.monthStart(now)) &
+                    t.at.isSmallerThanValue(LedgerDates.monthEnd(now)),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.amountPaise)])
+              ..limit(1))
+            .get();
     return rows.isEmpty ? null : rows.first.at.day;
   }
 
   /// One due line: inks in on entry, gives under the thumb, inks out when
   /// its stamp lands. Swiped right, it's paid.
   Widget _dueRow(DueItem d, int stagger, {required bool last}) => InkIn(
-        key: ValueKey('due-${d.recurring.id}'),
-        delay: Duration(milliseconds: 40 * stagger),
-        child: AnimatedOpacity(
-          opacity: _fadingOutId == d.recurring.id ? 0 : 1,
-          duration: Motion.spring,
-          curve: Motion.curve,
-          child: SwipeRow(
-            rowKey: ValueKey('due-swipe-${d.recurring.id}'),
-            editLabel: 'paid',
-            onEdit: () => _pay(d),
-            child: Pressable(
-              onTap: () => _paySheet(context, d),
-              child: LedgerLine(
-                leading: LedgerDates.ddMmm(d.due),
-                title: d.recurring.title,
-                amount: Inr.format(d.recurring.amountPaise),
-                last: last,
-              ),
-            ),
+    key: ValueKey('due-${d.recurring.id}'),
+    delay: Duration(milliseconds: 40 * stagger),
+    child: AnimatedOpacity(
+      opacity: _fadingOutId == d.recurring.id ? 0 : 1,
+      duration: Motion.spring,
+      curve: Motion.curve,
+      child: SwipeRow(
+        rowKey: ValueKey('due-swipe-${d.recurring.id}'),
+        editLabel: 'paid',
+        onEdit: () => _pay(d),
+        child: Pressable(
+          onTap: () => _paySheet(context, d),
+          child: LedgerLine(
+            leading: LedgerDates.ddMmm(d.due),
+            title: d.recurring.title,
+            amount: Inr.format(d.recurring.amountPaise),
+            last: last,
           ),
         ),
-      );
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -924,7 +946,8 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
         if (shelfSnap.hasData && shelfSnap.data!.isEmpty) {
           return EmptyPage(
             line: 'Nothing on the recurring shelf yet.',
-            sub: 'The rent, the phone, the one subscription I keep '
+            sub:
+                'The rent, the phone, the one subscription I keep '
                 'forgetting about.',
             action: LedgerChip(
               'add a bill',
@@ -993,8 +1016,11 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
                           children: [
                             const RuleHeader('subscriptions'),
                             for (final (i, d) in subs.indexed)
-                              _dueRow(d, bills.length + i,
-                                  last: i == subs.length - 1),
+                              _dueRow(
+                                d,
+                                bills.length + i,
+                                last: i == subs.length - 1,
+                              ),
                           ],
                         ),
                       ),
@@ -1062,27 +1088,31 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
 
   Future<void> _addRecurring() async {
     final db = ref.read(dbProvider);
-    final accounts = await (db.select(db.accounts)
-          ..where((a) => a.archived.equals(false))
-          ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
-        .get();
+    final accounts =
+        await (db.select(db.accounts)
+              ..where((a) => a.archived.equals(false))
+              ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
+            .get();
     if (accounts.isEmpty || !mounted) return;
-    final cats = await (db.select(db.categories)
-          ..where((t) =>
-              t.kind.equalsValue(CategoryKind.expense) &
-              t.archived.equals(false))
-          ..orderBy([(t) => OrderingTerm.asc(t.sortOrder)]))
-        .get();
+    final cats =
+        await (db.select(db.categories)
+              ..where(
+                (t) =>
+                    t.kind.equalsValue(CategoryKind.expense) &
+                    t.archived.equals(false),
+              )
+              ..orderBy([(t) => OrderingTerm.asc(t.sortOrder)]))
+            .get();
     if (!mounted) return;
     final made = await showLedgerSheet<_NewRecurring>(
       context,
-      builder: (context) => _RecurringSheet(
-        accounts: accounts,
-        categories: cats,
-      ),
+      builder: (context) =>
+          _RecurringSheet(accounts: accounts, categories: cats),
     );
     if (made == null) return;
-    await ref.read(recurringRepoProvider).create(
+    await ref
+        .read(recurringRepoProvider)
+        .create(
           title: made.title,
           amountPaise: made.rupees * 100,
           accountId: made.accountId,
@@ -1122,8 +1152,10 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
               Text(
                 'lands ${LedgerDates.ddMmm(d.due)} · '
                 '${Inr.format(d.recurring.amountPaise)}',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               _StampButton(
@@ -1139,8 +1171,10 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
                   child: Center(
                     child: Text(
                       'not yet',
-                      style: LedgerType.bodyText
-                          .copyWith(fontSize: 13, color: c.inkFaint),
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 13,
+                        color: c.inkFaint,
+                      ),
                     ),
                   ),
                 ),
@@ -1182,8 +1216,8 @@ class _MonthTickStrip extends StatelessWidget {
       final color = salary
           ? c.jama
           : lands
-              ? c.quill
-              : c.rule;
+          ? c.quill
+          : c.rule;
       if (day == now.day) {
         return Container(
           width: 14,
@@ -1219,8 +1253,10 @@ class _MonthTickStrip extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             _caption(landsPaise, total),
-            style:
-                LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 11,
+              color: c.inkFaint,
+            ),
           ),
         ],
       ),
@@ -1231,7 +1267,8 @@ class _MonthTickStrip extends StatelessWidget {
     if (landsPaise.isEmpty) return 'nothing lands this month';
     final sums = List<int>.filled(5, 0);
     landsPaise.forEach(
-        (day, paise) => sums[math.min((day - 1) ~/ 7, 4)] += paise);
+      (day, paise) => sums[math.min((day - 1) ~/ 7, 4)] += paise,
+    );
     var best = 0;
     for (var i = 1; i < 5; i++) {
       if (sums[i] > sums[best]) best = i;
@@ -1298,8 +1335,10 @@ class _GoalsTab extends ConsumerWidget {
                     const SizedBox(width: Gap.x2),
                     Text(
                       'name another thing',
-                      style: LedgerType.bodyStrong
-                          .copyWith(fontSize: 13, color: c.quill),
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 13,
+                        color: c.quill,
+                      ),
                     ),
                   ],
                 ),
@@ -1344,8 +1383,9 @@ class _GoalCard extends ConsumerStatefulWidget {
 class _GoalCardState extends ConsumerState<_GoalCard> {
   /// Cached so stream emissions upstream don't resubscribe (and flicker)
   /// the rhythm cells.
-  late final Stream<List<Txn>> _entryStream =
-      ref.read(goalRepoProvider).watchEntries(widget.view.goal.id);
+  late final Stream<List<Txn>> _entryStream = ref
+      .read(goalRepoProvider)
+      .watchEntries(widget.view.goal.id);
 
   /// Already done when the page opened: the stamp is drawn, but it doesn't
   /// buzz — that moment already happened.
@@ -1368,10 +1408,10 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
   }
 
   Widget _hair(LedgerColors c) => Container(
-        height: 1,
-        color: c.rule,
-        margin: const EdgeInsets.symmetric(vertical: Gap.x3),
-      );
+    height: 1,
+    color: c.rule,
+    margin: const EdgeInsets.symmetric(vertical: Gap.x3),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1383,8 +1423,7 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
     return Container(
       padding: const EdgeInsets.only(top: Gap.x4, bottom: Gap.x4),
       decoration: BoxDecoration(
-        border:
-            widget.last ? null : Border(bottom: BorderSide(color: c.rule)),
+        border: widget.last ? null : Border(bottom: BorderSide(color: c.rule)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1404,8 +1443,10 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
                     const SizedBox(height: 2),
                     Text(
                       g.name,
-                      style:
-                          LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+                      style: LedgerType.title.copyWith(
+                        fontSize: 22,
+                        color: c.ink,
+                      ),
                     ),
                   ],
                 ),
@@ -1431,8 +1472,10 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
               const SizedBox(width: Gap.x2),
               Text(
                 'of ${Inr.format(g.targetPaise)}${saving ? '' : ' cleared'}',
-                style:
-                    LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint),
+                style: LedgerType.amount.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
               ),
             ],
           ),
@@ -1453,11 +1496,11 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
               view.reached
                   ? 'Done. The seal is yours.'
                   : eta == null
-                      ? 'Fed by ${view.entryCount} stamped '
-                          '${view.entryCount == 1 ? 'entry' : 'entries'}.'
-                      : 'On pace for ${_monthLabel(eta)} · fed by '
-                          '${view.entryCount} stamped '
-                          '${view.entryCount == 1 ? 'entry' : 'entries'}.',
+                  ? 'Fed by ${view.entryCount} stamped '
+                        '${view.entryCount == 1 ? 'entry' : 'entries'}.'
+                  : 'On pace for ${_monthLabel(eta)} · fed by '
+                        '${view.entryCount} stamped '
+                        '${view.entryCount == 1 ? 'entry' : 'entries'}.',
               key: ValueKey(
                 '${view.reached}-${eta?.month}-${eta?.year}-${view.entryCount}',
               ),
@@ -1472,10 +1515,9 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
           StreamBuilder<List<Txn>>(
             stream: _entryStream,
             builder: (context, snap) {
-              final months = _rhythm(
-                [for (final t in snap.data ?? const <Txn>[]) t.at],
-                DateTime.now(),
-              );
+              final months = _rhythm([
+                for (final t in snap.data ?? const <Txn>[]) t.at,
+              ], DateTime.now());
               final fed = months.where((m) => m).length;
               return Row(
                 children: [
@@ -1525,11 +1567,15 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
                 onTap: () => _letGo(context),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      vertical: Gap.x2, horizontal: Gap.x1),
+                    vertical: Gap.x2,
+                    horizontal: Gap.x1,
+                  ),
                   child: Text(
                     'let it go',
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 12, color: c.inkFaint),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
                   ),
                 ),
               ),
@@ -1561,8 +1607,10 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
               Text(
                 'It leaves the page, not the book — every rupee it took is '
                 'still written down.',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               FilledButton(
@@ -1585,10 +1633,11 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
 
   Future<void> _contribute(BuildContext context) async {
     final db = ref.read(dbProvider);
-    final accounts = await (db.select(db.accounts)
-          ..where((a) => a.archived.equals(false))
-          ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
-        .get();
+    final accounts =
+        await (db.select(db.accounts)
+              ..where((a) => a.archived.equals(false))
+              ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
+            .get();
     if (accounts.isEmpty || !context.mounted) return;
     final result = await showLedgerSheet<(int, int?)>(
       context,
@@ -1605,7 +1654,9 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
     if (result == null) return;
     final (rupees, accountId) = result;
     if (rupees <= 0) return;
-    await ref.read(goalRepoProvider).contribute(
+    await ref
+        .read(goalRepoProvider)
+        .contribute(
           goal: view.goal,
           amountPaise: rupees * 100,
           accountId: accountId ?? accounts.first.id,
@@ -1670,15 +1721,11 @@ class _FillLine extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, box) {
         Widget fill(double v) => Stack(
-              children: [
-                Container(height: 3, color: c.rule),
-                Container(
-                  height: 3,
-                  width: box.maxWidth * v,
-                  color: c.jama,
-                ),
-              ],
-            );
+          children: [
+            Container(height: 3, color: c.rule),
+            Container(height: 3, width: box.maxWidth * v, color: c.jama),
+          ],
+        );
         if (Motion.reduced(context)) return fill(f);
         return TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: f),
@@ -1724,10 +1771,12 @@ class _Field extends StatelessWidget {
         controller: controller,
         autofocus: autofocus,
         keyboardType: digits ? TextInputType.number : TextInputType.text,
-        textCapitalization:
-            digits ? TextCapitalization.none : TextCapitalization.sentences,
-        inputFormatters:
-            digits ? [FilteringTextInputFormatter.digitsOnly] : null,
+        textCapitalization: digits
+            ? TextCapitalization.none
+            : TextCapitalization.sentences,
+        inputFormatters: digits
+            ? [FilteringTextInputFormatter.digitsOnly]
+            : null,
         style: text,
         cursorColor: c.quill,
         decoration: InputDecoration(
@@ -1813,8 +1862,10 @@ class _PocketLine extends StatelessWidget {
           children: [
             Text(
               'from',
-              style:
-                  LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
             ),
             const SizedBox(width: Gap.x2),
             Expanded(
@@ -1822,14 +1873,18 @@ class _PocketLine extends StatelessWidget {
                 account.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    LedgerType.bodyStrong.copyWith(fontSize: 14, color: c.ink),
+                style: LedgerType.bodyStrong.copyWith(
+                  fontSize: 14,
+                  color: c.ink,
+                ),
               ),
             ),
             Text(
               Inr.format(account.balancePaise),
-              style:
-                  LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint),
+              style: LedgerType.amount.copyWith(
+                fontSize: 12,
+                color: c.inkFaint,
+              ),
             ),
             RotatedBox(
               quarterTurns: 3,
@@ -1875,8 +1930,9 @@ class _AmountSheetState extends State<_AmountSheet> {
     text: (widget.initial ?? 0) > 0 ? '${widget.initial}' : '',
   );
   late int _rupees = widget.initial ?? 0;
-  late Account? _account =
-      widget.accounts.isEmpty ? null : widget.accounts.first;
+  late Account? _account = widget.accounts.isEmpty
+      ? null
+      : widget.accounts.first;
 
   @override
   void dispose() {
@@ -1922,16 +1978,20 @@ class _AmountSheetState extends State<_AmountSheet> {
                 autofocus: true,
                 digits: true,
                 hint: '0',
-                style:
-                    LedgerType.heroAmount.copyWith(fontSize: 32, color: c.ink),
+                style: LedgerType.heroAmount.copyWith(
+                  fontSize: 32,
+                  color: c.ink,
+                ),
                 onChanged: (v) =>
                     setState(() => _rupees = int.tryParse(v.trim()) ?? 0),
               ),
               const SizedBox(height: Gap.x2),
               Text(
                 Inr.format(_rupees * 100),
-                style:
-                    LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.amount.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               if (_account != null) ...[
                 const SizedBox(height: Gap.x3),
@@ -1950,11 +2010,15 @@ class _AmountSheetState extends State<_AmountSheet> {
                     onTap: widget.onRetire,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          vertical: Gap.x3, horizontal: Gap.x4),
+                        vertical: Gap.x3,
+                        horizontal: Gap.x4,
+                      ),
                       child: Text(
                         'retire this line',
-                        style: LedgerType.bodyStrong
-                            .copyWith(fontSize: 12, color: c.seal),
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 12,
+                          color: c.seal,
+                        ),
                       ),
                     ),
                   ),
@@ -2028,16 +2092,20 @@ class _BudgetSheetState extends State<_BudgetSheet> {
                 controller: _ctl,
                 digits: true,
                 hint: '0',
-                style:
-                    LedgerType.heroAmount.copyWith(fontSize: 32, color: c.ink),
+                style: LedgerType.heroAmount.copyWith(
+                  fontSize: 32,
+                  color: c.ink,
+                ),
                 onChanged: (v) =>
                     setState(() => _rupees = int.tryParse(v.trim()) ?? 0),
               ),
               const SizedBox(height: Gap.x2),
               Text(
                 Inr.format(_rupees * 100),
-                style:
-                    LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.amount.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               _StampButton(
@@ -2110,16 +2178,20 @@ class _GoalSheetState extends State<_GoalSheet> {
                 controller: _target,
                 digits: true,
                 hint: '0',
-                style:
-                    LedgerType.heroAmount.copyWith(fontSize: 32, color: c.ink),
+                style: LedgerType.heroAmount.copyWith(
+                  fontSize: 32,
+                  color: c.ink,
+                ),
                 onChanged: (v) =>
                     setState(() => _rupees = int.tryParse(v.trim()) ?? 0),
               ),
               const SizedBox(height: Gap.x2),
               Text(
                 Inr.format(_rupees * 100),
-                style:
-                    LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.amount.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               _StampButton(
@@ -2169,8 +2241,9 @@ class _RecurringSheet extends StatefulWidget {
 class _RecurringSheetState extends State<_RecurringSheet> {
   final _title = TextEditingController();
   final _amount = TextEditingController();
-  late final TextEditingController _day =
-      TextEditingController(text: '${DateTime.now().day}');
+  late final TextEditingController _day = TextEditingController(
+    text: '${DateTime.now().day}',
+  );
 
   String _name = '';
   int _rupees = 0;
@@ -2199,7 +2272,8 @@ class _RecurringSheetState extends State<_RecurringSheet> {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    final ok = _name.isNotEmpty &&
+    final ok =
+        _name.isNotEmpty &&
         _rupees > 0 &&
         _dayOfMonth >= 1 &&
         _dayOfMonth <= 31;
@@ -2235,16 +2309,20 @@ class _RecurringSheetState extends State<_RecurringSheet> {
                 controller: _amount,
                 digits: true,
                 hint: '0',
-                style:
-                    LedgerType.heroAmount.copyWith(fontSize: 28, color: c.ink),
+                style: LedgerType.heroAmount.copyWith(
+                  fontSize: 28,
+                  color: c.ink,
+                ),
                 onChanged: (v) =>
                     setState(() => _rupees = int.tryParse(v.trim()) ?? 0),
               ),
               const SizedBox(height: Gap.x2),
               Text(
                 Inr.format(_rupees * 100),
-                style:
-                    LedgerType.amount.copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.amount.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               Row(
@@ -2269,8 +2347,10 @@ class _RecurringSheetState extends State<_RecurringSheet> {
                 children: [
                   Text(
                     'lands on the',
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 14, color: c.inkFaint),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 14,
+                      color: c.inkFaint,
+                    ),
                   ),
                   const SizedBox(width: Gap.x2),
                   SizedBox(
@@ -2279,17 +2359,22 @@ class _RecurringSheetState extends State<_RecurringSheet> {
                       controller: _day,
                       digits: true,
                       hint: '1',
-                      style: LedgerType.amount
-                          .copyWith(fontSize: 16, color: c.ink),
+                      style: LedgerType.amount.copyWith(
+                        fontSize: 16,
+                        color: c.ink,
+                      ),
                       onChanged: (v) => setState(
-                          () => _dayOfMonth = int.tryParse(v.trim()) ?? 0),
+                        () => _dayOfMonth = int.tryParse(v.trim()) ?? 0,
+                      ),
                     ),
                   ),
                   const SizedBox(width: Gap.x2),
                   Text(
                     'of the month',
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 14, color: c.inkFaint),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 14,
+                      color: c.inkFaint,
+                    ),
                   ),
                 ],
               ),
@@ -2374,14 +2459,14 @@ class _CategoryStrip extends StatelessWidget {
 /// so a bar can animate width without its status color flickering mid-glide.
 class _PaceAt extends BudgetPace {
   _PaceAt(BudgetPace base, this._fraction)
-      : _status = base.status,
-        super(
-          spentPaise: base.spentPaise,
-          limitPaise: base.limitPaise,
-          elapsedDays: base.elapsedDays,
-          totalDays: base.totalDays,
-          upcomingPaise: base.upcomingPaise,
-        );
+    : _status = base.status,
+      super(
+        spentPaise: base.spentPaise,
+        limitPaise: base.limitPaise,
+        elapsedDays: base.elapsedDays,
+        totalDays: base.totalDays,
+        upcomingPaise: base.upcomingPaise,
+      );
 
   final double _fraction;
   final BudgetStatus _status;
@@ -2411,8 +2496,7 @@ class _GlidingBarState extends State<_GlidingBar> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.pace.status == BudgetStatus.pending ||
-        Motion.reduced(context)) {
+    if (widget.pace.status == BudgetStatus.pending || Motion.reduced(context)) {
       return BudgetBar(pace: widget.pace, showToday: widget.showToday);
     }
     return TweenAnimationBuilder<double>(
@@ -2420,10 +2504,8 @@ class _GlidingBarState extends State<_GlidingBar> {
       duration: _settled ? Motion.spring : Motion.settle,
       curve: Motion.curve,
       onEnd: () => _settled = true,
-      builder: (context, f, _) => BudgetBar(
-        pace: _PaceAt(widget.pace, f),
-        showToday: widget.showToday,
-      ),
+      builder: (context, f, _) =>
+          BudgetBar(pace: _PaceAt(widget.pace, f), showToday: widget.showToday),
     );
   }
 }

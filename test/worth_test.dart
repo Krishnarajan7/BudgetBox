@@ -55,11 +55,21 @@ void main() {
     });
 
     testWidgets('picking a range rewrites the delta line', (tester) async {
-      await AccountRepo(db).create(
+      final id = await AccountRepo(db).create(
         name: 'Cash',
         kind: AccountKind.cash,
         openingBalancePaise: 500000,
       );
+      // A reading from yesterday: the line needs two mornings to join
+      // before the chart and its range chips appear at all.
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      await db.into(db.balanceSnapshots).insert(
+            BalanceSnapshotsCompanion.insert(
+              accountId: id,
+              date: LedgerDates.dayKey(yesterday),
+              balancePaise: 400000,
+            ),
+          );
       await tester.pumpWidget(host(const WorthPage()));
       await tester.pumpAndSettle();
 

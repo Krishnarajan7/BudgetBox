@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/notifications.dart';
 import '../../core/occasions.dart';
 import '../providers.dart';
 import 'sync_engine.dart';
@@ -57,13 +56,10 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
   /// first round.
   Future<void> _bootstrap() async {
     final settings = ref.read(settingsRepoProvider);
-    // Re-assert the evening nudge every launch: schedules survive reboots
+    // Re-assert the book's voice every launch: schedules survive reboots
     // via the boot receiver, but not an app update — and re-scheduling the
-    // same id is free.
-    final nudge = await settings.nudgeTime();
-    if (nudge != null) {
-      unawaited(LedgerReminders.scheduleDaily(nudge.$1, nudge.$2));
-    }
+    // same ids is free.
+    unawaited(ref.read(nudgesProvider).resync());
     // Every calendar day's notification stands again after reboots and
     // app updates.
     unawaited(Occasions(ref.read(dbProvider)).resyncNotifications());
@@ -75,10 +71,15 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Leaving is the moment tonight's nudge is re-voiced: whatever was
+    // written this session is what the evening line should carry.
+    if (state == AppLifecycleState.paused) {
+      unawaited(ref.read(nudgesProvider).resync());
+      return;
+    }
     if (state != AppLifecycleState.resumed) return;
     final last = _lastRun;
-    if (last != null &&
-        DateTime.now().difference(last) < _resumeQuietPeriod) {
+    if (last != null && DateTime.now().difference(last) < _resumeQuietPeriod) {
       return;
     }
     unawaited(_run());

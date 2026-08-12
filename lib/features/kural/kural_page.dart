@@ -7,13 +7,50 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
+import '../../core/widgets/lottie_marks.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../data/providers.dart';
 
-/// One kural a day, all 1330 of them, in order, no repeats — three and a
-/// half years before the book clears its throat and starts again. The whole
+const kuralCount = 1330;
+
+/// A tiny fixed PRNG for the reading order. Dart's Random algorithm is not a
+/// persistence contract; this one is. The same seed therefore reconstructs
+/// the same Fisher–Yates order after an app update or on another device.
+class _KuralRandom {
+  _KuralRandom(int seed) : _state = seed == 0 ? 0x6d2b79f5 : seed;
+
+  int _state;
+
+  int nextInt(int max) {
+    var x = _state;
+    x ^= (x << 13) & 0xffffffff;
+    x ^= x >>> 17;
+    x ^= (x << 5) & 0xffffffff;
+    _state = x & 0xffffffff;
+    return _state % max;
+  }
+}
+
+/// Rebuilds one random-looking, no-repeat cycle without storing 1,330 ids.
+List<int> shuffledKuralOrder(int length, int seed) {
+  final order = List<int>.generate(length, (i) => i);
+  final random = _KuralRandom(seed);
+  for (var i = order.length - 1; i > 0; i--) {
+    final j = random.nextInt(i + 1);
+    final hold = order[i];
+    order[i] = order[j];
+    order[j] = hold;
+  }
+  return order;
+}
+
+int shuffledKuralIndex(int length, int seed, int position) =>
+    shuffledKuralOrder(length, seed)[position % length];
+
+/// One Kural a day, all 1,330 in shuffled order with no repeats — three and a
+/// half years before the book clears its throat and reshuffles. The whole
 /// text ships inside the app: a couplet that has waited two thousand years
 /// can wait out a dead network too.
 class Kural {
@@ -32,19 +69,15 @@ class Kural {
   final List<({String word, String ta, String en})> vocab;
 
   static Kural fromJson(Map<String, dynamic> j) => Kural(
-        no: j['no'] as int,
-        couplet: j['k'] as String,
-        urai: j['urai'] as String,
-        english: j['en'] as String,
-        vocab: [
-          for (final v in (j['vocab'] as List? ?? const []))
-            (
-              word: v['w'] as String,
-              ta: v['ta'] as String,
-              en: v['en'] as String,
-            ),
-        ],
-      );
+    no: j['no'] as int,
+    couplet: j['k'] as String,
+    urai: j['urai'] as String,
+    english: j['en'] as String,
+    vocab: [
+      for (final v in (j['vocab'] as List? ?? const []))
+        (word: v['w'] as String, ta: v['ta'] as String, en: v['en'] as String),
+    ],
+  );
 }
 
 /// Loads the bundled text once per session.
@@ -58,13 +91,26 @@ Future<List<Kural>> loadKurals() async {
 /// meaning, and — when the book has them — the couplet's words opened up,
 /// with the reading streak riding on top.
 class KuralPage extends StatefulWidget {
-  const KuralPage({super.key, required this.index, required this.streak});
+  const KuralPage({
+    super.key,
+    required this.index,
+    required this.streak,
+    this.position,
+    this.onRead,
+  });
 
   /// 0-based position in the sequence (kural index, not number).
   final int index;
 
+  /// Position inside the shuffled cycle. Direct page tests may omit it and
+  /// retain the old index-based display fallback.
+  final int? position;
+
   /// Consecutive days read, today included.
   final int streak;
+
+  /// Commits progress only when the reader presses “படித்தேன்”.
+  final Future<void> Function()? onRead;
 
   @override
   State<KuralPage> createState() => _KuralPageState();
@@ -101,8 +147,10 @@ class _KuralPageState extends State<KuralPage>
     super.dispose();
   }
 
-  void _celebrate() {
+  Future<void> _celebrate() async {
     if (_celebrating) return;
+    await widget.onRead?.call();
+    if (!mounted) return;
     HapticFeedback.lightImpact();
     if (Motion.reduced(context)) {
       Navigator.of(context).pop();
@@ -131,9 +179,10 @@ class _KuralPageState extends State<KuralPage>
                   padding: const EdgeInsets.only(top: Gap.x3),
                   child: Row(
                     children: [
-                      Text('இன்றைய குறள்',
-                          style:
-                              LedgerType.label.copyWith(color: c.inkFaint)),
+                      Text(
+                        'இன்றைய குறள்',
+                        style: LedgerType.label.copyWith(color: c.inkFaint),
+                      ),
                       const Spacer(),
                       Pressable(
                         onTap: () => Navigator.of(context).pop(),
@@ -151,23 +200,34 @@ class _KuralPageState extends State<KuralPage>
                     padding: const EdgeInsets.only(top: Gap.x3),
                     child: Row(
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'day ${widget.streak} of reading',
-                              style: LedgerType.bodyStrong
-                                  .copyWith(fontSize: 14, color: c.ink),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'குறள் ${kural.no} · ${all.length - (widget.index % all.length) - 1} left in the book',
-                              style: LedgerType.bodyText
-                                  .copyWith(fontSize: 11, color: c.inkFaint),
-                            ),
-                          ],
+                        // Flexible, or the line about what's left in the book
+                        // takes its full intrinsic width and shoves the week
+                        // off the plate on a phone.
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'day ${widget.streak} of reading',
+                                style: LedgerType.bodyStrong.copyWith(
+                                  fontSize: 14,
+                                  color: c.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'குறள் ${kural.no} · ${all.length - ((widget.position ?? widget.index) % all.length) - 1} left in the book',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: LedgerType.bodyText.copyWith(
+                                  fontSize: 11,
+                                  color: c.inkFaint,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        const Spacer(),
+                        const SizedBox(width: Gap.x3),
                         for (var d = 1; d <= 7; d++)
                           Padding(
                             padding: const EdgeInsets.only(left: 5),
@@ -179,9 +239,10 @@ class _KuralPageState extends State<KuralPage>
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                          color: d < weekday
-                                              ? c.inkFaint
-                                              : c.rule),
+                                        color: d < weekday
+                                            ? c.inkFaint
+                                            : c.rule,
+                                      ),
                                     ),
                                   ),
                           ),
@@ -208,15 +269,19 @@ class _KuralPageState extends State<KuralPage>
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: Gap.x2, vertical: 4),
+                        horizontal: Gap.x2,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: c.paperRaised,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         'திருக்குறள் ${kural.no}',
-                        style: LedgerType.amount
-                            .copyWith(fontSize: 12, color: c.inkFaint),
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
                       ),
                     ),
                   ),
@@ -233,13 +298,19 @@ class _KuralPageState extends State<KuralPage>
                         Text(
                           kural.urai,
                           style: LedgerType.bodyText.copyWith(
-                              fontSize: 15, height: 1.65, color: c.ink),
+                            fontSize: 15,
+                            height: 1.65,
+                            color: c.ink,
+                          ),
                         ),
                         const SizedBox(height: Gap.x3),
                         Text(
                           kural.english,
                           style: LedgerType.bodyText.copyWith(
-                              fontSize: 13, height: 1.5, color: c.inkFaint),
+                            fontSize: 13,
+                            height: 1.5,
+                            color: c.inkFaint,
+                          ),
                         ),
                       ],
                     ),
@@ -261,7 +332,9 @@ class _KuralPageState extends State<KuralPage>
                               amountWidget: Text(
                                 v.en,
                                 style: LedgerType.bodyText.copyWith(
-                                    fontSize: 12, color: c.inkFaint),
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                ),
                               ),
                               last: i == kural.vocab.length - 1,
                             ),
@@ -285,8 +358,15 @@ class _KuralPageState extends State<KuralPage>
                     left: Gap.x2,
                     right: Gap.x2,
                     top: Gap.x2,
-                    child: _StreakMoment(
-                        controller: _streakC, streak: widget.streak),
+                    // The card and its two Lottie marks move every frame;
+                    // without this the whole page underneath — scripture,
+                    // cards and all — is asked to repaint along with them.
+                    child: RepaintBoundary(
+                      child: _StreakMoment(
+                        controller: _streakC,
+                        streak: widget.streak,
+                      ),
+                    ),
                   ),
               ],
             );
@@ -299,15 +379,18 @@ class _KuralPageState extends State<KuralPage>
 
 /// Decides whether to-day's kural is still unread, and if so pushes it —
 /// called by the shell once it settles. All bookkeeping lives in settings:
-/// `kuralIndex` (next to show), `kuralDay` (last shown), `kuralStreak`.
+/// `kuralPosition` (next slot), `kuralSeed` (cycle order), `kuralDay`
+/// (last completed), and `kuralStreak`.
 Future<void> maybeShowDailyKural(
-    BuildContext context, ProviderContainer container) async {
+  BuildContext context,
+  ProviderContainer container,
+) async {
   // Never inside the test binding: every shell test would otherwise open
   // under the day's kural. The page has its own direct tests.
   if (WidgetsBinding.instance.runtimeType.toString().startsWith('Test') ||
-      WidgetsBinding.instance.runtimeType
-          .toString()
-          .startsWith('AutomatedTest')) {
+      WidgetsBinding.instance.runtimeType.toString().startsWith(
+        'AutomatedTest',
+      )) {
     return;
   }
   final settings = container.read(settingsRepoProvider);
@@ -317,21 +400,37 @@ Future<void> maybeShowDailyKural(
   final lastDay = await settings.kuralDay();
   if (lastDay == key) return; // already read to-day
 
-  final index = await settings.kuralIndex();
-  final streak = await settings.bumpKuralStreak(key, lastDay);
-  await settings.setKuralShown(key, index + 1);
+  final position = await settings.kuralPosition();
+  final seed = await settings.kuralCycleSeed();
+  final index = shuffledKuralIndex(kuralCount, seed, position);
+  final streak = await settings.previewKuralStreak(key, lastDay);
   if (!context.mounted) return;
   await Navigator.of(context).push(
-    LedgerRoute<void>(builder: (_) => KuralPage(index: index, streak: streak)),
+    LedgerRoute<void>(
+      builder: (_) => KuralPage(
+        index: index,
+        position: position,
+        streak: streak,
+        onRead: () async {
+          await settings.completeDailyKural(
+            key,
+            expectedPosition: position,
+            total: kuralCount,
+          );
+        },
+      ),
+    ),
   );
 }
 
 /// The reference's streak banner, in this book's hand.
 ///
-/// Beats, on one timeline: slide down (0–12%), settle, today's dot blooms
-/// into a vermilion seal (22–34%), the tick lands in it (34–44%), a long
-/// proud hold, and the slide back up (86–98%). The owner pops the page when
-/// the controller completes.
+/// Beats, on one timeline: slide down (0–12%), the flame catches and burns
+/// its whole take (12–96%), the dart flies at to-day's mark and lands
+/// (22–68%), a long proud hold, and the slide back up (86–98%). Both marks
+/// are hand-animated Lottie in the book's vermilion — see [StreakFlame] and
+/// [TargetStamp] — and both ride this one controller rather than tickers of
+/// their own. The owner pops the page when the controller completes.
 class _StreakMoment extends StatelessWidget {
   const _StreakMoment({required this.controller, required this.streak});
 
@@ -344,119 +443,143 @@ class _StreakMoment extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final today = DateTime.now().weekday; // 1=Mon..7
+    // Arrival is one decisive move — most of the distance in the first
+    // hundred milliseconds, then settling — and the exit is shorter still.
+    // The old pair spent 430ms each way easing gently over 1.4 card-heights,
+    // which reads as drag rather than grace.
     final slideIn = CurvedAnimation(
       parent: controller,
-      curve: const Interval(0.0, 0.12, curve: Curves.easeOutCubic),
+      curve: const Interval(0.0, 0.085, curve: Cubic(0.12, 0.9, 0.2, 1)),
     );
     final slideOut = CurvedAnimation(
       parent: controller,
-      curve: const Interval(0.86, 0.98, curve: Curves.easeInCubic),
+      curve: const Interval(0.92, 1.0, curve: Cubic(0.7, 0, 0.84, 0)),
     );
-    final bloom = CurvedAnimation(
+    // Ink follows the move rather than leading it, so the card never hangs
+    // half-faded in the middle of the screen.
+    final fadeIn = CurvedAnimation(
       parent: controller,
-      curve: const Interval(0.22, 0.34, curve: Cubic(0.2, 1.5, 0.4, 1)),
+      curve: const Interval(0.0, 0.04),
     );
-    final tick = CurvedAnimation(
+    final fadeOut = CurvedAnimation(
       parent: controller,
-      curve: const Interval(0.34, 0.44, curve: Curves.easeOut),
+      curve: const Interval(0.94, 1.0),
+    );
+    // Both animations carry their own easing from After Effects: these
+    // intervals only place them on the timeline, and must stay linear or
+    // the artist's timing gets bent twice.
+    final flame = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.08, 0.94),
+    );
+    final throwIn = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0.18, 0.64),
     );
 
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final dy = -1.4 * (1 - slideIn.value) + -1.4 * slideOut.value;
-        return FractionalTranslation(
-          translation: Offset(0, dy),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(Gap.x4, Gap.x3, Gap.x4, Gap.x3),
-            decoration: BoxDecoration(
-              color: c.paperRaised,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF000000).withValues(alpha: 0.35),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'day $streak of your reading streak',
-                  style: LedgerType.bodyStrong
-                      .copyWith(fontSize: 14, color: c.ink),
-                ),
-                const SizedBox(height: Gap.x3),
-                Row(
-                  children: [
-                    // The seal wears the count — this book's flame.
-                    Container(
-                      width: 38,
-                      height: 38,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: c.seal,
-                        borderRadius: BorderRadius.circular(10),
+        final dy = -1.05 * (1 - slideIn.value) + -1.05 * slideOut.value;
+        return Opacity(
+          opacity: (fadeIn.value * (1 - fadeOut.value)).clamp(0.0, 1.0),
+          child: FractionalTranslation(
+            translation: Offset(0, dy),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(
+                Gap.x4,
+                Gap.x3,
+                Gap.x4,
+                Gap.x3,
+              ),
+              decoration: BoxDecoration(
+                color: c.paperRaised,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  // Enough to lift the card off the page, not so much that it
+                  // lands as a grey slab on the day paper.
+                  BoxShadow(
+                    color: const Color(0xFF000000).withValues(alpha: 0.12),
+                    blurRadius: 30,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // The reference sets its headline in serif, and so does
+                      // this book.
+                      Expanded(
+                        child: Text(
+                          'day $streak of your reading streak',
+                          style: LedgerType.title.copyWith(
+                            fontSize: 19,
+                            color: c.ink,
+                          ),
+                        ),
                       ),
-                      child: Text(
+                      const SizedBox(width: Gap.x3),
+                      // The count keeps the corner: out of the fire, where it
+                      // was fighting the flame for room, and up here where a
+                      // figure belongs.
+                      Text(
                         '$streak',
-                        style: LedgerType.amount.copyWith(
-                            fontSize: 16,
-                            color: c.paperRaised,
-                            fontWeight: FontWeight.w700),
+                        style: LedgerType.markCount.copyWith(color: c.ink),
                       ),
-                    ),
-                    const Spacer(),
-                    for (var i = 0; i < 7; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 7),
-                        child: Column(
+                    ],
+                  ),
+                  const SizedBox(height: Gap.x4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      StreakFlame(progress: flame, height: 62),
+                      const SizedBox(width: Gap.x6),
+                      // The week takes what's left and spreads itself across
+                      // it: seven fixed slots would overrun a 360pt phone.
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
-                              _names[(today - 1 + i) % 7],
-                              style: LedgerType.label.copyWith(
-                                  fontSize: 9,
-                                  color: i == 0 ? c.ink : c.inkFaint),
-                            ),
-                            const SizedBox(height: 4),
-                            i == 0
-                                ? Transform.rotate(
-                                    angle: -0.09,
-                                    child: Transform.scale(
-                                      scale: bloom.value,
-                                      child: Container(
-                                        width: 20,
-                                        height: 20,
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: c.seal,
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                        ),
-                                        child: Opacity(
-                                          opacity: tick.value,
-                                          child: PenTick(
-                                              size: 12, color: c.paperRaised),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                : Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(color: c.rule),
+                            for (var i = 0; i < 7; i++)
+                              Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _names[(today - 1 + i) % 7],
+                                    style: LedgerType.label.copyWith(
+                                      fontSize: 9,
+                                      color: i == 0 ? c.ink : c.inkFaint,
                                     ),
                                   ),
+                                  const SizedBox(height: 5),
+                                  // To-day keeps exactly the week's own slot —
+                                  // the dart is what marks it, not extra room.
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: i == 0
+                                        ? TargetStamp(progress: throwIn)
+                                        : DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: c.rule),
+                                            ),
+                                          ),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                       ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );

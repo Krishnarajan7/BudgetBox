@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The icon's own field: the same black the artwork was drawn on, so a
+         masked launcher icon and the full square read as one object. -->
+    <color name="ic_launcher_background">#000000</color>
+</resources>

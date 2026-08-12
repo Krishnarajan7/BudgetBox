@@ -145,12 +145,20 @@ SyncEngine _restoringEngine(LedgerDb db) {
       final path = req.url.path;
       dynamic body;
       if (path == '/v1/changes') {
+        // The cursor-log shape: one page holding the whole small book.
+        final after = int.parse(req.url.queryParameters['after'] ?? '0');
         body = {
-          'now': now,
-          'changed': {
-            'accounts': [accountId],
-            'txns': [txnId],
-          },
+          'server_time': now,
+          'items': after >= 2
+              ? const <dynamic>[]
+              : [
+                  {'sequence': 1, 'resource': 'accounts',
+                   'resource_id': accountId, 'operation': 'upsert'},
+                  {'sequence': 2, 'resource': 'txns',
+                   'resource_id': txnId, 'operation': 'upsert'},
+                ],
+          'next_cursor': 2,
+          'has_more': false,
         };
       } else if (path == '/v1/accounts') {
         body = [

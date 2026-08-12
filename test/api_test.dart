@@ -34,20 +34,20 @@ void main() {
 
   // A realistic TxnOut, field for field as the server writes it.
   Map<String, dynamic> txnPayload() => {
-        'id': '019810f0-4a3b-7c21-9d55-2b1c4e8f0011',
-        'amount_paise': 4250,
-        'type': 'expense',
-        'title': 'Chai + vada pav',
-        'at': '2026-07-31T13:42:00+05:30',
-        'account_id': '019810f0-0000-7000-8000-000000000001',
-        'category_id': '019810f0-0000-7000-8000-0000000000c1',
-        'to_account_id': null,
-        'goal_id': null,
-        'recurring_id': null,
-        'note': null,
-        'created_at': '2026-07-31T13:42:01.123456Z',
-        'updated_at': '2026-07-31T13:42:01.123456Z',
-      };
+    'id': '019810f0-4a3b-7c21-9d55-2b1c4e8f0011',
+    'amount_paise': 4250,
+    'type': 'expense',
+    'title': 'Chai + vada pav',
+    'at': '2026-07-31T13:42:00+05:30',
+    'account_id': '019810f0-0000-7000-8000-000000000001',
+    'category_id': '019810f0-0000-7000-8000-0000000000c1',
+    'to_account_id': null,
+    'goal_id': null,
+    'recurring_id': null,
+    'note': null,
+    'created_at': '2026-07-31T13:42:01.123456Z',
+    'updated_at': '2026-07-31T13:42:01.123456Z',
+  };
 
   group('DTOs read the wire', () {
     test('TxnOut maps snake_case onto Dart names', () {
@@ -94,6 +94,49 @@ void main() {
       expect(txn.toAccountId, isNull);
       expect(txn.goalId, isNull);
       expect(txn.recurringId, isNull);
+    });
+
+    test('a coaching card keeps its evidence and exact paise', () {
+      final insight = CoachingInsight.fromJson({
+        'id': '019810f0-0000-7000-8000-000000000099',
+        'kind': 'merchant_surge',
+        'title': 'Swiggy is above your usual pace',
+        'message': 'You spent more than your same-date baseline.',
+        'priority': 75,
+        'current_paise': 120000,
+        'baseline_paise': 30000,
+        'difference_paise': 90000,
+        'period_start': '2026-08-01',
+        'period_end': '2026-08-13',
+        'evidence': {
+          'reason': 'same_elapsed_days_median',
+          'merchant_name': 'Swiggy',
+          'classification': 'discretionary',
+          'transaction_ids': ['txn-1', 'txn-2'],
+          'comparison_months': ['2026-07', '2026-06', '2026-05'],
+          'count': 2,
+          'budget_name': null,
+        },
+      });
+
+      expect(insight.kind, CoachingKind.merchantSurge);
+      expect(insight.currentPaise, 120000);
+      expect(insight.evidence.classification, SpendingClass.discretionary);
+      expect(insight.evidence.transactionIds, ['txn-1', 'txn-2']);
+    });
+
+    test('a merchant rule reads the owner classification', () {
+      final rule = MerchantRule.fromJson({
+        'id': '019810f0-0000-7000-8000-000000000098',
+        'match_text': 'tea stall',
+        'merchant_name': 'Corner tea',
+        'classification': 'avoid',
+        'active': true,
+      });
+
+      expect(rule.matchText, 'tea stall');
+      expect(rule.classification, SpendingClass.avoid);
+      expect(rule.active, isTrue);
     });
 
     test('an account with no anchor yet reads as unconfirmed, not stale', () {
@@ -151,8 +194,11 @@ void main() {
           'sealed_at': '2026-07-31T18:30:00Z',
         }),
         throwsA(
-          isA<WireFormatException>()
-              .having((e) => e.message, 'message', contains("'yyyy-MM-dd'")),
+          isA<WireFormatException>().having(
+            (e) => e.message,
+            'message',
+            contains("'yyyy-MM-dd'"),
+          ),
         ),
       );
     });
@@ -290,19 +336,26 @@ void main() {
       expect(month.moodMoney, isNull);
     });
 
-    test('the changes feed reads as ids per resource', () {
+    test('the changes feed reads ordered upserts and tombstones', () {
       final changes = ChangesOut.fromJson({
-        'now': '2026-07-31T18:30:00Z',
-        'changed': {
-          'txns': ['019810f0-4a3b-7c21-9d55-2b1c4e8f0011'],
-          'day_seals': ['2026-07-30'],
-        },
+        'server_time': '2026-07-31T18:30:00Z',
+        'items': [
+          {
+            'sequence': 41,
+            'resource': 'txns',
+            'resource_id': '019810f0-4a3b-7c21-9d55-2b1c4e8f0011',
+            'operation': 'delete',
+          },
+        ],
+        'next_cursor': 41,
+        'has_more': false,
       });
 
-      expect(changes.changed['txns'], hasLength(1));
-      expect(changes.changed['day_seals'], ['2026-07-30']);
-      expect(changes.changed['accounts'], isNull, reason: 'absent, not empty');
-      expect(changes.now.toUtc(), DateTime.utc(2026, 7, 31, 18, 30));
+      expect(changes.items.single.resource, 'txns');
+      expect(changes.items.single.operation, ChangeOperation.delete);
+      expect(changes.nextCursor, 41);
+      expect(changes.hasMore, isFalse);
+      expect(changes.serverTime.toUtc(), DateTime.utc(2026, 7, 31, 18, 30));
     });
   });
 
@@ -329,8 +382,10 @@ void main() {
         () => budgetStatusWire.fromWire('nearly_over'),
         throwsA(isA<WireFormatException>()),
       );
-      expect(budgetStatusWire.fromWire('projected_over'),
-          BudgetStatus.projectedOver);
+      expect(
+        budgetStatusWire.fromWire('projected_over'),
+        BudgetStatus.projectedOver,
+      );
     });
 
     test('every enum on the wire maps both ways', () {
@@ -338,22 +393,32 @@ void main() {
         expect(accountKindWire.fromWire(accountKindWire.toWire(kind)), kind);
       }
       for (final repeat in EventRepeat.values) {
-        expect(eventRepeatWire.fromWire(eventRepeatWire.toWire(repeat)), repeat);
+        expect(
+          eventRepeatWire.fromWire(eventRepeatWire.toWire(repeat)),
+          repeat,
+        );
       }
       for (final range in NetWorthRange.values) {
-        expect(netWorthRangeWire.fromWire(netWorthRangeWire.toWire(range)),
-            range);
+        expect(
+          netWorthRangeWire.fromWire(netWorthRangeWire.toWire(range)),
+          range,
+        );
       }
       expect(netWorthRangeWire.toWire(NetWorthRange.sixMonths), '6m');
-      expect(recurringKindWire.toWire(RecurringKind.subscription),
-          'subscription');
+      expect(
+        recurringKindWire.toWire(RecurringKind.subscription),
+        'subscription',
+      );
       expect(goalKindWire.toWire(GoalKind.clear), 'clear');
     });
   });
 
   group('requests are shaped correctly', () {
     test('query parameters are named and serialised for the server', () async {
-      final (client, seen) = fakeClient({'items': <Object>[], 'next_cursor': null});
+      final (client, seen) = fakeClient({
+        'items': <Object>[],
+        'next_cursor': null,
+      });
 
       await TxnsApi(client).list(
         fromDay: '2026-07-01',
@@ -378,36 +443,44 @@ void main() {
       expect(url.queryParameters.containsKey('q'), isFalse);
     });
 
-    test('booleans and defaults are spelled the way FastAPI reads them',
-        () async {
-      final (client, seen) = fakeClient(<Object>[]);
+    test(
+      'booleans and defaults are spelled the way FastAPI reads them',
+      () async {
+        final (client, seen) = fakeClient(<Object>[]);
 
-      await AccountsApi(client).list(includeArchived: true);
-      await CategoriesApi(client).top();
+        await AccountsApi(client).list(includeArchived: true);
+        await CategoriesApi(client).top();
 
-      expect(seen[0].url.queryParameters, {'include_archived': 'true'});
-      expect(seen[1].url.queryParameters, {'days': '90', 'limit': '5'});
-    });
+        expect(seen[0].url.queryParameters, {'include_archived': 'true'});
+        expect(seen[1].url.queryParameters, {'days': '90', 'limit': '5'});
+      },
+    );
 
-    test('an instant query parameter goes out as UTC ISO-8601', () async {
-      final (client, seen) = fakeClient({
-        'now': '2026-07-31T18:30:00Z',
-        'changed': <String, Object>{},
-      });
+    test(
+      'the changes cursor and page size are whole query parameters',
+      () async {
+        final (client, seen) = fakeClient({
+          'server_time': '2026-07-31T18:30:00Z',
+          'items': <Object>[],
+          'next_cursor': 120,
+          'has_more': false,
+        });
 
-      await ChangesApi(client).since(
-        DateTime.utc(2026, 7, 31, 12).toLocal(),
-      );
+        await ChangesApi(client).after(120, limit: 50);
 
-      expect(seen.single.url.queryParameters['since'],
-          '2026-07-31T12:00:00.000Z');
-    });
+        expect(seen.single.url.queryParameters, {
+          'after': '120',
+          'limit': '50',
+        });
+      },
+    );
 
     test('a write with both a body and a query keeps both', () async {
       final (client, seen) = fakeClient(<Object>[]);
 
-      await BudgetsApi(client)
-          .rebalance(const RebalanceIn(['b1', 'b2']), month: '2026-07');
+      await BudgetsApi(
+        client,
+      ).rebalance(const RebalanceIn(['b1', 'b2']), month: '2026-07');
 
       final request = seen.single;
       expect(request.method, 'POST');
@@ -424,8 +497,10 @@ void main() {
       await TxnsApi(client).delete('019810f0-4a3b-7c21-9d55-2b1c4e8f0011');
 
       expect(seen.single.method, 'DELETE');
-      expect(seen.single.url.path,
-          '/v1/txns/019810f0-4a3b-7c21-9d55-2b1c4e8f0011');
+      expect(
+        seen.single.url.path,
+        '/v1/txns/019810f0-4a3b-7c21-9d55-2b1c4e8f0011',
+      );
     });
 
     test('the bearer token rides along', () async {
@@ -439,8 +514,10 @@ void main() {
       final (client, _) = fakeClient(null);
       final api = ExportApi(client);
 
-      expect(api.txnsCsvUri().toString(),
-          'http://ledger.test/v1/export/txns.csv');
+      expect(
+        api.txnsCsvUri().toString(),
+        'http://ledger.test/v1/export/txns.csv',
+      );
       expect(api.headers['authorization'], 'Bearer bbx_test');
     });
   });
@@ -506,10 +583,9 @@ void main() {
         ).toJson(),
         containsPair('kind', 'subscription'),
       );
-      expect(
-        const AccountPatch(kind: AccountKind.liability).toJson(),
-        {'kind': 'liability'},
-      );
+      expect(const AccountPatch(kind: AccountKind.liability).toJson(), {
+        'kind': 'liability',
+      });
     });
   });
 

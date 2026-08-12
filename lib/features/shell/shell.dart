@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -47,6 +49,9 @@ class _LedgerShellState extends State<LedgerShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // The page runs underneath the floating bar — that's what the glass
+      // blurs.
+      extendBody: true,
       body: SafeArea(
         bottom: false,
         child: _PageTurn(index: _index, children: _pages),
@@ -87,16 +92,20 @@ class _PageTurnState extends State<_PageTurn>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: Motion.quick,
+    duration: const Duration(milliseconds: 300),
     value: 1,
   );
   int _leaving = -1;
+
+  /// Which way the book turns: +1 heading right along the bar, -1 back.
+  int _dir = 1;
 
   @override
   void didUpdateWidget(_PageTurn old) {
     super.didUpdateWidget(old);
     if (old.index != widget.index) {
       _leaving = old.index;
+      _dir = widget.index > old.index ? 1 : -1;
       if (Motion.reduced(context)) {
         _c.value = 1;
         _leaving = -1;
@@ -125,10 +134,13 @@ class _PageTurnState extends State<_PageTurn>
           children: [
             for (final (i, page) in widget.children.indexed)
               if (i == widget.index)
+                // The new page arrives from the side you're heading — a
+                // page turned, not a scene swapped. The old one drifts the
+                // other way underneath as it fades.
                 Opacity(
                   opacity: t,
                   child: Transform.translate(
-                    offset: Offset(0, 5 * (1 - t)),
+                    offset: Offset(28 * (1 - t) * _dir, 0),
                     child: page,
                   ),
                 )
@@ -139,7 +151,13 @@ class _PageTurnState extends State<_PageTurn>
                     enabled: false,
                     child: IgnorePointer(
                       child: i == _leaving
-                          ? Opacity(opacity: 1 - t, child: page)
+                          ? Opacity(
+                              opacity: 1 - t,
+                              child: Transform.translate(
+                                offset: Offset(-16 * t * _dir, 0),
+                                child: page,
+                              ),
+                            )
                           : page,
                     ),
                   ),
@@ -151,6 +169,14 @@ class _PageTurnState extends State<_PageTurn>
   }
 }
 
+/// A floating pane of glass in moonlight.
+///
+/// One frosted plate hovering just off the bottom edge — the page's own
+/// ledger lines drift by underneath, blurred through it. Four section names
+/// sit on the glass with a pool of moonlight behind the open one; tap
+/// another and the light *travels* there, sliding under the chop on its
+/// way. The chop itself is the original: a moonlit square cut like a real
+/// stamp, extruded on a hard shadow, pressed into the glass.
 class _LedgerNav extends StatelessWidget {
   const _LedgerNav({
     required this.index,
@@ -164,60 +190,113 @@ class _LedgerNav extends StatelessWidget {
   final VoidCallback onAdd;
   final VoidCallback onAddLong;
 
-  /// Words, not icons. Material's glyphs are the most recognised drawing on
-  /// any phone; four of them in a row is the universal "an app" footer. A
-  /// ledger's sections are written in its margin — so these are written.
   static const _items = ['today', 'book', 'plans', 'worth'];
+  static const _chopSlot = 78.0;
+  static const _height = 64.0;
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: c.paper,
-        border: Border(top: BorderSide(color: c.rule)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 62,
-          child: Row(
-            children: [
-              _tab(context, 0),
-              _tab(context, 1),
-              Expanded(
-                child: Center(
-                  child: Pressable(
-                    scale: 0.9,
-                    onTap: onAdd,
-                    onLongPress: onAddLong,
-                    // The writing chop, cut like a real stamp: a vermilion
-                    // face over a hard extruded edge (zero-blur shadow), so
-                    // pressing it visibly pushes the stamp into the page.
-                    child: Container(
-                      key: const ValueKey('nav-add'),
-                      width: 54,
-                      height: 54,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: c.quill,
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color.lerp(c.quill, const Color(0xFF000000), 0.45)!,
-                            offset: const Offset(0, 5),
+    final reduced = Motion.reduced(context);
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x3),
+      child: DecoratedBox(
+        // The float: the page's own darkness pooling underneath. Shadow
+        // lives outside the clip so the glass stays clean.
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF000000).withValues(alpha: 0.28),
+              blurRadius: 26,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            child: Container(
+              height: _height,
+              decoration: BoxDecoration(
+                // Frost, not paint: enough lacquer to hold the type, thin
+                // enough that the page moves behind it.
+                color: c.paperRaised.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: c.rule.withValues(alpha: 0.85)),
+              ),
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  final tabW = (box.maxWidth - _chopSlot) / 4;
+                  // Slots 0,1 sit left of the chop; 2,3 to its right.
+                  double slotLeft(int i) =>
+                      i * tabW + (i >= 2 ? _chopSlot : 0);
+                  return Stack(
+                    children: [
+                      // The pool of moonlight, travelling between names.
+                      AnimatedPositioned(
+                        duration: reduced
+                            ? Duration.zero
+                            : const Duration(milliseconds: 300),
+                        curve: Motion.curve,
+                        left: slotLeft(index) + 8,
+                        top: 13,
+                        width: tabW - 16,
+                        height: _height - 28,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: c.quillSoft,
+                            borderRadius: BorderRadius.circular(12),
                           ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          _tab(context, 0),
+                          _tab(context, 1),
+                          SizedBox(width: _chopSlot, child: _chop(c)),
+                          _tab(context, 2),
+                          _tab(context, 3),
                         ],
                       ),
-                      child: PenPlus(size: 30, color: c.paper),
-                    ),
-                  ),
-                ),
+                    ],
+                  );
+                },
               ),
-              _tab(context, 2),
-              _tab(context, 3),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The writing chop, as it always was: a moonlit square cut like a real
+  /// stamp — face over a hard zero-blur edge, so pressing it visibly pushes
+  /// the stamp into the page.
+  Widget _chop(LedgerColors c) {
+    return Center(
+      child: Pressable(
+        scale: 0.9,
+        onTap: onAdd,
+        onLongPress: onAddLong,
+        child: Container(
+          key: const ValueKey('nav-add'),
+          width: 50,
+          height: 50,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: c.quill,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Color.lerp(c.quill, const Color(0xFF000000), 0.45)!,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
+          child: PenPlus(size: 28, color: c.paper),
         ),
       ),
     );
@@ -226,36 +305,23 @@ class _LedgerNav extends StatelessWidget {
   Widget _tab(BuildContext context, int i) {
     final c = LedgerColors.of(context);
     final selected = index == i;
-    final label = _items[i];
     return Expanded(
       child: Pressable(
         haptic: false,
-        scale: 0.97,
+        scale: 0.95,
         onTap: () => onSelect(i),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedDefaultTextStyle(
-              duration: Motion.quick,
-              // The open page's name in ivory; the rest wait in the margin.
-              style: (selected ? LedgerType.bodyStrong : LedgerType.bodyText)
-                  .copyWith(
-                fontSize: 14,
-                color: selected ? c.ink : c.inkFaint,
-              ),
-              child: Text(label),
+        child: Center(
+          child: AnimatedDefaultTextStyle(
+            duration:
+                Motion.reduced(context) ? Duration.zero : Motion.spring,
+            curve: Motion.curve,
+            style: (selected ? LedgerType.bodyStrong : LedgerType.bodyText)
+                .copyWith(
+              fontSize: 13.5,
+              color: selected ? c.quill : c.inkFaint,
             ),
-            const SizedBox(height: 5),
-            // A square vermilion chip below the open page — the ribbon,
-            // cut hard like everything else in the book.
-            AnimatedContainer(
-              duration: Motion.quick,
-              curve: Motion.curve,
-              width: selected ? 5 : 0,
-              height: 5,
-              color: c.quill,
-            ),
-          ],
+            child: Text(_items[i]),
+          ),
         ),
       ),
     );

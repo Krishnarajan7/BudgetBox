@@ -25,6 +25,7 @@ import '../setup/setup_flow.dart';
 import 'account_manager.dart';
 import 'activity_log.dart';
 import 'category_manager.dart';
+import 'coaching_manager.dart';
 import 'pinned_manager.dart';
 
 /// Day / night / follow-the-sun — persisted in the settings table, loaded on
@@ -225,8 +226,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   static const _monthsShort = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   Future<void> _pickBirthday() async {
@@ -239,8 +250,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     await ref.read(settingsRepoProvider).setBirthday(picked.$1, picked.$2);
     // And onto the calendar, as one yearly "my birthday" — the two entries
     // are the same fact, so they move together.
-    await Occasions(ref.read(dbProvider)).birthdaySetInSettings(
-        picked.$1, picked.$2);
+    await Occasions(
+      ref.read(dbProvider),
+    ).birthdaySetInSettings(picked.$1, picked.$2);
   }
 
   Future<void> _pickNudge() async {
@@ -265,8 +277,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 Text(
                   'One notification, in the evening, asking nothing more '
                   'than whether the page is done.',
-                  style: LedgerType.bodyText
-                      .copyWith(fontSize: 13, color: c.inkFaint),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 13,
+                    color: c.inkFaint,
+                  ),
                 ),
                 const SizedBox(height: Gap.x3),
                 Wrap(
@@ -274,13 +288,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   runSpacing: Gap.x2,
                   children: [
                     for (final (h, m) in const [
-                      (20, 30), (21, 0), (21, 30), (22, 0), (22, 30),
+                      (20, 30),
+                      (21, 0),
+                      (21, 30),
+                      (22, 0),
+                      (22, 30),
                     ])
                       LedgerChip(
                         '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}',
                         selected: _nudge == (h, m),
-                        onTap: () =>
-                            Navigator.of(context).pop(((h, m), false)),
+                        onTap: () => Navigator.of(context).pop(((h, m), false)),
                       ),
                     LedgerChip(
                       'off',
@@ -300,7 +317,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final (time, turnOff) = picked;
     if (turnOff || time == null) {
       await settings.clearNudge();
-      await LedgerReminders.cancel();
+      // The hour is the voice's one switch: clearing it quiets everything —
+      // tonight, salary morning, the dues.
+      await ref.read(nudgesProvider).resync();
       if (mounted) setState(() => _nudge = null);
       return;
     }
@@ -308,13 +327,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final ok = await LedgerReminders.requestPermission();
     if (!ok) {
       if (mounted) {
-        _say(false,
-            _Note('the phone said no — allow notifications first', ok: false));
+        _say(
+          false,
+          _Note('the phone said no — allow notifications first', ok: false),
+        );
       }
       return;
     }
     await settings.setNudgeTime(time.$1, time.$2);
-    await LedgerReminders.scheduleDaily(time.$1, time.$2);
+    await ref.read(nudgesProvider).resync();
     if (mounted) setState(() => _nudge = time);
   }
 
@@ -399,9 +420,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       await ref.read(dbProvider).customStatement('VACUUM INTO ?', [file.path]);
       final kb = (await file.length()) ~/ 1024;
       if (!mounted) return;
-      await SharePlus.instance.share(
-        ShareParams(files: [XFile(file.path)]),
-      );
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
       if (!mounted) return;
       _say(false, _Note('$kb KB ready to save · $name', ok: true));
     } catch (_) {
@@ -493,6 +512,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   'the one-tap repeats',
                   onTap: () => _push(const PinnedManagerPage()),
                 ),
+                _Row(
+                  'Spending guide',
+                  'teach the book what is worth it',
+                  onTap: () => _push(const CoachingManagerPage()),
+                ),
               ],
             ),
             _Section(
@@ -506,24 +530,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       : 'the ${ordinalDay(_salaryDay!)}, every month',
                   onTap: _pickSalaryDay,
                 ),
-                _Row(
-                  'Birthday',
-                  switch (_birthday) {
-                    null => 'unset — the book never celebrates',
-                    (final d, final m) =>
-                      '$d ${_monthsShort[m - 1]} — one shower of seals a year',
-                  },
-                  onTap: _pickBirthday,
-                ),
-                _Row(
-                  'Evening nudge',
-                  switch (_nudge) {
-                    null => 'off — the book waits to be opened',
-                    (final h, final m) =>
-                      'at ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} — close the day',
-                  },
-                  onTap: _pickNudge,
-                ),
+                _Row('Birthday', switch (_birthday) {
+                  null => 'unset — the book never celebrates',
+                  (final d, final m) =>
+                    '$d ${_monthsShort[m - 1]} — one shower of seals a year',
+                }, onTap: _pickBirthday),
+                _Row('Evening nudge', switch (_nudge) {
+                  null => 'off — the book waits to be opened',
+                  (final h, final m) =>
+                    'at ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} — close the day',
+                }, onTap: _pickNudge),
                 _Row(
                   'Year',
                   _yearFrame == null
@@ -531,9 +547,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       : yearFrameCaption(_yearFrame!),
                   onTap: _yearFrame == null ? null : _swapYearFrame,
                   goesSomewhere: false,
-                  trailing: Text('swap',
-                      style: LedgerType.bodyStrong
-                          .copyWith(fontSize: 11, color: c.quill)),
+                  trailing: Text(
+                    'swap',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 11,
+                      color: c.quill,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -676,8 +696,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 'phone — gone, and the setup ritual begins again. If the book '
                 'syncs to a server, that copy is untouched and can be brought '
                 'back through "I already have a book".',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 13, color: c.inkFaint),
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
               ),
               const SizedBox(height: Gap.x4),
               FilledButton(
@@ -855,8 +877,7 @@ class _ServerSheetState extends State<_ServerSheet> {
             // width, and fatal in a Row, where non-flex children are measured
             // against unbounded space.
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(_ServerChosen(_typed)),
+              onPressed: () => Navigator.of(context).pop(_ServerChosen(_typed)),
               child: const Text('Save'),
             ),
             TextButton(
@@ -1319,8 +1340,10 @@ class _BirthdaySheetState extends State<_BirthdaySheet> {
                       ),
                       child: Text(
                         '$d',
-                        style: LedgerType.amount
-                            .copyWith(fontSize: 14, color: c.ink),
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 14,
+                          color: c.ink,
+                        ),
                       ),
                     ),
                   ),
