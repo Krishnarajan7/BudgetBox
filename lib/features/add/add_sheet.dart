@@ -38,6 +38,11 @@ class AddSheet extends ConsumerStatefulWidget {
 }
 
 class _AddSheetState extends ConsumerState<AddSheet> {
+  /// False writes an expense (the five-second default); true, money in.
+  /// It lives on the sheet because money arriving is a normal Tuesday fact,
+  /// not a hidden move — a +₹600 recorded as spending is how a book lies.
+  bool _moneyIn = false;
+
   final _engine = AmountEngine();
   final _title = TextEditingController();
   final _note = TextEditingController();
@@ -217,14 +222,26 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         : _title.text.trim();
     final note = _note.text.trim();
 
-    await ref.read(txnRepoProvider).addExpense(
-          amountPaise: _engine.paise,
-          accountId: _accountId!,
-          categoryId: _categoryId,
-          title: title,
-          note: note.isEmpty ? null : note,
-          at: _at,
-        );
+    final repo = ref.read(txnRepoProvider);
+    if (_moneyIn) {
+      await repo.addIncome(
+        amountPaise: _engine.paise,
+        accountId: _accountId!,
+        categoryId: _categoryId,
+        title: title,
+        note: note.isEmpty ? null : note,
+        at: _at,
+      );
+    } else {
+      await repo.addExpense(
+        amountPaise: _engine.paise,
+        accountId: _accountId!,
+        categoryId: _categoryId,
+        title: title,
+        note: note.isEmpty ? null : note,
+        at: _at,
+      );
+    }
 
     // Let the seal land on the key before the sheet leaves — the stamp is
     // the whole confirmation, so it is allowed to finish.
@@ -340,11 +357,35 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 trigger: _engine.paise,
                 child: CountUp(
                   value: _engine.paise,
-                  format: Inr.format,
-                  style: LedgerType.heroAmount
-                      .copyWith(fontSize: 38, color: c.ink),
+                  format: (p) =>
+                      _moneyIn ? '+${Inr.format(p)}' : Inr.format(p),
+                  style: LedgerType.heroAmount.copyWith(
+                      fontSize: 38, color: _moneyIn ? c.jama : c.ink),
                   // Typing must feel instant, just soft.
                   duration: const Duration(milliseconds: 160),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6, right: Gap.x2),
+              child: Pressable(
+                onTap: () => setState(() => _moneyIn = !_moneyIn),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: Gap.x2, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _moneyIn
+                        ? c.jama.withValues(alpha: 0.16)
+                        : c.paperRaised,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _moneyIn ? 'money in' : 'spent',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 11,
+                      color: _moneyIn ? c.jama : c.inkFaint,
+                    ),
+                  ),
                 ),
               ),
             ),

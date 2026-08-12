@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:drift/drift.dart' show InsertMode, Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -47,6 +49,8 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   int _salaryDay = 1;
   String? _intent;
   bool _yesterdaySealed = false;
+  (int, int)? _birthday;
+  bool _burst = false;
   final Set<int> _seenTxnIds = {};
   bool _firstEmission = true;
 
@@ -62,7 +66,17 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final name = await settings.name();
     final salaryDay = await settings.salaryDay();
     final intent = await settings.intent();
+    final birthday = await settings.birthday();
     final now = DateTime.now();
+    // The one day a year the book celebrates — once, then it composes itself.
+    var burst = false;
+    if (birthday != null &&
+        now.day == birthday.$1 &&
+        now.month == birthday.$2 &&
+        await settings.birthdayBurstDue(now.year)) {
+      burst = true;
+      await settings.markBirthdayBurst(now.year);
+    }
     final yKey = LedgerDates.dayKey(DateTime(now.year, now.month, now.day - 1));
     final ySeal = await (db.select(db.daySeals)
           ..where((s) => s.date.equals(yKey)))
@@ -73,6 +87,8 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         _salaryDay = salaryDay;
         _intent = intent;
         _yesterdaySealed = ySeal != null;
+        _birthday = birthday;
+        _burst = burst;
       });
     }
   }
@@ -89,6 +105,10 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   /// a closed yesterday gets a quiet nod, and most days it's just the date.
   String _greetingLine(DateTime now) {
     final base = '$_greeting, $_name';
+    final bd = _birthday;
+    if (bd != null && now.day == bd.$1 && now.month == bd.$2) {
+      return 'happy birthday, $_name — the book buys the chai to-day';
+    }
     if (now.day == _salaryDay) return '$base — salary lands to-day';
     if (_daysToSalary(now) == 1) return '$base — salary lands to-morrow';
     if (_yesterdaySealed) return '$base — yesterday is sealed';
@@ -311,7 +331,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 ],
             };
 
-            return ListView(
+            final page = ListView(
               padding: const EdgeInsets.symmetric(horizontal: Gap.page),
               children: [
                 const LedgerAppBar(),
@@ -365,6 +385,20 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 const SizedBox(height: Gap.x6),
               ],
             );
+            if (!_burst) return page;
+            // Once a year, and only with motion allowed: the seals rain.
+            if (Motion.reduced(context)) return page;
+            return Stack(
+              children: [
+                page,
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: _BirthdayRain(
+                        onDone: () => setState(() => _burst = false)),
+                  ),
+                ),
+              ],
+            );
           },
         );
       },
@@ -404,6 +438,63 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 
 /// The next two things the recurring shelf will ask for. Each line answers a
 /// tap with a small sheet that can stamp the charge as paid.
+/// Forty small things falling once a year: seals, paper squares, a few
+/// status-ink dots. Deterministic per index — no randomness source, same
+/// shower every birthday, which is exactly the kind of joke this book tells.
+class _BirthdayRain extends StatelessWidget {
+  const _BirthdayRain({required this.onDone});
+
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final colors = [c.seal, c.jama, c.warn, c.quill];
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 2800),
+      onEnd: onDone,
+      builder: (context, t, _) {
+        return LayoutBuilder(
+          builder: (context, box) {
+            double n(int i, double salt) =>
+                (math.sin(i * 127.1 + salt * 311.7) + 1) / 2;
+            return Stack(
+              children: [
+                for (var i = 0; i < 40; i++)
+                  Positioned(
+                    left: n(i, 1) * box.maxWidth +
+                        math.sin(t * 6.28 * (1 + n(i, 2)) + i) * 18,
+                    top: -40 +
+                        (box.maxHeight + 80) *
+                            Curves.easeIn.transform(
+                                ((t * (0.7 + 0.5 * n(i, 3))).clamp(0.0, 1.0))),
+                    child: Opacity(
+                      opacity: (1 - t).clamp(0.0, 1.0) * 0.9,
+                      child: Transform.rotate(
+                        angle: t * 6.28 * (n(i, 4) - 0.5) * 3,
+                        child: Container(
+                          width: 6 + 6 * n(i, 5),
+                          height: 6 + 6 * n(i, 5),
+                          decoration: BoxDecoration(
+                            color: colors[i % colors.length]
+                                .withValues(alpha: 0.9),
+                            borderRadius:
+                                BorderRadius.circular(i % 3 == 0 ? 99 : 2),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 /// The month's weight by category, in brief — and the way into the full
 /// story. Top four bars only: Today answers at a glance, Insights explains.
 class _WhereCard extends ConsumerWidget {

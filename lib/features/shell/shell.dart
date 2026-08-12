@@ -5,7 +5,10 @@ import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../add/add_sheet.dart';
+import '../kural/kural_page.dart';
 import '../add/fab_menu.dart';
 import '../book/book_page.dart';
 import '../plans/plans_page.dart';
@@ -22,6 +25,17 @@ class LedgerShell extends StatefulWidget {
 
 class _LedgerShellState extends State<LedgerShell> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // The day's kural greets the first opening — after the frame, so the
+    // shell is standing before the page turns.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ref = ProviderScope.containerOf(context);
+      maybeShowDailyKural(context, ref);
+    });
+  }
 
   static const _pages = [
     TodayPage(),

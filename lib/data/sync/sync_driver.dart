@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/notifications.dart';
+import '../../core/occasions.dart';
 import '../providers.dart';
 import 'sync_engine.dart';
 
@@ -54,7 +56,18 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
   /// server, and the reconciler's catch-up sweep carries that upstream on the
   /// first round.
   Future<void> _bootstrap() async {
-    final stored = await ref.read(settingsRepoProvider).serverConfig();
+    final settings = ref.read(settingsRepoProvider);
+    // Re-assert the evening nudge every launch: schedules survive reboots
+    // via the boot receiver, but not an app update — and re-scheduling the
+    // same id is free.
+    final nudge = await settings.nudgeTime();
+    if (nudge != null) {
+      unawaited(LedgerReminders.scheduleDaily(nudge.$1, nudge.$2));
+    }
+    // Every calendar day's notification stands again after reboots and
+    // app updates.
+    unawaited(Occasions(ref.read(dbProvider)).resyncNotifications());
+    final stored = await settings.serverConfig();
     if (!mounted) return;
     _engine?.reconfigure(stored);
     if (_engine?.wired ?? false) await _run();

@@ -6,8 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/dates.dart';
+import '../../core/notifications.dart';
+import '../../core/occasions.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
@@ -143,6 +146,8 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   int? _salaryDay;
+  (int, int)? _birthday;
+  (int, int)? _nudge;
   String? _yearFrame;
   bool? _hasPin;
   int _entries = 0;
@@ -173,12 +178,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final settings = ref.read(settingsRepoProvider);
     final day = await settings.salaryDay();
     final frame = await settings.yearFrame();
+    final birthday = await settings.birthday();
+    final nudge = await settings.nudgeTime();
     final hasPin = await settings.hasPin();
     final server = await settings.serverConfig();
     final facts = await _countFacts();
     if (!mounted) return;
     setState(() {
       _salaryDay = day;
+      _birthday = birthday;
+      _nudge = nudge;
       _yearFrame = frame;
       _hasPin = hasPin;
       _server = server;
@@ -213,6 +222,100 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (picked == null || !mounted) return;
     setState(() => _salaryDay = picked);
     await ref.read(settingsRepoProvider).setSalaryDay(picked);
+  }
+
+  static const _monthsShort = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  Future<void> _pickBirthday() async {
+    final picked = await showLedgerSheet<(int, int)>(
+      context,
+      builder: (context) => _BirthdaySheet(current: _birthday),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _birthday = picked);
+    await ref.read(settingsRepoProvider).setBirthday(picked.$1, picked.$2);
+    // And onto the calendar, as one yearly "my birthday" — the two entries
+    // are the same fact, so they move together.
+    await Occasions(ref.read(dbProvider)).birthdaySetInSettings(
+        picked.$1, picked.$2);
+  }
+
+  Future<void> _pickNudge() async {
+    final picked = await showLedgerSheet<((int, int)?, bool)>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SheetHandle(),
+                const SizedBox(height: Gap.x2),
+                Text(
+                  'a nudge to close the day?',
+                  style: LedgerType.title.copyWith(fontSize: 18, color: c.ink),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'One notification, in the evening, asking nothing more '
+                  'than whether the page is done.',
+                  style: LedgerType.bodyText
+                      .copyWith(fontSize: 13, color: c.inkFaint),
+                ),
+                const SizedBox(height: Gap.x3),
+                Wrap(
+                  spacing: Gap.x2,
+                  runSpacing: Gap.x2,
+                  children: [
+                    for (final (h, m) in const [
+                      (20, 30), (21, 0), (21, 30), (22, 0), (22, 30),
+                    ])
+                      LedgerChip(
+                        '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}',
+                        selected: _nudge == (h, m),
+                        onTap: () =>
+                            Navigator.of(context).pop(((h, m), false)),
+                      ),
+                    LedgerChip(
+                      'off',
+                      selected: _nudge == null,
+                      onTap: () => Navigator.of(context).pop((null, true)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    final settings = ref.read(settingsRepoProvider);
+    final (time, turnOff) = picked;
+    if (turnOff || time == null) {
+      await settings.clearNudge();
+      await LedgerReminders.cancel();
+      if (mounted) setState(() => _nudge = null);
+      return;
+    }
+    // Permission first; a refused nudge is not stored as a promise.
+    final ok = await LedgerReminders.requestPermission();
+    if (!ok) {
+      if (mounted) {
+        _say(false,
+            _Note('the phone said no — allow notifications first', ok: false));
+      }
+      return;
+    }
+    await settings.setNudgeTime(time.$1, time.$2);
+    await LedgerReminders.scheduleDaily(time.$1, time.$2);
+    if (mounted) setState(() => _nudge = time);
   }
 
   Future<void> _swapYearFrame() async {
@@ -269,9 +372,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       );
       final dir = await getApplicationDocumentsDirectory();
       final name = 'budgetbox-${LedgerDates.dayKey(DateTime.now())}.csv';
-      await File('${dir.path}/$name').writeAsString(csv);
+      final path = '${dir.path}/$name';
+      await File(path).writeAsString(csv);
       if (!mounted) return;
-      _say(true, _Note('${txns.length} entries written · $name', ok: true));
+      // The share sheet is the download: save to Files, send to Drive,
+      // mail it — the phone's choice, not the sandbox's.
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(path, mimeType: 'text/csv')]),
+      );
+      if (!mounted) return;
+      _say(true, _Note('${txns.length} entries shared · $name', ok: true));
     } catch (_) {
       if (!mounted) return;
       _say(true, _Note('nothing written — the folder refused', ok: false));
@@ -289,7 +399,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       await ref.read(dbProvider).customStatement('VACUUM INTO ?', [file.path]);
       final kb = (await file.length()) ~/ 1024;
       if (!mounted) return;
-      _say(false, _Note('$kb KB copied · $name', ok: true));
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(file.path)]),
+      );
+      if (!mounted) return;
+      _say(false, _Note('$kb KB ready to save · $name', ok: true));
     } catch (_) {
       if (!mounted) return;
       _say(false, _Note('nothing copied — the folder refused', ok: false));
@@ -391,6 +505,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       ? 'reading the book…'
                       : 'the ${ordinalDay(_salaryDay!)}, every month',
                   onTap: _pickSalaryDay,
+                ),
+                _Row(
+                  'Birthday',
+                  switch (_birthday) {
+                    null => 'unset — the book never celebrates',
+                    (final d, final m) =>
+                      '$d ${_monthsShort[m - 1]} — one shower of seals a year',
+                  },
+                  onTap: _pickBirthday,
+                ),
+                _Row(
+                  'Evening nudge',
+                  switch (_nudge) {
+                    null => 'off — the book waits to be opened',
+                    (final h, final m) =>
+                      'at ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} — close the day',
+                  },
+                  onTap: _pickNudge,
                 ),
                 _Row(
                   'Year',
@@ -1107,6 +1239,94 @@ class _DayCell extends StatelessWidget {
         child: Text(
           '$day',
           style: LedgerType.amount.copyWith(color: selected ? c.quill : c.ink),
+        ),
+      ),
+    );
+  }
+}
+
+/// Day and month, nothing else — the book does not need your year to buy
+/// the chai. Pops `(day, month)`.
+class _BirthdaySheet extends StatefulWidget {
+  const _BirthdaySheet({required this.current});
+
+  final (int, int)? current;
+
+  @override
+  State<_BirthdaySheet> createState() => _BirthdaySheetState();
+}
+
+class _BirthdaySheetState extends State<_BirthdaySheet> {
+  late int _month = widget.current?.$2 ?? DateTime.now().month;
+  late int? _day = widget.current?.$1;
+
+  static int _daysIn(int month) =>
+      DateTime(2024, month + 1, 0).day; // leap-friendly Februarys keep 29
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: Gap.x2),
+            Text(
+              'when were you written in?',
+              style: LedgerType.title.copyWith(fontSize: 18, color: c.ink),
+            ),
+            const SizedBox(height: Gap.x3),
+            Wrap(
+              spacing: Gap.x1,
+              runSpacing: Gap.x1,
+              children: [
+                for (final (i, m) in _SettingsPageState._monthsShort.indexed)
+                  LedgerChip(
+                    m.toLowerCase(),
+                    selected: _month == i + 1,
+                    onTap: () => setState(() {
+                      _month = i + 1;
+                      final d = _day;
+                      if (d != null && d > _daysIn(_month)) _day = null;
+                    }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: Gap.x3),
+            Wrap(
+              spacing: Gap.x1,
+              runSpacing: Gap.x1,
+              children: [
+                for (var d = 1; d <= _daysIn(_month); d++)
+                  Pressable(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.of(context).pop((d, _month));
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 36,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: _day == d
+                            ? c.quill.withValues(alpha: 0.16)
+                            : c.paperRaised,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '$d',
+                        style: LedgerType.amount
+                            .copyWith(fontSize: 14, color: c.ink),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );

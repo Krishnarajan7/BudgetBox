@@ -168,7 +168,11 @@ void main() {
       expect(find.text('the 1st, every month'), findsOneWidget);
       expect(find.text('${DateTime.now().year} · January to December'),
           findsOneWidget);
-      // No PIN yet, so the face is honest about waiting for one.
+      // No PIN yet, so the face is honest about waiting for one. The lock
+      // section sits below the fold now.
+      await tester.scrollUntilVisible(
+          find.text('waits on a PIN — set one and the face takes over'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('waits on a PIN — set one and the face takes over'),
           findsOneWidget);
       // The footer sits below the fold — scroll until its last line shows,
@@ -225,6 +229,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(find.text('Year'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Year'));
       await tester.pumpAndSettle();
 

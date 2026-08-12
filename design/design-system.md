@@ -1,16 +1,19 @@
-# BudgetBox Design System — "The Lightning Ledger"
+# BudgetBox Design System — "The Moonlit Ledger"
 
 > The design language for BudgetBox. Read this before designing or building any screen.
-> **Supersedes the paper-and-beige "Ledger" of 2026-07-31** — Krish judged it on device
-> (2026-08-11) and chose this: same soul, electric body. Grounded in [research.md](research.md)
-> plus CRED/NeoPop analysis.
+> **v3 (2026-08-12).** Supersedes the beige paper Ledger (2026-07-31) and the violet
+> "Lightning Ledger" (2026-08-11) — Krish rejected red and violet accents on device.
+> Monochrome carries the identity now. Grounded in [research.md](research.md) plus
+> CRED/NeoPop analysis.
 
 ## Concept
 
-BudgetBox is still a **digital bahi-khata** — one person's daily ledger ritual — but the
-object is now the book at night: **lacquer black, ivory ink, one strike of lightning
-violet**, and a vermilion stamp that appears only when something is sealed. Dark is the
-primary identity; the light theme is the same book in a bright room, never an inversion.
+BudgetBox is still a **digital bahi-khata** — one person's daily ledger ritual — and the
+object is the book at night in **moonlight monochrome**: lacquer black, warm ivory ink,
+and the interactive accent is *light itself* — pure moonlit white, a weight brighter than
+the text around it. No brand hue. The seal's vermilion and the two status inks are the
+only color on any page, so when they appear they mean it. Dark is the primary identity;
+day is the same book in a bright room (accent = ink at full black), never an inversion.
 
 Structure borrows CRED/NeoPop's discipline (hard corners, dimensional pressable objects,
 serif-over-sans) without its monochrome: the drama lives in huge serif numerals and one
@@ -28,13 +31,13 @@ Tokens first: no raw hex in widgets, ever. Token *names* keep their ledger vocab
 
 | Token | Night (primary) | Day | Role |
 |---|---|---|---|
-| `paper` | `#0A0A0D` | `#F5F4F8` | App background. Lacquer black / soft paper-white. |
-| `paper-raised` | `#15151B` | `#FFFFFF` | Cards ("plates"), sheets, the keypad. |
-| `ink` | `#F2EFE6` | `#16151D` | Primary text. Warm ivory / iron ink. |
-| `ink-faint` | `#9A97A8` | `#6A6875` | Secondary text, captions, labels. |
-| `rule` | `#26252E` | `#E4E3EA` | Hairlines and the month table's grid. |
-| `quill` | `#7B68FF` | `#5B45E0` | **The lightning.** All interactive ink: links, active states, the chop, focus, brand strokes. |
-| `seal` | `#E8402A` | `#D23B24` | The vermilion stamp. RESERVED: day-close seal, save-stamp, over-budget verdicts, destructive confirm. ≤2 per screen. Never used as brand/interactive. |
+| `paper` | `#0B0A08` | `#F7F5F0` | App background. Lacquer black / warm paper-white. |
+| `paper-raised` | `#161511` | `#FFFFFF` | Cards ("plates"), sheets, the keypad. |
+| `ink` | `#EDE8DC` | `#1A1814` | Primary text. Warm ivory / iron ink. |
+| `ink-faint` | `#97917F` | `#6F6A60` | Secondary text, captions, labels. |
+| `rule` | `#272520` | `#E6E2D9` | Hairlines and the month table's grid. |
+| `quill` | `#FFFDF6` | `#11100D` | **Moonlight.** All interactive ink — light itself, a weight brighter than text (night) / full-black ink (day). No hue, ever. |
+| `seal` | `#E8402A` | `#C93A24` | The vermilion stamp. RESERVED: day-close seal, save-stamp, over-budget verdicts, destructive confirm. ≤2 per screen. Never brand/interactive. |
 | `jama` | `#43C98D` | `#1E8F5D` | Credit marks and on-pace status. Small marks only. |
 | `warn` | `#F2A64B` | `#B07E1E` | Projected-to-overrun status. |
 

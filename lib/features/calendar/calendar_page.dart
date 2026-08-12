@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
+import '../../core/occasions.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
@@ -1655,6 +1656,9 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
             timeMinutes: _timeMinutes,
             repeat: _yearly ? EventRepeat.yearly : EventRepeat.none,
           );
+      // The bridge: "my birthday" written here reaches Settings (the
+      // greeting, the confetti), and the day earns its notification.
+      await Occasions(ref.read(dbProvider)).eventWritten(title, _date);
     } else {
       await _rewriteEvent(
         ref.read(dbProvider),

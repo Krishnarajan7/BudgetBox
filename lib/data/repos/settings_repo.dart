@@ -21,6 +21,12 @@ class SettingsRepo {
   static const _setupDone = 'setupDone';
   static const _intent = 'intent';
   static const _yearFrame = 'yearFrame';
+  static const _birthday = 'birthday';
+  static const _nudgeTime = 'nudgeTime';
+  static const _kuralDay = 'kuralDay';
+  static const _kuralIndex = 'kuralIndex';
+  static const _kuralStreak = 'kuralStreak';
+  static const _birthdayBurstYear = 'birthdayBurstYear';
   static const _serverUrl = 'serverUrl';
   static const _serverToken = 'serverToken';
 
@@ -38,6 +44,7 @@ class SettingsRepo {
     _setupDone,
     _intent,
     _yearFrame,
+    _birthday,
   ];
 
   Future<String?> _get(String key) async {
@@ -70,6 +77,72 @@ class SettingsRepo {
   /// 'truth'. Reorders the Today page's modules.
   Future<String?> intent() => _get(_intent);
   Future<void> setIntent(String value) => _set(_intent, value);
+
+  /// 'DD-MM', or null while the book doesn't know. The one date a year the
+  /// book is allowed to celebrate.
+  Future<(int day, int month)?> birthday() async {
+    final v = await _get(_birthday);
+    if (v == null) return null;
+    final parts = v.split('-');
+    final d = int.tryParse(parts.first);
+    final m = parts.length > 1 ? int.tryParse(parts[1]) : null;
+    if (d == null || m == null) return null;
+    return (d, m);
+  }
+
+  Future<void> setBirthday(int day, int month) =>
+      _set(_birthday, '$day-$month');
+
+  /// 'HH:MM' when the evening nudge is on; null when the book stays quiet.
+  /// Device-local on purpose: notifications are a per-phone decision.
+  Future<(int hour, int minute)?> nudgeTime() async {
+    final v = await _get(_nudgeTime);
+    if (v == null) return null;
+    final parts = v.split(':');
+    final h = int.tryParse(parts.first);
+    final m = parts.length > 1 ? int.tryParse(parts[1]) : null;
+    if (h == null || m == null) return null;
+    return (h, m);
+  }
+
+  Future<void> setNudgeTime(int hour, int minute) =>
+      _set(_nudgeTime, '$hour:$minute');
+
+  Future<void> clearNudge() =>
+      (_db.delete(_db.settings)..where((s) => s.key.equals(_nudgeTime))).go();
+
+  // ————— the day's kural —————
+
+  Future<String?> kuralDay() => _get(_kuralDay);
+
+  /// 0-based position of the NEXT kural to show.
+  Future<int> kuralIndex() async =>
+      int.tryParse(await _get(_kuralIndex) ?? '') ?? 0;
+
+  Future<void> setKuralShown(String day, int nextIndex) async {
+    await _set(_kuralDay, day);
+    await _set(_kuralIndex, '$nextIndex');
+  }
+
+  /// Consecutive reading days, today included: yesterday read → +1,
+  /// otherwise the streak starts over at one.
+  Future<int> bumpKuralStreak(String today, String? lastDay) async {
+    final prev = int.tryParse(await _get(_kuralStreak) ?? '') ?? 0;
+    final t = DateTime.parse(today);
+    final yesterday = DateTime(t.year, t.month, t.day - 1);
+    final yKey =
+        '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
+    final streak = lastDay == yKey ? prev + 1 : 1;
+    await _set(_kuralStreak, '$streak');
+    return streak;
+  }
+
+  /// The confetti falls once a year — this remembers which year has had it.
+  Future<bool> birthdayBurstDue(int year) async =>
+      await _get(_birthdayBurstYear) != '$year';
+
+  Future<void> markBirthdayBurst(int year) =>
+      _set(_birthdayBurstYear, '$year');
 
   /// How the year is framed: 'calendar' or 'fy' (Apr–Mar).
   Future<String> yearFrame() async => await _get(_yearFrame) ?? 'calendar';

@@ -4,15 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
-import '../../core/widgets/motion.dart';
-import '../../core/widgets/seal.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../data/providers.dart';
 import '../lock/lock_page.dart';
 import '../setup/setup_flow.dart';
 
-/// The opening of the book: ruled paper fades in, the wordmark inks itself
-/// across the line, the byline settles, the seal stamps. ~2.1s, once per cold
-/// launch, tap-to-skip, and collapsed to a beat when animations are off.
+/// The opening of the book: the character settles onto the lacquer — a
+/// press-down with the stamp's slight overshoot, nothing zooming anywhere —
+/// and one line says whose space this is. ~1.2s, once per cold launch,
+/// tap-to-skip, collapsed to a beat when animations are off.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -24,26 +24,27 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
-  late final Animation<double> _inkReveal;
-  late final Animation<double> _byline;
-  late final Animation<double> _stamp;
+  /// The character arriving: pressed down onto the page, seats with a
+  /// slight overshoot — the same hand that stamps the seal.
+  late final Animation<double> _seat;
 
-  static const _total = Duration(milliseconds: 2100);
+  /// The slogan, inking in underneath once the character has landed.
+  late final Animation<double> _line;
+
+  static const _total = Duration(milliseconds: 1250);
 
   @override
   void initState() {
     super.initState();
     _c = AnimationController(vsync: this, duration: _total);
-
-    Animation<double> span(double a, double b, [Curve curve = Curves.easeOut]) =>
-        CurvedAnimation(
-          parent: _c,
-          curve: Interval(a, b, curve: curve),
-        );
-
-    _inkReveal = span(0.10, 0.53, const Cubic(0.6, 0, 0.2, 1));
-    _byline = span(0.53, 0.71);
-    _stamp = span(0.76, 0.90, const Cubic(0.2, 1.6, 0.4, 1));
+    _seat = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0.08, 0.42, curve: Cubic(0.2, 1.4, 0.4, 1)),
+    );
+    _line = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0.48, 0.72, curve: Curves.easeOut),
+    );
 
     _c.addStatusListener((status) {
       if (status == AnimationStatus.completed) _open();
@@ -94,69 +95,45 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
         _c.value = 1;
       },
       child: Scaffold(
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  InkReveal(
-                    animation: _inkReveal,
-                    child: Text(
-                      'BudgetBox',
-                      style: LedgerType.heroAmount.copyWith(
-                        fontSize: 40,
-                        color: c.ink,
-                      ),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedBuilder(
+                animation: _seat,
+                builder: (context, child) {
+                  final t = _seat.value;
+                  return Opacity(
+                    opacity: t.clamp(0.0, 1.0),
+                    // Settles DOWN onto the page — pressed, not zoomed.
+                    child: Transform.scale(
+                      scale: 1.25 - 0.25 * t,
+                      child: child,
                     ),
-                  ),
-                  const SizedBox(height: Gap.x3),
-                  FadeTransition(
-                    opacity: _byline,
-                    child: AnimatedBuilder(
-                      animation: _byline,
-                      builder: (context, child) => Transform.translate(
-                        offset: Offset(0, 6 * (1 - _byline.value)),
-                        child: child,
-                      ),
-                      child: Text(
-                        "Krish's book · since July 2026",
-                        style: LedgerType.bodyText.copyWith(
-                          fontSize: 13,
-                          color: c.inkFaint,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: Gap.x8),
-                  AnimatedBuilder(
-                    animation: _stamp,
-                    builder: (context, child) {
-                      final v = _stamp.value;
-                      if (v == 0) return const SizedBox(height: 44);
-                      return Transform.rotate(
-                        // Settles from +4° through the overshoot into the
-                        // seal's resting −5° (applied by [Seal] itself).
-                        angle: 9 * (1 - v) * 3.14159 / 180,
-                        child: Transform.scale(
-                          scale: 1.7 - 0.7 * v,
-                          child: Opacity(
-                            opacity: v.clamp(0, 1),
-                            child: child,
-                          ),
-                        ),
-                      );
-                    },
-                    child: const Seal(),
-                  ),
-                ],
+                  );
+                },
+                child: MarkFace(width: 132, body: c.quill, face: c.paper),
               ),
-            ),
-          ],
+              const SizedBox(height: Gap.x6),
+              AnimatedBuilder(
+                animation: _line,
+                builder: (context, child) => Opacity(
+                  opacity: _line.value,
+                  child: Transform.translate(
+                    offset: Offset(0, 6 * (1 - _line.value)),
+                    child: child,
+                  ),
+                ),
+                child: Text(
+                  'made for Krish · population, one',
+                  style: LedgerType.bodyText
+                      .copyWith(fontSize: 13, color: c.inkFaint),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
-

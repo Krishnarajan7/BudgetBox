@@ -121,7 +121,10 @@ class _LockPageState extends ConsumerState<LockPage>
       if (!await auth.isDeviceSupported()) return;
       final ok = await auth.authenticate(
         localizedReason: 'Open your book',
-        biometricOnly: true,
+        // Not biometricOnly: many Android phones carry class-2 face unlock,
+        // which a strict biometric ask refuses outright — and the device's
+        // own credential is a perfectly good key to this door.
+        biometricOnly: false,
       );
       if (ok && mounted) _celebrateAndOpen();
     } catch (_) {
@@ -139,6 +142,8 @@ class _LockPageState extends ConsumerState<LockPage>
       await Future<void>.delayed(_stampBeat + _openBeat);
     }
     if (!mounted) return;
+    // Straight to the money — the character had its moment on the splash;
+    // after the password nothing stands between Krish and the book.
     Navigator.of(
       context,
     ).pushReplacement(LedgerRoute(builder: (_) => const LedgerShell()));

@@ -180,4 +180,32 @@ void main() {
     expect(find.text('stamp'), findsOneWidget);
     expect(find.text('₹0'), findsOneWidget);
   });
+
+  testWidgets('the money-in flip writes income, and the balance rises',
+      (tester) async {
+    await tester.pumpWidget(host());
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // ₹600 in — flipped BEFORE stamping. This exact path once recorded a
+    // deposit as spending, turning −₹500 into −₹1,100 instead of +₹100.
+    await tester.tap(find.text('spent'));
+    await tester.pump();
+    expect(find.text('money in'), findsOneWidget);
+
+    await tester.tap(find.text('6'));
+    await tester.tap(find.text('0'));
+    await tester.tap(find.text('0'));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    await tester.tap(find.text('stamp'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    final txns = await db.select(db.txns).get();
+    expect(txns.single.type, TxnType.income);
+    expect(txns.single.amountPaise, 60000);
+    final acct = (await db.select(db.accounts).get()).single;
+    expect(acct.balancePaise, 60000, reason: 'money in raises the pocket');
+  });
 }

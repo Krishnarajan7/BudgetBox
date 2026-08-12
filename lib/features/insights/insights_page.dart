@@ -227,6 +227,27 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const RuleHeader('where it went'),
+                const SizedBox(height: Gap.x3),
+                Center(
+                  child: DrawIn(
+                    duration: const Duration(milliseconds: 700),
+                    builder: (context, t) => CustomPaint(
+                      size: const Size.square(148),
+                      painter: _WheelPainter(
+                        fractions: [
+                          for (final s in slices)
+                            s.paise /
+                                slices.fold<int>(0, (a, b) => a + b.paise),
+                        ],
+                        sweep: t,
+                        ink: c.quill,
+                        rest: c.rule,
+                        hole: c.paperRaised,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Gap.x1),
                 for (final (i, s) in slices.indexed)
                   WhereRow(
                     key: ValueKey('iw-${s.isOther ? 'other' : s.categoryId}'),
@@ -315,4 +336,62 @@ class _DeltaChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A donut of one ink: each slice a step fainter than the last, heaviest
+/// first, "everything else" in rule grey. The bars beneath are its legend —
+/// the wheel shows the shape of the month, the rows name it.
+class _WheelPainter extends CustomPainter {
+  const _WheelPainter({
+    required this.fractions,
+    required this.sweep,
+    required this.ink,
+    required this.rest,
+    required this.hole,
+  });
+
+  /// Slice shares in row order (already heaviest-first); the last one is
+  /// "everything else" when the caller folded a remainder.
+  final List<double> fractions;
+
+  /// Draw-in progress, 0–1: the wheel sweeps itself clockwise.
+  final double sweep;
+  final Color ink;
+  final Color rest;
+  final Color hole;
+
+  static const _steps = [1.0, 0.72, 0.52, 0.38, 0.27, 0.19, 0.13];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centre = size.center(Offset.zero);
+    final radius = size.width / 2;
+    var start = -1.5707963; // twelve o'clock
+    final total = fractions.fold<double>(0, (a, b) => a + b);
+    if (total <= 0) return;
+
+    for (final (i, f) in fractions.indexed) {
+      final full = (f / total) * 6.2831853;
+      final drawn = (sweep * 6.2831853) - (start + 1.5707963);
+      if (drawn <= 0) break;
+      final paint = Paint()
+        ..color = i == fractions.length - 1 && fractions.length > 1
+            ? rest
+            : ink.withValues(alpha: _steps[i.clamp(0, _steps.length - 1)]);
+      canvas.drawArc(
+        Rect.fromCircle(center: centre, radius: radius),
+        start,
+        full.clamp(0, drawn),
+        true,
+        paint,
+      );
+      start += full;
+    }
+    // The hole that makes it a wheel, not a pie chart from a template.
+    canvas.drawCircle(centre, radius * 0.62, Paint()..color = hole);
+  }
+
+  @override
+  bool shouldRepaint(_WheelPainter old) =>
+      old.sweep != sweep || old.fractions != fractions || old.ink != ink;
 }

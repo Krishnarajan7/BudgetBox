@@ -28,6 +28,9 @@ void main() {
     addTearDown(db.close);
     await openSettings(tester, db);
 
+    await tester.scrollUntilVisible(find.text('PIN'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('PIN'));
     await tester.pumpAndSettle();
     expect(find.text('Four digits. Only your book, only you.'), findsOneWidget);
@@ -53,6 +56,9 @@ void main() {
     addTearDown(db.close);
     await openSettings(tester, db);
 
+    await tester.scrollUntilVisible(find.text('PIN'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('PIN'));
     await tester.pumpAndSettle();
 
@@ -76,6 +82,9 @@ void main() {
     await SettingsRepo(db).setPin('1234');
     await openSettings(tester, db);
 
+    await tester.scrollUntilVisible(find.text('PIN'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('PIN'));
     await tester.pumpAndSettle();
 

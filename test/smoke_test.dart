@@ -43,7 +43,7 @@ void main() {
       overrides: [dbProvider.overrideWithValue(db)],
       child: const BudgetBoxApp(),
     ));
-    expect(find.text('BudgetBox'), findsOneWidget);
+    expect(find.text('made for Krish · population, one'), findsOneWidget);
 
     // The opening plays out and hands off to the cover page. No PIN is set,
     // so the cover offers a plain open.

@@ -91,7 +91,9 @@ void main() {
       expect(find.text('−₹200'), findsOneWidget);
       expect(find.textContaining('new this month'), findsOneWidget);
 
-      // The heaviest single line.
+      // The heaviest single line — below the wheel, so scroll to it.
+      await tester.scrollUntilVisible(find.text('heaviest lines'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('heaviest lines'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());

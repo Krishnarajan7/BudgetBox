@@ -864,10 +864,12 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
         .get();
     final top = await ref.read(txnRepoProvider).topCategoryIds();
     final ids = cats.map((c) => c.id).toList();
+    // Every active category, the most-used first. Four was a guess about
+    // what a quiet day held; the rest of a life happens outside four chips.
     final order = [
       ...top.where(ids.contains),
       ...ids.where((id) => !top.contains(id)),
-    ].take(4).toList();
+    ];
 
     final accts = await _activeAccounts(ref.read(dbProvider));
     if (!mounted) return;

@@ -47,32 +47,35 @@ class LedgerColors extends ThemeExtension<LedgerColors> {
   /// Soft wash of [quill] for selected chips and highlights.
   Color get quillSoft => quill.withValues(alpha: 0.12);
 
-  /// The book opened in daylight: soft paper-white, iron ink, the lightning
-  /// deepened so it still strikes against a bright page. Same identity as
-  /// night, brighter room.
+  /// The book in daylight: warm paper-white and iron ink, with the accent
+  /// being ink itself at full strength. Monochrome carries the identity;
+  /// the three status hues are the only color on the page, which is what
+  /// makes a verdict impossible to miss.
   static const day = LedgerColors(
-    paper: Color(0xFFF5F4F8),
+    paper: Color(0xFFF7F5F0),
     paperRaised: Color(0xFFFFFFFF),
-    ink: Color(0xFF16151D),
-    inkFaint: Color(0xFF6A6875),
-    rule: Color(0xFFE4E3EA),
-    quill: Color(0xFF5B45E0),
-    seal: Color(0xFFD23B24),
+    ink: Color(0xFF1A1814),
+    inkFaint: Color(0xFF6F6A60),
+    rule: Color(0xFFE6E2D9),
+    quill: Color(0xFF11100D),
+    seal: Color(0xFFC93A24),
     jama: Color(0xFF1E8F5D),
     warn: Color(0xFFB07E1E),
   );
 
-  /// The book at night — the app's primary identity. Lacquer black, ivory
-  /// ink, and one strike of lightning violet doing all the interactive
-  /// talking. The seal keeps its vermilion: red belongs to the stamp alone,
-  /// which is exactly what keeps both colors loud.
+  /// The book at night — the app's primary identity. Moonlight monochrome:
+  /// lacquer black, warm ivory ink, and the interactive accent is *light
+  /// itself* — pure moonlit white, a weight brighter than the text around
+  /// it. No brand hue to date the app or fight the numbers; the seal's
+  /// vermilion and the two status inks are the only color, so when they
+  /// appear they mean it.
   static const night = LedgerColors(
-    paper: Color(0xFF0A0A0D),
-    paperRaised: Color(0xFF15151B),
-    ink: Color(0xFFF2EFE6),
-    inkFaint: Color(0xFF9A97A8),
-    rule: Color(0xFF26252E),
-    quill: Color(0xFF7B68FF),
+    paper: Color(0xFF0B0A08),
+    paperRaised: Color(0xFF161511),
+    ink: Color(0xFFEDE8DC),
+    inkFaint: Color(0xFF97917F),
+    rule: Color(0xFF272520),
+    quill: Color(0xFFFFFDF6),
     seal: Color(0xFFE8402A),
     jama: Color(0xFF43C98D),
     warn: Color(0xFFF2A64B),

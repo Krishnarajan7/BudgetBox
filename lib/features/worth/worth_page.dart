@@ -499,7 +499,9 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
           const SizedBox(height: Gap.x2),
           Text('${widget.account.name} — what\'s true right now?',
               style: LedgerType.title.copyWith(fontSize: 22, color: c.ink)),
-          Text('Rough is fine. This page can always be corrected again.',
+          Text(
+              'This SETS the balance — it does not add to it. Money coming '
+              'in belongs in the add sheet, flipped to "money in".',
               style: LedgerType.bodyText
                   .copyWith(fontSize: 13, color: c.inkFaint)),
           const SizedBox(height: Gap.x2),

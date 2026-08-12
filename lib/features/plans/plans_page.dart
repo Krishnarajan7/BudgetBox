@@ -154,6 +154,11 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
   /// The month being read — always the first of a month.
   DateTime _month = LedgerDates.monthStart(DateTime.now());
 
+  /// The lines as they stood before the last rebalance — the way back.
+  /// Cleared when taken, kept for the whole visit otherwise: redrawing a
+  /// month's budget should never be a one-way door.
+  Map<int, int>? _beforeRebalance;
+
   /// +1 when the last flip went forward in time.
   int _dir = 1;
 
@@ -316,19 +321,29 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
                 if (onNow) ...[
                   _suggestions(c, views),
                   const SizedBox(height: Gap.x4),
+                  if (_beforeRebalance != null)
+                    Center(
+                      child: Pressable(
+                        haptic: false,
+                        onTap: _putBack,
+                        child: Padding(
+                          padding:
+                              const EdgeInsets.symmetric(vertical: Gap.x2),
+                          child: Text(
+                            'put the lines back as they were',
+                            style: LedgerType.bodyStrong
+                                .copyWith(fontSize: 12, color: c.inkFaint),
+                          ),
+                        ),
+                      ),
+                    ),
                   Center(
                     child: Pressable(
                       haptic: false,
-                      onTap: () async {
-                        // The rows re-sorting and re-filling are the
-                        // confirmation; the haptic lands with them.
-                        await ref.read(budgetRepoProvider).rebalance(views);
-                        HapticFeedback.lightImpact();
-                      },
+                      onTap: () => _rebalance(context, views),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-
                           Text(
                             'rebalance to match how the month actually went',
                             style: LedgerType.bodyStrong.copyWith(
@@ -472,6 +487,72 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
 
   /// The first line on a blank budgets page: pick the category, name the
   /// number.
+  /// What "rebalance" actually does, said before it does it: the month's
+  /// total stays the same, but each line is redrawn to the share that
+  /// category has actually been taking. And it is not a one-way door.
+  Future<void> _rebalance(
+      BuildContext context, List<BudgetView> views) async {
+    final sure = await showLedgerSheet<bool>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: Gap.x2),
+              Text(
+                'Redraw the lines?',
+                style: LedgerType.title.copyWith(fontSize: 20, color: c.ink),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'The month\'s total stays exactly what it is. Each line is '
+                'redrawn to the share that category has actually been taking '
+                '— a budget shaped like your life instead of a guess. '
+                '"Put the lines back" undoes it.',
+                style: LedgerType.bodyText
+                    .copyWith(fontSize: 13, color: c.inkFaint),
+              ),
+              const SizedBox(height: Gap.x4),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Redraw them'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Leave them'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (sure != true || !mounted) return;
+
+    // Remember the way back before anything moves.
+    final before = {
+      for (final v in views) v.budget.id: v.pace.limitPaise,
+    };
+    await ref.read(budgetRepoProvider).rebalance(views);
+    HapticFeedback.lightImpact();
+    if (mounted) setState(() => _beforeRebalance = before);
+  }
+
+  Future<void> _putBack() async {
+    final before = _beforeRebalance;
+    if (before == null) return;
+    final repo = ref.read(budgetRepoProvider);
+    for (final e in before.entries) {
+      await repo.setLimit(e.key, e.value);
+    }
+    HapticFeedback.lightImpact();
+    if (mounted) setState(() => _beforeRebalance = null);
+  }
+
   Future<void> _newBudget(BuildContext context) async {
     final db = ref.read(dbProvider);
     final cats = await (db.select(db.categories)

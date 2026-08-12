@@ -473,3 +473,92 @@ class _PenArrowPainter extends CustomPainter {
   @override
   bool shouldRepaint(_PenArrowPainter old) => old.color != color;
 }
+
+/// The book with a face — the app's character. A monogram is a logo; a face
+/// is someone to be glad to see at 6 a.m. Folder-tab silhouette, two uneven
+/// pen-stroke eyes (one mid-wink), a smile a touch too wide.
+class MarkFace extends StatelessWidget {
+  const MarkFace({
+    super.key,
+    required this.width,
+    required this.body,
+    required this.face,
+  });
+
+  final double width;
+  final Color body;
+  final Color face;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(width, width * 0.82),
+      painter: MarkFacePainter(body: body, face: face),
+    );
+  }
+}
+
+class MarkFacePainter extends CustomPainter {
+  const MarkFacePainter({required this.body, required this.face});
+
+  final Color body;
+  final Color face;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // The folder-book: rounded slab, tab rising on the LEFT shoulder —
+    // centred tabs read as cameras.
+    final tabTop = h * 0.06;
+    final bodyTop = h * 0.24;
+    final r = w * 0.10;
+    final slab = Path()
+      ..moveTo(w * 0.04, h - r)
+      ..lineTo(w * 0.04, tabTop + r)
+      ..arcToPoint(Offset(w * 0.04 + r, tabTop), radius: Radius.circular(r))
+      ..lineTo(w * 0.34, tabTop)
+      // the shoulder falling to the body line
+      ..lineTo(w * 0.46, bodyTop)
+      ..lineTo(w * 0.96 - r, bodyTop)
+      ..arcToPoint(Offset(w * 0.96, bodyTop + r), radius: Radius.circular(r))
+      ..lineTo(w * 0.96, h - r)
+      ..arcToPoint(Offset(w * 0.96 - r, h), radius: Radius.circular(r))
+      ..lineTo(w * 0.04 + r, h)
+      ..arcToPoint(Offset(w * 0.04, h - r), radius: Radius.circular(r))
+      ..close();
+    canvas.drawPath(slab, Paint()..color = body);
+
+    final pen = Paint()
+      ..color = face
+      ..strokeWidth = w * 0.055
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    final eyeTop = h * 0.46;
+    final eyeBottom = h * 0.62;
+    // Left eye: a bar with a curled foot — mid-wink.
+    final left = Path()
+      ..moveTo(w * 0.34, eyeTop)
+      ..lineTo(w * 0.34, eyeBottom - h * 0.045)
+      ..arcToPoint(Offset(w * 0.27, eyeBottom - h * 0.045),
+          radius: Radius.circular(w * 0.045), clockwise: true);
+    canvas.drawPath(left, pen);
+    // Right eye: straight, a touch taller — the one paying attention.
+    canvas.drawLine(
+        Offset(w * 0.62, eyeTop - h * 0.03), Offset(w * 0.62, eyeBottom), pen);
+
+    // The smile, a touch too wide, riding low.
+    final smile = Path()
+      ..moveTo(w * 0.30, h * 0.74)
+      ..quadraticBezierTo(w * 0.48, h * 0.92, w * 0.68, h * 0.73);
+    canvas.drawPath(smile, pen);
+  }
+
+  @override
+  bool shouldRepaint(MarkFacePainter old) =>
+      old.body != body || old.face != face;
+}
+
+

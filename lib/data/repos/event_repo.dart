@@ -41,6 +41,28 @@ class EventRepo {
     });
   }
 
+  /// Move or re-shape an existing event; the calendar and the bridge both
+  /// route edits through here so sync always hears about them.
+  Future<void> update(
+    int id, {
+    String? title,
+    DateTime? date,
+    EventRepeat? repeat,
+  }) {
+    return _db.transaction(() async {
+      await (_db.update(_db.events)..where((e) => e.id.equals(id))).write(
+        EventsCompanion(
+          title: title == null ? const Value.absent() : Value(title),
+          date: date == null
+              ? const Value.absent()
+              : Value(LedgerDates.dayKey(date)),
+          repeat: repeat == null ? const Value.absent() : Value(repeat),
+        ),
+      );
+      await bbxSync.upsert(SyncKinds.event, id);
+    });
+  }
+
   Future<void> archive(int id) {
     return _db.transaction(() async {
       await (_db.update(_db.events)..where((e) => e.id.equals(id)))
