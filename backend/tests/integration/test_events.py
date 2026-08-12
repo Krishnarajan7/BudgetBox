@@ -124,5 +124,5 @@ def test_validation_rejects_out_of_range_time_and_empty_title(client: TestClient
 
 def test_events_are_reported_by_the_changes_feed(client: TestClient) -> None:
     make_event(client, title="Tracked", date="2026-08-14")
-    changed = client.get("/v1/changes", params={"since": "2020-01-01T00:00:00+00:00"}).json()
-    assert len(changed["changed"]["events"]) == 1
+    changed = client.get("/v1/changes").json()
+    assert len([item for item in changed["items"] if item["resource"] == "events"]) == 1

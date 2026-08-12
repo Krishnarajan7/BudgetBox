@@ -3,7 +3,6 @@ from fastapi import APIRouter
 from budgetbox.api.deps import SessionDep
 from budgetbox.api.params import parse_month
 from budgetbox.modules.focus import service
-from budgetbox.modules.focus.models import FocusSession
 from budgetbox.modules.focus.schemas import FocusIn, FocusOut, FocusPatch, StatsOut
 
 router = APIRouter(prefix="/focus", tags=["focus"])
@@ -28,8 +27,3 @@ def upsert_session(session: SessionDep, session_id: str, data: FocusIn) -> Focus
 @router.patch("/sessions/{session_id}")
 def patch_session(session: SessionDep, session_id: str, data: FocusPatch) -> FocusOut:
     return FocusOut.model_validate(service.patch(session, session_id, data))
-
-
-from budgetbox.modules.changes.router import register  # noqa: E402
-
-register("focus_sessions", FocusSession, FocusSession.id)

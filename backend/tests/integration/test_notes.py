@@ -107,5 +107,5 @@ def test_title_over_the_limit_is_rejected(client: TestClient) -> None:
 
 def test_notes_show_up_in_the_changes_feed(client: TestClient) -> None:
     note_id = make_note(client, title="Tracked")
-    changed = client.get("/v1/changes", params={"since": "2026-01-01T00:00:00+00:00"}).json()
-    assert changed["changed"]["notes"] == [note_id]
+    changed = client.get("/v1/changes").json()["items"]
+    assert [item["resource_id"] for item in changed if item["resource"] == "notes"] == [note_id]

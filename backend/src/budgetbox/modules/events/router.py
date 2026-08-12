@@ -4,7 +4,6 @@ from fastapi import APIRouter
 
 from budgetbox.api.deps import SessionDep
 from budgetbox.modules.events import service
-from budgetbox.modules.events.models import Event
 from budgetbox.modules.events.schemas import EventIn, EventOut, EventPatch, OccurrenceOut
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -33,8 +32,3 @@ def upsert_event(session: SessionDep, event_id: str, data: EventIn) -> EventOut:
 @router.patch("/{event_id}")
 def patch_event(session: SessionDep, event_id: str, data: EventPatch) -> EventOut:
     return EventOut.model_validate(service.patch(session, event_id, data))
-
-
-from budgetbox.modules.changes.router import register  # noqa: E402
-
-register("events", Event, Event.id)

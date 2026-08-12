@@ -950,6 +950,42 @@
         "title": "CategoryUse",
         "type": "object"
       },
+      "ChangeOperation": {
+        "enum": [
+          "upsert",
+          "delete"
+        ],
+        "title": "ChangeOperation",
+        "type": "string"
+      },
+      "ChangeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ChangeOperation"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "resource",
+          "resource_id",
+          "operation"
+        ],
+        "title": "ChangeOut",
+        "type": "object"
+      },
       "ChangesOut": {
         "additionalProperties": false,
         "properties": {
@@ -963,17 +999,200 @@
             "title": "Changed",
             "type": "object"
           },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChangeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "title": "Next Cursor",
+            "type": "integer"
+          },
           "now": {
             "format": "date-time",
             "title": "Now",
             "type": "string"
+          },
+          "server_time": {
+            "format": "date-time",
+            "title": "Server Time",
+            "type": "string"
           }
         },
         "required": [
+          "server_time",
+          "items",
+          "next_cursor",
+          "has_more",
           "now",
           "changed"
         ],
         "title": "ChangesOut",
+        "type": "object"
+      },
+      "CoachingInsightOut": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Paise"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Paise"
+          },
+          "difference_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference Paise"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/InsightEvidence"
+          },
+          "expires_on": {
+            "format": "date",
+            "title": "Expires On",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InsightKind"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date",
+            "title": "Period End",
+            "type": "string"
+          },
+          "period_start": {
+            "format": "date",
+            "title": "Period Start",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "snoozed_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snoozed Until"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InsightStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "message",
+          "evidence",
+          "priority",
+          "current_paise",
+          "baseline_paise",
+          "difference_paise",
+          "period_start",
+          "period_end",
+          "expires_on",
+          "status",
+          "snoozed_until",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CoachingInsightOut",
+        "type": "object"
+      },
+      "CoachingPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_cards": {
+            "default": 3,
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Cards",
+            "type": "integer"
+          },
+          "minimum_increase_paise": {
+            "default": 30000,
+            "minimum": 0.0,
+            "title": "Minimum Increase Paise",
+            "type": "integer"
+          },
+          "repeat_count": {
+            "default": 3,
+            "maximum": 30.0,
+            "minimum": 2.0,
+            "title": "Repeat Count",
+            "type": "integer"
+          },
+          "surge_ratio": {
+            "default": 1.5,
+            "maximum": 10.0,
+            "minimum": 1.1,
+            "title": "Surge Ratio",
+            "type": "number"
+          }
+        },
+        "title": "CoachingPreferences",
         "type": "object"
       },
       "ContributeIn": {
@@ -1931,6 +2150,170 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "InsightEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "budget_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Id"
+          },
+          "budget_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Name"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpendingClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comparison_months": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Comparison Months",
+            "type": "array"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "limit_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Paise"
+          },
+          "merchant_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Name"
+          },
+          "merchant_rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Rule Id"
+          },
+          "projected_paise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Paise"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "transaction_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Transaction Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "InsightEvidence",
+        "type": "object"
+      },
+      "InsightFeedbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "dismiss",
+              "acted",
+              "snooze"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "snoozed_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snoozed Until"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "InsightFeedbackIn",
+        "type": "object"
+      },
+      "InsightKind": {
+        "enum": [
+          "merchant_surge",
+          "repeated_discretionary",
+          "budget_risk"
+        ],
+        "title": "InsightKind",
+        "type": "string"
+      },
+      "InsightStatus": {
+        "enum": [
+          "active",
+          "dismissed",
+          "acted"
+        ],
+        "title": "InsightStatus",
+        "type": "string"
+      },
       "JournalIn": {
         "additionalProperties": false,
         "description": "The day itself is the path param, never the payload \u2014 one entry per IST day.",
@@ -2058,6 +2441,124 @@
           "updated_at"
         ],
         "title": "JournalOut",
+        "type": "object"
+      },
+      "MerchantRuleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/SpendingClass"
+          },
+          "match_text": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Match Text",
+            "type": "string"
+          },
+          "merchant_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Merchant Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "match_text",
+          "merchant_name",
+          "classification"
+        ],
+        "title": "MerchantRuleIn",
+        "type": "object"
+      },
+      "MerchantRuleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/SpendingClass"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "match_text": {
+            "title": "Match Text",
+            "type": "string"
+          },
+          "merchant_name": {
+            "title": "Merchant Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "match_text",
+          "merchant_name",
+          "classification",
+          "active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MerchantRuleOut",
+        "type": "object"
+      },
+      "MerchantRulePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpendingClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "merchant_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Merchant Name"
+          }
+        },
+        "title": "MerchantRulePatch",
         "type": "object"
       },
       "MonthSpend": {
@@ -3355,6 +3856,15 @@
         ],
         "title": "SettingIn",
         "type": "object"
+      },
+      "SpendingClass": {
+        "enum": [
+          "essential",
+          "discretionary",
+          "avoid"
+        ],
+        "title": "SpendingClass",
+        "type": "string"
       },
       "StampIn": {
         "additionalProperties": false,
@@ -5259,16 +5769,47 @@
     },
     "/v1/changes": {
       "get": {
+        "description": "Events strictly after ``after``, oldest first.\n\nA cursor advances only through rows returned in this page. Deletes remain\nvisible as tombstones, and ``has_more`` prevents a large restore from\nsilently skipping the tail of the ledger.",
         "operationId": "changes_v1_changes_get",
         "parameters": [
           {
             "in": "query",
-            "name": "since",
-            "required": true,
+            "name": "after",
+            "required": false,
             "schema": {
-              "format": "date-time",
-              "title": "Since",
-              "type": "string"
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
             }
           }
         ],
@@ -5302,6 +5843,327 @@
         "summary": "Changes",
         "tags": [
           "changes"
+        ]
+      }
+    },
+    "/v1/coaching/feed": {
+      "get": {
+        "operationId": "feed_v1_coaching_feed_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CoachingInsightOut"
+                  },
+                  "title": "Response Feed V1 Coaching Feed Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Feed",
+        "tags": [
+          "coaching"
+        ]
+      }
+    },
+    "/v1/coaching/insights/{insight_id}/feedback": {
+      "post": {
+        "operationId": "feedback_v1_coaching_insights__insight_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "insight_id",
+            "required": true,
+            "schema": {
+              "title": "Insight Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsightFeedbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoachingInsightOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Feedback",
+        "tags": [
+          "coaching"
+        ]
+      }
+    },
+    "/v1/coaching/merchant-rules": {
+      "get": {
+        "operationId": "merchant_rules_v1_coaching_merchant_rules_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_inactive",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Inactive",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MerchantRuleOut"
+                  },
+                  "title": "Response Merchant Rules V1 Coaching Merchant Rules Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Merchant Rules",
+        "tags": [
+          "coaching"
+        ]
+      }
+    },
+    "/v1/coaching/merchant-rules/{rule_id}": {
+      "patch": {
+        "operationId": "patch_rule_v1_coaching_merchant_rules__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MerchantRulePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MerchantRuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Rule",
+        "tags": [
+          "coaching"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_rule_v1_coaching_merchant_rules__rule_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MerchantRuleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MerchantRuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert Rule",
+        "tags": [
+          "coaching"
+        ]
+      }
+    },
+    "/v1/coaching/preferences": {
+      "get": {
+        "operationId": "preferences_v1_coaching_preferences_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoachingPreferences"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preferences",
+        "tags": [
+          "coaching"
+        ]
+      },
+      "put": {
+        "operationId": "set_preferences_v1_coaching_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoachingPreferences"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoachingPreferences"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Preferences",
+        "tags": [
+          "coaching"
         ]
       }
     },

@@ -105,5 +105,7 @@ def test_delete_is_hard_and_then_404(client: TestClient) -> None:
 def test_vault_items_show_up_in_changes(client: TestClient) -> None:
     item_id = new_id()
     put(client, item_id)
-    changed = client.get("/v1/changes", params={"since": "2020-01-01T00:00:00+00:00"}).json()
-    assert changed["changed"]["vault_items"] == [item_id]
+    changed = client.get("/v1/changes").json()["items"]
+    assert [item["resource_id"] for item in changed if item["resource"] == "vault_items"] == [
+        item_id
+    ]

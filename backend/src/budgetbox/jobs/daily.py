@@ -5,6 +5,7 @@ and once before serve starts — reruns are always safe."""
 from sqlalchemy.orm import Session, sessionmaker
 
 from budgetbox.jobs.runner import run_jobs
+from budgetbox.modules.coaching import service as coaching_service
 from budgetbox.modules.networth import service as networth_service
 from budgetbox.modules.recurring import service as recurring_service
 
@@ -22,5 +23,10 @@ def snapshot_balances(session: Session) -> str:
     return f"wrote {written} snapshot(s)"
 
 
+def generate_coaching(session: Session) -> str:
+    created = coaching_service.generate(session)
+    return f"created {created} coaching insight(s)"
+
+
 def run_daily(factory: sessionmaker[Session]) -> bool:
-    return run_jobs(factory, DAILY, [materialize_recurrings, snapshot_balances])
+    return run_jobs(factory, DAILY, [materialize_recurrings, snapshot_balances, generate_coaching])

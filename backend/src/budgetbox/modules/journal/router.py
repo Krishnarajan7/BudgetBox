@@ -6,7 +6,6 @@ from budgetbox.api.deps import SessionDep
 from budgetbox.api.params import parse_month
 from budgetbox.core.time import today_ist
 from budgetbox.modules.journal import service
-from budgetbox.modules.journal.models import JournalEntry
 from budgetbox.modules.journal.schemas import DayFacts, JournalIn, JournalMonth, JournalOut
 
 router = APIRouter(prefix="/journal", tags=["journal"])
@@ -46,8 +45,3 @@ def upsert_entry(session: SessionDep, day: date, data: JournalIn) -> JournalOut:
 @router.delete("/{day}", status_code=204)
 def delete_entry(session: SessionDep, day: date) -> None:
     service.delete(session, day)
-
-
-from budgetbox.modules.changes.router import register  # noqa: E402
-
-register("journal_entries", JournalEntry, JournalEntry.date)

@@ -2,7 +2,6 @@ from fastapi import APIRouter
 
 from budgetbox.api.deps import SessionDep
 from budgetbox.modules.notes import service
-from budgetbox.modules.notes.models import Note
 from budgetbox.modules.notes.schemas import NoteIn, NoteOut, NotePatch
 
 router = APIRouter(prefix="/notes", tags=["notes"])
@@ -23,8 +22,3 @@ def upsert_note(session: SessionDep, note_id: str, data: NoteIn) -> NoteOut:
 def patch_note(session: SessionDep, note_id: str, data: NotePatch) -> NoteOut:
     """No DELETE: archiving is the delete, so a note is never actually lost."""
     return NoteOut.model_validate(service.patch(session, note_id, data))
-
-
-from budgetbox.modules.changes.router import register  # noqa: E402
-
-register("notes", Note, Note.id)

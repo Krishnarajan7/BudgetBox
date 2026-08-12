@@ -1,57 +1,82 @@
-"""Cheap cache-refresh affordance (not a sync protocol): which rows changed since
-an instant, per resource, keyed off the updated_at every table carries."""
+"""Deletion-aware, cursor-paginated synchronization feed."""
 
 from datetime import datetime
-from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from sqlalchemy import select
-from sqlalchemy.orm import InstrumentedAttribute
 
 from budgetbox.api.deps import SessionDep
 from budgetbox.api.schemas import APIModel, Instant
 from budgetbox.core.time import now_utc
-from budgetbox.modules.accounts.models import Account, BalanceAnchor
-from budgetbox.modules.budgets.models import Budget
-from budgetbox.modules.categories.models import Category
-from budgetbox.modules.goals.models import Goal
-from budgetbox.modules.recurring.models import Recurring
-from budgetbox.modules.settings.models import Setting
-from budgetbox.modules.transactions.models import Activity, DaySeal, Pinned, Txn
+from budgetbox.modules.changes.models import ChangeEvent, ChangeOperation
 
 router = APIRouter(prefix="/changes", tags=["changes"])
 
-_TRACKED: dict[str, tuple[type[Any], InstrumentedAttribute[Any]]] = {
-    "accounts": (Account, Account.id),
-    "balance_anchors": (BalanceAnchor, BalanceAnchor.id),
-    "categories": (Category, Category.id),
-    "txns": (Txn, Txn.id),
-    "pinned": (Pinned, Pinned.id),
-    "day_seals": (DaySeal, DaySeal.date),
-    "activities": (Activity, Activity.id),
-    "settings": (Setting, Setting.key),
-    "recurrings": (Recurring, Recurring.id),
-    "budgets": (Budget, Budget.id),
-    "goals": (Goal, Goal.id),
-}
 
-
-def register(resource: str, model: type[Any], pk: InstrumentedAttribute[Any]) -> None:
-    """Later modules (notes, journal, …) opt in without editing this file."""
-    _TRACKED[resource] = (model, pk)
+class ChangeOut(APIModel):
+    sequence: int
+    resource: str
+    resource_id: str
+    operation: ChangeOperation
 
 
 class ChangesOut(APIModel):
+    server_time: datetime
+    items: list[ChangeOut]
+    next_cursor: int
+    has_more: bool
+    # Compatibility for app builds that still poll by timestamp. New clients
+    # ignore these fields and use the durable cursor above.
     now: datetime
     changed: dict[str, list[str]]
 
 
 @router.get("")
-def changes(session: SessionDep, since: Instant) -> ChangesOut:
-    now = now_utc()
-    changed: dict[str, list[str]] = {}
-    for resource, (model, pk) in _TRACKED.items():
-        rows: list[Any] = list(session.scalars(select(pk).where(model.updated_at > since)))
-        if rows:
-            changed[resource] = [str(r) for r in rows]
-    return ChangesOut(now=now, changed=changed)
+def changes(
+    session: SessionDep,
+    after: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
+    since: Instant | None = None,
+) -> ChangesOut:
+    """Events strictly after ``after``, oldest first.
+
+    A cursor advances only through rows returned in this page. Deletes remain
+    visible as tombstones, and ``has_more`` prevents a large restore from
+    silently skipping the tail of the ledger.
+    """
+    rows = list(
+        session.scalars(
+            select(ChangeEvent)
+            .where(ChangeEvent.sequence > after)
+            .order_by(ChangeEvent.sequence)
+            .limit(limit + 1)
+        )
+    )
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    next_cursor = page[-1].sequence if page else after
+    server_time = now_utc()
+
+    legacy: dict[str, list[str]] = {}
+    if since is not None:
+        legacy_rows = session.execute(
+            select(ChangeEvent.resource, ChangeEvent.resource_id)
+            .where(
+                ChangeEvent.changed_at > since,
+                ChangeEvent.operation == ChangeOperation.UPSERT,
+            )
+            .order_by(ChangeEvent.sequence)
+        )
+        for resource, resource_id in legacy_rows:
+            ids = legacy.setdefault(resource, [])
+            if resource_id not in ids:
+                ids.append(resource_id)
+
+    return ChangesOut(
+        server_time=server_time,
+        items=[ChangeOut.model_validate(row) for row in page],
+        next_cursor=next_cursor,
+        has_more=has_more,
+        now=server_time,
+        changed=legacy,
+    )

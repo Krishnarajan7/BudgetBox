@@ -76,8 +76,10 @@ def test_delete_then_404(client: TestClient) -> None:
 
 def test_entry_shows_up_in_changes(client: TestClient) -> None:
     client.put("/v1/journal/2026-07-15", json={"body": "hello", "mood": 4})
-    changed = client.get("/v1/changes", params={"since": "2020-01-01T00:00:00Z"}).json()["changed"]
-    assert changed["journal_entries"] == ["2026-07-15"]
+    changed = client.get("/v1/changes").json()["items"]
+    assert [item["resource_id"] for item in changed if item["resource"] == "journal_entries"] == [
+        "2026-07-15"
+    ]
 
 
 @time_machine.travel("2026-07-15T10:00:00+05:30")

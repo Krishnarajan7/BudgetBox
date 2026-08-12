@@ -54,7 +54,7 @@ curl -H "Authorization: Bearer bbx_..." localhost:8000/v1/ping
   `/v1/budgets/{id}/trail`, `/v1/pinned/board`, `/v1/recurring/upcoming`,
   `/v1/goals`, `/v1/networth/{current,series,accounts}`,
   `/v1/insights/month-story`, `/v1/focus/stats`, `/v1/journal/month`,
-  `/v1/journal/{day}/facts`, `/v1/changes?since=`.
+  `/v1/journal/{day}/facts`, `/v1/coaching/feed`, `/v1/changes?cursor=`.
 - The add sheet's five-second path has its own memory endpoints:
   `/v1/txns/suggest`, `/v1/txns/recent-amounts`, `/v1/categories/top`.
 - Plan workflows are server-side and atomic: `POST /v1/budgets/rebalance`,
@@ -72,6 +72,9 @@ curl -H "Authorization: Bearer bbx_..." localhost:8000/v1/ping
   `POST /v1/activities/{id}/undo` replays the inverse and consumes the row.
 - **Recurrings materialize** via the daily job — catch-up idempotent, so downtime
   self-heals; a partial unique index guarantees one txn per (recurring, due).
+- **Sync changes are an append-only cursor**, not an `updated_at` scan. SQLite
+  triggers record upserts and deletion tombstones; clients page until `has_more`
+  is false and advance only through events they actually applied.
 - **Net worth history** is a rebuildable cache (`account_snapshots`): the last 90
   days re-derive every run; `budgetbox jobs rebuild-snapshots` redoes all of it.
 - **Vault is zero-knowledge**: opaque nonce+cipher blobs only, never logged.
@@ -81,6 +84,10 @@ curl -H "Authorization: Bearer bbx_..." localhost:8000/v1/ping
 - **The book stays quiet without evidence.** Conditional story pages, the journal's
   mood-against-money line and the "held its line N months running" streak all
   return null/zero rather than a guess: a blank month is silence, not restraint.
+- **Coaching is deterministic before it is conversational.** User-owned merchant
+  rules classify spending; same-elapsed-day medians, repeat counts and budget pace
+  create persisted evidence cards. Dismissals survive regeneration, and the daily
+  job refreshes the feed. No transaction data is sent to an LLM.
 
 ## VPS runbook (Ubuntu-ish)
 
