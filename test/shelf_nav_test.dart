@@ -17,14 +17,18 @@ void main() {
   }
 
   Future<void> openBook(WidgetTester tester, LedgerDb db) async {
-    await tester.pumpWidget(ProviderScope(
-      overrides: [dbProvider.overrideWithValue(db)],
-      child: const BudgetBoxApp(),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [dbProvider.overrideWithValue(db)],
+        child: const BudgetBoxApp(),
+      ),
+    );
     await tester.pumpAndSettle(const Duration(seconds: 1));
     await tester.tap(find.text('Tap to open the book'));
     await tester.pump();
+    // Three beats now: the wink, the press, the pause — then the shell.
     await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }
@@ -37,7 +41,7 @@ void main() {
       await openBook(tester, db);
 
       // Tap the wordmark: the box opens.
-      await tester.tap(find.text('BudgetBox'));
+      await tester.tap(find.text('Krish Space'));
       await tester.pumpAndSettle();
       expect(find.text('the box'), findsOneWidget);
 
@@ -59,7 +63,7 @@ void main() {
     await SettingsRepo(db).markSetupDone();
     await openBook(tester, db);
 
-    await tester.tap(find.text('BudgetBox'));
+    await tester.tap(find.text('Krish Space'));
     // Deliberately do NOT settle — the spines stagger in over ~180ms and the
     // last one is still fading when a fast hand reaches it.
     await tester.pump();
@@ -78,7 +82,7 @@ void main() {
     await openBook(tester, db);
 
     // Open a book first so there is something to pop back through.
-    await tester.tap(find.text('BudgetBox'));
+    await tester.tap(find.text('Krish Space'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Journal'));
     await tester.pumpAndSettle();
@@ -88,7 +92,7 @@ void main() {
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('BudgetBox'));
+    await tester.tap(find.text('Krish Space'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Money'));
     await tester.pumpAndSettle();

@@ -11,9 +11,9 @@ import 'package:timezone/timezone.dart' as tz;
 /// exception: a reminder is not worth a crash.
 ///
 /// The id ledger: 1 = tonight's voiced nudge (one-shot, knows the day),
-/// 2 = the standing evening nudge (daily, generic — the fallback when the
-/// app hasn't been opened to re-voice tonight's), 3 = salary morning,
-/// 4 = the focus session's finish line, 1000+ = calendar days
+/// 2 = the retired repeating evening nudge (kept only so upgrades cancel it),
+/// 3 = salary morning, 4 = the focus session's finish line, 20–33 = the next
+/// fourteen standing evening nudges, 1000+ = calendar days
 /// ([scheduleEventDay]), 2000+ = recurring charges.
 class LedgerReminders {
   LedgerReminders._();
@@ -25,6 +25,8 @@ class LedgerReminders {
   static const _idStanding = 2;
   static const _idSalary = 3;
   static const _idFocus = 4;
+  static const _standingBase = 20;
+  static const _standingDays = 14;
   static const _dueBase = 2000;
   static const _channel = AndroidNotificationDetails(
     'close-the-day',
@@ -142,34 +144,53 @@ class LedgerReminders {
     if (!await _init()) return;
     try {
       await _plugin.cancel(_idTonight);
+      // A seal must also silence whichever fallback was assigned to today.
+      // The next scheduleStanding call rebuilds tomorrow onward.
+      await _plugin.cancel(_idStanding);
+      for (var i = 0; i < _standingDays; i++) {
+        await _plugin.cancel(_standingBase + i);
+      }
     } catch (_) {}
   }
 
-  /// The standing evening nudge: daily, generic, anchored to start
-  /// to-morrow so it never doubles tonight's voiced one. It is what speaks
-  /// on the days the app was never opened — which is exactly the day a
-  /// nudge is for.
-  static Future<void> scheduleStanding(int hour, int minute) async {
+  /// One-shot fallbacks for the next fortnight. They start to-morrow so they
+  /// never double tonight's evidence-aware nudge. One notification per day
+  /// lets the wording rotate, and lets sealing a day cancel that day's alert;
+  /// a repeating platform alarm cannot do either reliably.
+  static Future<void> scheduleStanding(
+    int hour,
+    int minute,
+    List<(String title, String body)> copies,
+  ) async {
     if (!await _init()) return;
     try {
+      // Remove the old repeating alarm from installations upgrading from the
+      // first implementation, then replace the whole rolling horizon.
+      await _plugin.cancel(_idStanding);
+      for (var i = 0; i < _standingDays; i++) {
+        await _plugin.cancel(_standingBase + i);
+      }
       final now = tz.TZDateTime.now(tz.local);
-      final at = tz.TZDateTime(
-        tz.local,
-        now.year,
-        now.month,
-        now.day,
-        hour,
-        minute,
-      ).add(const Duration(days: 1));
-      await _plugin.zonedSchedule(
-        _idStanding,
-        'the page is still open',
-        'a minute to close the day, if it\'s done being written',
-        at,
-        _details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
+      for (var i = 0; i < copies.length && i < _standingDays; i++) {
+        final day = now.add(Duration(days: i + 1));
+        final at = tz.TZDateTime(
+          tz.local,
+          day.year,
+          day.month,
+          day.day,
+          hour,
+          minute,
+        );
+        final (title, body) = copies[i];
+        await _plugin.zonedSchedule(
+          _standingBase + i,
+          title,
+          body,
+          at,
+          _details,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        );
+      }
     } catch (e) {
       debugPrint('nudge not scheduled: $e');
     }
@@ -222,6 +243,9 @@ class LedgerReminders {
       await _plugin.cancel(_idTonight);
       await _plugin.cancel(_idStanding);
       await _plugin.cancel(_idSalary);
+      for (var i = 0; i < _standingDays; i++) {
+        await _plugin.cancel(_standingBase + i);
+      }
       final pending = await _plugin.pendingNotificationRequests();
       for (final p in pending) {
         if (p.id >= _dueBase) await _plugin.cancel(p.id);

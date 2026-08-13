@@ -13,8 +13,7 @@ import 'api_config.dart';
 /// still owed and should stay in the outbox; [BbxProblem] means the server
 /// understood and refused, so retrying the same body forever is pointless.
 class BbxClient {
-  BbxClient(this.config, {http.Client? inner})
-      : _http = inner ?? http.Client();
+  BbxClient(this.config, {http.Client? inner}) : _http = inner ?? http.Client();
 
   final BbxConfig config;
   final http.Client _http;
@@ -22,10 +21,10 @@ class BbxClient {
   static const _timeout = Duration(seconds: 20);
 
   Map<String, String> get _headers => {
-        'authorization': 'Bearer ${config.token}',
-        'accept': 'application/json',
-        'content-type': 'application/json',
-      };
+    'authorization': 'Bearer ${config.token}',
+    'accept': 'application/json',
+    'content-type': 'application/json',
+  };
 
   Future<dynamic> get(String path, [Map<String, dynamic>? query]) =>
       _send('GET', path, query: query);
@@ -54,8 +53,11 @@ class BbxClient {
 
     final http.Response response;
     try {
+      // One clock over the whole exchange: a server that accepts the
+      // connection and then drips the body forever must still time out —
+      // a timeout on send() alone leaves the body read unbounded.
       final streamed = await _http.send(request).timeout(_timeout);
-      response = await http.Response.fromStream(streamed);
+      response = await http.Response.fromStream(streamed).timeout(_timeout);
     } on TimeoutException {
       throw const BbxOffline('the server did not answer in time');
     } on SocketException catch (e) {

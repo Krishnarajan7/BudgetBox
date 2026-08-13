@@ -23,12 +23,18 @@ import 'amount_engine.dart';
 /// The sacred flow. Keypad visible on open, amount is the only required
 /// field, and Save is a stamp: press, haptic, seal flash, done — the ledger
 /// line is the confirmation, so there is no toast.
-Future<void> showAddSheet(BuildContext context) {
-  return showLedgerSheet<void>(context, builder: (_) => const AddSheet());
+///
+/// [at] pre-dates the entry — the Book's day pages use it so a remembered
+/// spend can be written straight onto the day it happened.
+Future<void> showAddSheet(BuildContext context, {DateTime? at}) {
+  return showLedgerSheet<void>(context, builder: (_) => AddSheet(at: at));
 }
 
 class AddSheet extends ConsumerStatefulWidget {
-  const AddSheet({super.key});
+  const AddSheet({super.key, this.at});
+
+  /// The day this entry belongs to; null means now.
+  final DateTime? at;
 
   @override
   ConsumerState<AddSheet> createState() => _AddSheetState();
@@ -52,7 +58,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
 
   int? _categoryId;
   int? _accountId;
-  DateTime _at = DateTime.now();
+  late DateTime _at = widget.at ?? DateTime.now();
   bool _stamping = false;
 
   /// The optional line behind "details" — closed until asked for, so the

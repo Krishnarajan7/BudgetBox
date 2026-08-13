@@ -45,6 +45,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 60));
     }
 
+    // The way in is three beats now: wink, press, pause.
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
@@ -77,6 +79,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 60));
     }
+    // The way in is three beats now: wink, press, pause.
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();

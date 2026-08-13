@@ -1,9 +1,9 @@
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:local_auth/local_auth.dart';
 
 import '../../core/dates.dart';
 import '../../core/tokens.dart';
@@ -14,11 +14,14 @@ import '../../data/providers.dart';
 import '../shell/shell.dart';
 
 /// The book's cover. The character — the folder-book with a face, the same
-/// one that settles onto the splash — waits here and is the way in. Face ID
-/// fires on arrival when a PIN exists; the ledger keypad is the fallback. A
-/// wrong PIN shakes and says so in one line; the right one presses the
-/// character down like a stamp, and the book opens through it. Under the
-/// date the cover may whisper one true thing about yesterday — never a nag.
+/// one that settles onto the splash — waits here and IS the door: the app's
+/// own PIN, nothing else (no Face ID; the book answers to its owner's hand,
+/// not the phone's). The character has a temper about it: a wrong PIN and
+/// it flushes vermilion, brows down, mouth flat, shaking its head — then
+/// cools back to itself. The right PIN completes the wink it was always
+/// halfway through, takes the press, and the book opens through it. Under
+/// the date the cover may whisper one true thing about yesterday — never a
+/// nag.
 class LockPage extends ConsumerStatefulWidget {
   const LockPage({super.key});
 
@@ -46,6 +49,14 @@ class _LockPageState extends ConsumerState<LockPage>
   /// the seal, landing on the book's face instead.
   late final AnimationController _press;
 
+  /// The flare of temper: forward is the flush (quick — anger arrives),
+  /// reverse is the cooling (slow — it takes a moment to let go).
+  late final AnimationController _anger;
+  late final CurvedAnimation _angerCurve;
+
+  /// The wink, completed: the half-closed eye shuts, holds a beat, opens.
+  late final AnimationController _wink;
+
   /// The pause after the press, before the shell fades up through the cover.
   static const _openBeat = Duration(milliseconds: 240);
 
@@ -60,6 +71,22 @@ class _LockPageState extends ConsumerState<LockPage>
       vsync: this,
       duration: const Duration(milliseconds: 320),
     );
+    _anger = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+      reverseDuration: const Duration(milliseconds: 1400),
+    );
+    // The flush snaps in; the cooling releases — held a beat, then let go,
+    // easing all the way out so the last of the red never visibly steps.
+    _angerCurve = CurvedAnimation(
+      parent: _anger,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInOutCubic,
+    );
+    _wink = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
     _prepare();
     _listenForWhispers();
   }
@@ -68,6 +95,9 @@ class _LockPageState extends ConsumerState<LockPage>
   void dispose() {
     _shake.dispose();
     _press.dispose();
+    _angerCurve.dispose();
+    _anger.dispose();
+    _wink.dispose();
     super.dispose();
   }
 
@@ -79,7 +109,6 @@ class _LockPageState extends ConsumerState<LockPage>
       _hasPin = hasPin;
       _checked = true;
     });
-    if (hasPin) _tryBiometrics();
   }
 
   /// Read-only: did yesterday get closed, and how long has the journal been
@@ -110,7 +139,9 @@ class _LockPageState extends ConsumerState<LockPage>
       if (last == null || d.isAfter(last)) last = d;
     }
     if (last == null) return;
-    final gap = today.difference(DateTime(last.year, last.month, last.day)).inDays;
+    final gap = today
+        .difference(DateTime(last.year, last.month, last.day))
+        .inDays;
     if (gap < 2) return;
     if (mounted) setState(() => _whisper = '${_count(gap)} days unwritten');
   }
@@ -124,32 +155,19 @@ class _LockPageState extends ConsumerState<LockPage>
     return n <= 10 ? words[n] : '$n';
   }
 
-  Future<void> _tryBiometrics() async {
-    try {
-      final auth = LocalAuthentication();
-      if (!await auth.isDeviceSupported()) return;
-      final ok = await auth.authenticate(
-        localizedReason: 'Open your book',
-        // Not biometricOnly: many Android phones carry class-2 face unlock,
-        // which a strict biometric ask refuses outright — and the device's
-        // own credential is a perfectly good key to this door.
-        biometricOnly: false,
-      );
-      if (ok && mounted) _celebrateAndOpen();
-    } catch (_) {
-      // No biometrics here (simulator, desktop, tests) — the keypad is
-      // the door.
-    }
-  }
-
-  /// Success is a moment: the character gets pressed down with a thud —
-  /// the cover stamped by the hand that opens it — a beat passes, and the
-  /// shell fades up through it.
+  /// Success is a moment with two beats: the character finishes the wink it
+  /// has always been halfway through — eye shuts, holds, opens — and only
+  /// then takes the press, the cover stamped by the hand that opens it. A
+  /// beat passes, and the shell fades up through it.
   Future<void> _celebrateAndOpen() async {
     if (_success) return;
     setState(() => _success = true);
-    HapticFeedback.mediumImpact();
+    HapticFeedback.lightImpact();
     if (!Motion.reduced(context)) {
+      // Any leftover temper cools instantly — a right answer clears the air.
+      _anger.value = 0;
+      await _wink.forward(from: 0);
+      HapticFeedback.mediumImpact();
       await _press.forward(from: 0);
       await Future<void>.delayed(_openBeat);
     }
@@ -182,6 +200,14 @@ class _LockPageState extends ConsumerState<LockPage>
     if (Motion.reduced(context)) {
       await Future<void>.delayed(Motion.quick);
     } else {
+      // The temper: the flush arrives fast and cools slowly, while the
+      // head shakes it off. The cooling runs on while the next attempt is
+      // already being typed — grudges fade, they don't blink off.
+      unawaited(
+        _anger.forward(from: 0).then((_) {
+          if (mounted) _anger.reverse();
+        }),
+      );
       await _shake.forward(from: 0);
     }
     if (!mounted) return;
@@ -213,7 +239,7 @@ class _LockPageState extends ConsumerState<LockPage>
           children: [
             const Spacer(flex: 2),
             Text(
-              'BudgetBox',
+              'Krish Space',
               textAlign: TextAlign.center,
               style: LedgerType.wordmark.copyWith(fontSize: 28, color: c.ink),
             ),
@@ -263,17 +289,43 @@ class _LockPageState extends ConsumerState<LockPage>
     return cover;
   }
 
-  /// The character, holding the middle of the cover. On the way in it takes
-  /// the press — down and back in one breath, the stamp's gesture without
-  /// the stamp.
+  /// The character, holding the middle of the cover — and wearing every
+  /// mood the door puts it through. One merged listenable drives it all:
+  /// the press dip, the angry flush (with its own head-shake), the wink.
   Widget _character(LedgerColors c, {required double width}) {
     return AnimatedBuilder(
-      animation: _press,
-      builder: (context, child) {
+      animation: Listenable.merge([_press, _anger, _wink, _shake]),
+      builder: (context, _) {
         final dip = math.sin(_press.value * math.pi);
-        return Transform.scale(scale: 1 - 0.10 * dip, child: child);
+        final anger = _angerCurve.value;
+        // Heat, not tint: ink → deep ember → vermilion, the way metal takes
+        // colour. A straight lerp to the seal passed through a washed pink
+        // on its way back down; routing through the ember keeps the cooling
+        // warm to the last.
+        const ember = Color(0xFFB2371F);
+        final body = anger < 0.55
+            ? Color.lerp(c.quill, ember, anger / 0.55)!
+            : Color.lerp(ember, c.seal, (anger - 0.55) / 0.45)!;
+        // The head-shake rides the same swing as the dots, scaled down —
+        // one gesture, two places.
+        final t = _shake.value;
+        final dx = math.sin(t * math.pi * 5) * 7 * (1 - t);
+        return Transform.translate(
+          offset: Offset(dx, 0),
+          child: Transform.scale(
+            scale: 1 - 0.10 * dip,
+            child: CustomPaint(
+              size: Size(width, width * 0.82),
+              painter: _MoodFacePainter(
+                body: body,
+                face: c.paper,
+                anger: anger,
+                wink: _wink.value,
+              ),
+            ),
+          ),
+        );
       },
-      child: MarkFace(width: width, body: c.quill, face: c.paper),
     );
   }
 
@@ -328,10 +380,7 @@ class _LockPageState extends ConsumerState<LockPage>
                 // Three diminishing swings.
                 final t = _shake.value;
                 final dx = math.sin(t * math.pi * 5) * 14 * (1 - t);
-                return Transform.translate(
-                  offset: Offset(dx, 0),
-                  child: child,
-                );
+                return Transform.translate(offset: Offset(dx, 0), child: child);
               },
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -389,12 +438,9 @@ class _LockPageState extends ConsumerState<LockPage>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _key(
-                      c,
-                      '',
-                      _tryBiometrics,
-                      mark: PenFace(size: 22, color: c.inkFaint),
-                    ),
+                    // The slot Face ID used to hold. The book answers to
+                    // its own PIN now — an empty space, not another key.
+                    const SizedBox(width: 88, height: 66),
                     _key(c, '0', () => _digit('0')),
                     _key(c, '⌫', _backspace, faint: true),
                   ],
@@ -429,7 +475,8 @@ class _LockPageState extends ConsumerState<LockPage>
             color: c.paperRaised,
             borderRadius: BorderRadius.circular(Corner.key),
           ),
-          child: mark ??
+          child:
+              mark ??
               Text(
                 label,
                 style: LedgerType.amount.copyWith(
@@ -505,4 +552,144 @@ class _PinDotState extends State<_PinDot> with SingleTickerProviderStateMixin {
       ),
     );
   }
+}
+
+/// The character's face with a temper and a wink — the splash's
+/// [MarkFacePainter] geometry, given moods. [anger] flushes the slab toward
+/// the seal (the caller lerps the colour), slides angry brows down over the
+/// eyes, tilts the eyes inward and flattens the smile into a flat line of
+/// disapproval. [wink] completes the wink the left eye was always halfway
+/// through: it closes into a contented arc, holds, and opens again, the
+/// smile widening a touch while it's shut. Both are 0..1 and compose.
+class _MoodFacePainter extends CustomPainter {
+  const _MoodFacePainter({
+    required this.body,
+    required this.face,
+    required this.anger,
+    required this.wink,
+  });
+
+  final Color body;
+  final Color face;
+  final double anger;
+  final double wink;
+
+  /// The wink's envelope: shut quickly, hold shut, open with ease.
+  double get _shut {
+    if (wink <= 0) return 0;
+    if (wink < 0.35) return Curves.easeOutCubic.transform(wink / 0.35);
+    if (wink < 0.65) return 1;
+    return 1 - Curves.easeInOutCubic.transform((wink - 0.65) / 0.35);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // The folder-book slab, exactly as the splash draws it.
+    final tabTop = h * 0.06;
+    final bodyTop = h * 0.24;
+    final r = w * 0.10;
+    final slab = Path()
+      ..moveTo(w * 0.04, h - r)
+      ..lineTo(w * 0.04, tabTop + r)
+      ..arcToPoint(Offset(w * 0.04 + r, tabTop), radius: Radius.circular(r))
+      ..lineTo(w * 0.34, tabTop)
+      ..lineTo(w * 0.46, bodyTop)
+      ..lineTo(w * 0.96 - r, bodyTop)
+      ..arcToPoint(Offset(w * 0.96, bodyTop + r), radius: Radius.circular(r))
+      ..lineTo(w * 0.96, h - r)
+      ..arcToPoint(Offset(w * 0.96 - r, h), radius: Radius.circular(r))
+      ..lineTo(w * 0.04 + r, h)
+      ..arcToPoint(Offset(w * 0.04, h - r), radius: Radius.circular(r))
+      ..close();
+    canvas.drawPath(slab, Paint()..color = body);
+
+    final pen = Paint()
+      ..color = face
+      ..strokeWidth = w * 0.055
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    final eyeTop = h * 0.46;
+    final eyeBottom = h * 0.62;
+    final shut = _shut;
+    // Angry eyes tilt their tops toward each other — a glare, not a stare.
+    final tilt = w * 0.025 * anger;
+
+    // Left eye: the bar with the curled foot, mid-wink by nature. The wink
+    // finishes the job — the bar sinks into its own curl until only a
+    // contented closed arc remains.
+    if (shut < 0.95) {
+      final top = eyeTop + (eyeBottom - h * 0.075 - eyeTop) * shut;
+      final left = Path()
+        ..moveTo(w * 0.34 + tilt, top)
+        ..lineTo(w * 0.34, eyeBottom - h * 0.045)
+        ..arcToPoint(
+          Offset(w * 0.27, eyeBottom - h * 0.045),
+          radius: Radius.circular(w * 0.045),
+          clockwise: true,
+        );
+      canvas.drawPath(left, pen);
+    } else {
+      // Fully shut: one downward bow — the eye smiling on its own.
+      final arc = Path()
+        ..moveTo(w * 0.26, eyeBottom - h * 0.05)
+        ..quadraticBezierTo(
+          w * 0.335,
+          eyeBottom + h * 0.015,
+          w * 0.41,
+          eyeBottom - h * 0.05,
+        );
+      canvas.drawPath(arc, pen);
+    }
+
+    // Right eye: straight, a touch taller — the one paying attention. It
+    // stays open through the wink (that is what makes it a wink).
+    canvas.drawLine(
+      Offset(w * 0.62 - tilt, eyeTop - h * 0.03),
+      Offset(w * 0.62, eyeBottom),
+      pen,
+    );
+
+    // The brows arrive only with temper: two strokes sliding down and in,
+    // fading in with the flush.
+    if (anger > 0.01) {
+      final brow = Paint()
+        ..color = face.withValues(alpha: anger.clamp(0.0, 1.0))
+        ..strokeWidth = w * 0.055
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
+      final drop = h * 0.05 * (1 - anger);
+      canvas.drawLine(
+        Offset(w * 0.235, h * 0.345 - drop),
+        Offset(w * 0.375, h * 0.405 - drop),
+        brow,
+      );
+      canvas.drawLine(
+        Offset(w * 0.715, h * 0.345 - drop),
+        Offset(w * 0.575, h * 0.405 - drop),
+        brow,
+      );
+    }
+
+    // The mouth: a too-wide smile that widens further while the wink holds,
+    // and flattens to a hard line as the temper rises.
+    final widen = w * 0.015 * shut;
+    final smileCtrlY = h * (0.92 + 0.04 * shut);
+    final ctrlY = smileCtrlY + (h * 0.60 - smileCtrlY) * anger;
+    final endY = h * (0.74 - 0.045 * anger);
+    final mouth = Path()
+      ..moveTo(w * 0.30 - widen, endY)
+      ..quadraticBezierTo(w * 0.48, ctrlY, w * 0.68 + widen, endY - h * 0.01);
+    canvas.drawPath(mouth, pen);
+  }
+
+  @override
+  bool shouldRepaint(_MoodFacePainter old) =>
+      old.body != body ||
+      old.face != face ||
+      old.anger != anger ||
+      old.wink != wink;
 }

@@ -120,12 +120,12 @@ class SyncEngine {
     SyncOutbox outbox,
     this._config,
     http.Client? httpClient,
-  )   : _outbox = outbox,
-        _httpOverride = httpClient,
-        _adopter = SyncAdopter(db),
-        _reconciler = SyncReconciler(db, outbox),
-        _puller = SyncPuller(db, outbox),
-        _settings = SettingsSync(db) {
+  ) : _outbox = outbox,
+      _httpOverride = httpClient,
+      _adopter = SyncAdopter(db),
+      _reconciler = SyncReconciler(db, outbox),
+      _puller = SyncPuller(db, outbox),
+      _settings = SettingsSync(db) {
     _client = BbxClient(_config, inner: httpClient);
     _wire = SyncWire(_client);
   }
@@ -140,8 +140,9 @@ class SyncEngine {
   late BbxClient _client;
   late SyncWire _wire;
 
-  final ValueNotifier<SyncStatus> status =
-      ValueNotifier<SyncStatus>(const SyncStatus());
+  final ValueNotifier<SyncStatus> status = ValueNotifier<SyncStatus>(
+    const SyncStatus(),
+  );
 
   bool _running = false;
 
@@ -257,6 +258,16 @@ class SyncEngine {
       }
 
       await _settle(SyncPhase.idle, null, at: pulled.at ?? DateTime.now());
+    } on Object catch (e) {
+      // The catch-all that keeps the status honest. Anything unexpected —
+      // a server speaking an older dialect, a parse error, a bug — must
+      // still settle the phase, or "talking to the server…" hangs on the
+      // settings row forever while nothing is talking at all.
+      await _settle(
+        SyncPhase.blocked,
+        'the answer made no sense — the server and the app may be '
+        'out of step ($e)',
+      );
     } finally {
       _running = false;
     }

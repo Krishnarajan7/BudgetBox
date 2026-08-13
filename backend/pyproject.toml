@@ -56,6 +56,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["DTZ"]  # tests pin naive fixtures deliberately via time-machine
+"deploy/**" = ["T201"]  # deploy/backup scripts talk to a terminal on purpose
 
 [tool.pyright]
 include = ["src"]

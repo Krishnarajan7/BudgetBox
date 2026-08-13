@@ -90,6 +90,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("fingerprint", name=op.f("uq_coaching_insights_fingerprint")),
     )
 
+
 def downgrade() -> None:
     op.drop_table("coaching_insights")
     op.drop_table("merchant_rules")

@@ -9,11 +9,7 @@ import '../sync/seam.dart';
 /// A title suggestion carrying the category it was last filed under —
 /// type "sar", get "Saravana Bhavan" + Food & chai for free.
 class TitleSuggestion {
-  const TitleSuggestion({
-    required this.title,
-    this.categoryId,
-    this.accountId,
-  });
+  const TitleSuggestion({required this.title, this.categoryId, this.accountId});
 
   final String title;
   final int? categoryId;
@@ -101,8 +97,9 @@ class TxnRepo {
   Future<int> _insert(TxnsCompanion c) {
     return _db.transaction(() async {
       final id = await _db.into(_db.txns).insert(c);
-      final row = await (_db.select(_db.txns)..where((t) => t.id.equals(id)))
-          .getSingle();
+      final row = await (_db.select(
+        _db.txns,
+      )..where((t) => t.id.equals(id))).getSingle();
       await _applyBalance(row, direction: 1);
       await _log(row, ActivityAction.created);
       // Same transaction as the write itself: the entry and the promise to
@@ -114,8 +111,9 @@ class TxnRepo {
 
   Future<void> deleteTxn(int id) {
     return _db.transaction(() async {
-      final row = await (_db.select(_db.txns)..where((t) => t.id.equals(id)))
-          .getSingle();
+      final row = await (_db.select(
+        _db.txns,
+      )..where((t) => t.id.equals(id))).getSingle();
       await _applyBalance(row, direction: -1);
       await _log(row, ActivityAction.deleted);
       await (_db.delete(_db.txns)..where((t) => t.id.equals(id))).go();
@@ -137,10 +135,13 @@ class TxnRepo {
   }) {
     assert(amountPaise > 0);
     return _db.transaction(() async {
-      final old = await (_db.select(_db.txns)..where((t) => t.id.equals(id)))
-          .getSingle();
-      assert(old.type != TxnType.transfer,
-          'transfers are rewritten, not edited');
+      final old = await (_db.select(
+        _db.txns,
+      )..where((t) => t.id.equals(id))).getSingle();
+      assert(
+        old.type != TxnType.transfer,
+        'transfers are rewritten, not edited',
+      );
       await _applyBalance(old, direction: -1);
       await (_db.update(_db.txns)..where((t) => t.id.equals(id))).write(
         TxnsCompanion(
@@ -152,8 +153,9 @@ class TxnRepo {
           note: Value(note),
         ),
       );
-      final fresh = await (_db.select(_db.txns)..where((t) => t.id.equals(id)))
-          .getSingle();
+      final fresh = await (_db.select(
+        _db.txns,
+      )..where((t) => t.id.equals(id))).getSingle();
       await _applyBalance(fresh, direction: 1);
       await _log(fresh, ActivityAction.edited);
       await bbxSync.upsert(SyncKinds.txn, id);
@@ -163,11 +165,12 @@ class TxnRepo {
   /// Restores the most recently deleted transaction. Fearless correction.
   Future<int?> undoLastDelete() {
     return _db.transaction(() async {
-      final last = await (_db.select(_db.activities)
-            ..where((a) => a.action.equalsValue(ActivityAction.deleted))
-            ..orderBy([(a) => OrderingTerm.desc(a.at)])
-            ..limit(1))
-          .getSingleOrNull();
+      final last =
+          await (_db.select(_db.activities)
+                ..where((a) => a.action.equalsValue(ActivityAction.deleted))
+                ..orderBy([(a) => OrderingTerm.desc(a.at)])
+                ..limit(1))
+              .getSingleOrNull();
       if (last == null) return null;
 
       final s = jsonDecode(last.snapshot) as Map<String, dynamic>;
@@ -184,14 +187,29 @@ class TxnRepo {
           at: DateTime.parse(s['at'] as String),
         ),
       );
-      await (_db.delete(_db.activities)..where((a) => a.id.equals(last.id)))
-          .go();
+      await (_db.delete(
+        _db.activities,
+      )..where((a) => a.id.equals(last.id))).go();
       return id;
     });
   }
 
+  /// The anchor rule — worth is the PRESENT. An account's balance is a
+  /// declared reading taken at [Account.asOf] ("this is what I have"), and
+  /// every entry dated before that reading is already inside it: the money
+  /// left the pocket before the pocket was counted. So only entries on or
+  /// after the anchor move the figure — filling in a missed Tuesday records
+  /// the truth of Tuesday without draining to-day's worth a second time.
+  ///
+  /// The same comparison runs on delete and edit, against the CURRENT
+  /// anchor, which keeps the arithmetic self-consistent: once a reading has
+  /// absorbed an entry, reversing that entry is also a no-op.
   Future<void> _applyBalance(Txn row, {required int direction}) async {
     Future<void> bump(int accountId, int delta) async {
+      final acct = await (_db.select(
+        _db.accounts,
+      )..where((a) => a.id.equals(accountId))).getSingleOrNull();
+      if (acct == null || row.at.isBefore(acct.asOf)) return;
       await _db.customUpdate(
         'UPDATE accounts SET balance_paise = balance_paise + ? WHERE id = ?',
         variables: [Variable.withInt(delta), Variable.withInt(accountId)],
@@ -214,14 +232,16 @@ class TxnRepo {
 
   /// Records today's reading for an account — the memory behind sparklines.
   static Future<void> snapshotToday(LedgerDb db, int accountId) async {
-    final acct = await (db.select(db.accounts)
-          ..where((a) => a.id.equals(accountId)))
-        .getSingleOrNull();
+    final acct = await (db.select(
+      db.accounts,
+    )..where((a) => a.id.equals(accountId))).getSingleOrNull();
     if (acct == null) return;
     final now = DateTime.now();
     final key =
         '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    await db.into(db.balanceSnapshots).insertOnConflictUpdate(
+    await db
+        .into(db.balanceSnapshots)
+        .insertOnConflictUpdate(
           BalanceSnapshotsCompanion(
             accountId: Value(accountId),
             date: Value(key),
@@ -231,7 +251,9 @@ class TxnRepo {
   }
 
   Future<void> _log(Txn row, ActivityAction action) {
-    return _db.into(_db.activities).insert(
+    return _db
+        .into(_db.activities)
+        .insert(
           ActivitiesCompanion.insert(
             txnId: row.id,
             action: action,
@@ -255,30 +277,40 @@ class TxnRepo {
   /// Newest first, within [from, to).
   Stream<List<Txn>> watchRange(DateTime from, DateTime to) {
     final q = _db.select(_db.txns)
-      ..where((t) => t.at.isBiggerOrEqualValue(from) & t.at.isSmallerThanValue(to))
+      ..where(
+        (t) => t.at.isBiggerOrEqualValue(from) & t.at.isSmallerThanValue(to),
+      )
       ..orderBy([(t) => OrderingTerm.desc(t.at)]);
     return q.watch();
   }
 
   /// Spend total (expenses only) within [from, to).
-  Future<int> spentBetween(DateTime from, DateTime to, {int? categoryId}) async {
+  Future<int> spentBetween(
+    DateTime from,
+    DateTime to, {
+    int? categoryId,
+  }) async {
     final sum = _db.txns.amountPaise.sum();
     final q = _db.selectOnly(_db.txns)
       ..addColumns([sum])
-      ..where(_db.txns.type.equalsValue(TxnType.expense) &
-          _db.txns.at.isBiggerOrEqualValue(from) &
-          _db.txns.at.isSmallerThanValue(to) &
-          (categoryId == null
-              ? const Constant(true)
-              : _db.txns.categoryId.equals(categoryId)));
+      ..where(
+        _db.txns.type.equalsValue(TxnType.expense) &
+            _db.txns.at.isBiggerOrEqualValue(from) &
+            _db.txns.at.isSmallerThanValue(to) &
+            (categoryId == null
+                ? const Constant(true)
+                : _db.txns.categoryId.equals(categoryId)),
+      );
     final row = await q.getSingle();
     return row.read(sum) ?? 0;
   }
 
   /// Titles matching [prefix] (recent first), each carrying the category and
   /// account it was last filed under.
-  Future<List<TitleSuggestion>> suggestTitles(String prefix,
-      {int limit = 5}) async {
+  Future<List<TitleSuggestion>> suggestTitles(
+    String prefix, {
+    int limit = 5,
+  }) async {
     if (prefix.trim().isEmpty) return const [];
     final q = _db.select(_db.txns)
       ..where((t) => t.title.like('%${prefix.trim()}%'))
@@ -290,11 +322,13 @@ class TxnRepo {
     for (final r in rows) {
       final key = r.title.toLowerCase();
       if (!seen.add(key)) continue;
-      out.add(TitleSuggestion(
-        title: r.title,
-        categoryId: r.categoryId,
-        accountId: r.accountId,
-      ));
+      out.add(
+        TitleSuggestion(
+          title: r.title,
+          categoryId: r.categoryId,
+          accountId: r.accountId,
+        ),
+      );
       if (out.length >= limit) break;
     }
     return out;
@@ -302,14 +336,15 @@ class TxnRepo {
 
   /// His most-used expense categories, most frequent first — feeds the chips.
   Future<List<int>> topCategoryIds({int limit = 5, DateTime? since}) async {
-    final cutoff =
-        since ?? DateTime.now().subtract(const Duration(days: 90));
+    final cutoff = since ?? DateTime.now().subtract(const Duration(days: 90));
     final count = _db.txns.id.count();
     final q = _db.selectOnly(_db.txns)
       ..addColumns([_db.txns.categoryId, count])
-      ..where(_db.txns.type.equalsValue(TxnType.expense) &
-          _db.txns.categoryId.isNotNull() &
-          _db.txns.at.isBiggerOrEqualValue(cutoff))
+      ..where(
+        _db.txns.type.equalsValue(TxnType.expense) &
+            _db.txns.categoryId.isNotNull() &
+            _db.txns.at.isBiggerOrEqualValue(cutoff),
+      )
       ..groupBy([_db.txns.categoryId])
       ..orderBy([OrderingTerm.desc(count)])
       ..limit(limit);

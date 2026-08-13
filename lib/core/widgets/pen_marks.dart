@@ -490,6 +490,107 @@ class _PenArrowPainter extends CustomPainter {
   bool shouldRepaint(_PenArrowPainter old) => old.color != color;
 }
 
+/// A target drawn in two rings and a held breath — the still version of the
+/// streak's dart-struck mark: a day that was aimed at and hit.
+class PenTarget extends StatelessWidget {
+  const PenTarget({super.key, required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _PenTargetPainter(color),
+    );
+  }
+}
+
+class _PenTargetPainter extends CustomPainter {
+  const _PenTargetPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final pen = Paint()
+      ..color = color
+      ..strokeWidth = size.width * 0.10
+      ..style = PaintingStyle.stroke;
+    final centre = size.center(Offset.zero);
+    canvas.drawCircle(centre, size.width * 0.42, pen);
+    canvas.drawCircle(centre, size.width * 0.22, pen);
+    canvas.drawCircle(centre, size.width * 0.05, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_PenTargetPainter old) => old.color != color;
+}
+
+/// A small skull, laid down by the pen — the mark of a day that got away.
+/// Dome, two eye dots, three teeth; drawn, never an emoji, because every
+/// mark in this book comes off the same nib.
+class PenSkull extends StatelessWidget {
+  const PenSkull({super.key, required this.size, required this.color});
+
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _PenSkullPainter(color),
+    );
+  }
+}
+
+class _PenSkullPainter extends CustomPainter {
+  const _PenSkullPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final pen = Paint()
+      ..color = color
+      ..strokeWidth = w * 0.09
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    // The cranium: a dome that comes down into two cheeks.
+    final dome = Path()
+      ..moveTo(w * 0.24, h * 0.62)
+      ..arcToPoint(
+        Offset(w * 0.76, h * 0.62),
+        radius: Radius.circular(w * 0.34),
+        largeArc: true,
+      )
+      ..lineTo(w * 0.76, h * 0.72)
+      ..lineTo(w * 0.24, h * 0.72)
+      ..close();
+    canvas.drawPath(dome, pen);
+    // Eyes: two resting dots, a touch uneven — this skull kept the
+    // character's asymmetry.
+    final dot = Paint()..color = color;
+    canvas.drawCircle(Offset(w * 0.38, h * 0.42), w * 0.075, dot);
+    canvas.drawCircle(Offset(w * 0.62, h * 0.44), w * 0.075, dot);
+    // Teeth: three short strokes under the jaw line.
+    for (final x in [0.38, 0.5, 0.62]) {
+      canvas.drawLine(
+        Offset(w * x, h * 0.74),
+        Offset(w * x, h * 0.86),
+        pen..strokeWidth = w * 0.07,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PenSkullPainter old) => old.color != color;
+}
+
 /// The pen's slack, shared by the ruled strokes below: 0..1, stable for
 /// (i, seed) — a hand wavers, but a book's lines never shimmer between
 /// glances, so the waver is seeded, never random.

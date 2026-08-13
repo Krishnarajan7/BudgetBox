@@ -30,9 +30,24 @@ class BudgetRepo {
   final LedgerDb _db;
 
   Stream<List<Budget>> watchAll() {
-    final q = _db.select(_db.budgets)
-      ..where((b) => b.archived.equals(false));
+    final q = _db.select(_db.budgets)..where((b) => b.archived.equals(false));
     return q.watch();
+  }
+
+  /// Every expense in the month, including unfiled spending and categories
+  /// without their own line. The Plans header describes the whole envelope,
+  /// so it must use the same total as Today's month card rather than adding
+  /// only the spend captured by the visible category rows.
+  Stream<int> watchMonthSpent(DateTime month) {
+    final sum = _db.txns.amountPaise.sum();
+    final query = _db.selectOnly(_db.txns)
+      ..addColumns([sum])
+      ..where(
+        _db.txns.type.equalsValue(TxnType.expense) &
+            _db.txns.at.isBiggerOrEqualValue(LedgerDates.monthStart(month)) &
+            _db.txns.at.isSmallerThanValue(LedgerDates.monthEnd(month)),
+      );
+    return query.watchSingle().map((row) => row.read(sum) ?? 0);
   }
 
   Future<int> create({
@@ -44,7 +59,9 @@ class BudgetRepo {
     bool rollover = false,
   }) {
     return _db.transaction(() async {
-      final id = await _db.into(_db.budgets).insert(
+      final id = await _db
+          .into(_db.budgets)
+          .insert(
             BudgetsCompanion.insert(
               name: name,
               limitPaise: limitPaise,
@@ -94,8 +111,7 @@ class BudgetRepo {
         _db.categories,
         _db.categories.id.equalsExp(_db.budgets.categoryId),
       ),
-    ])
-      ..where(_db.budgets.archived.equals(false));
+    ])..where(_db.budgets.archived.equals(false));
 
     return query.watch().asyncMap((rows) async {
       final views = <BudgetView>[];
@@ -116,19 +132,21 @@ class BudgetRepo {
           );
         final spent = (await spendQuery.getSingle()).read(sum) ?? 0;
 
-        views.add(BudgetView(
-          budget: budget,
-          category: category,
-          pace: BudgetPace(
-            spentPaise: spent,
-            limitPaise: budget.limitPaise,
-            elapsedDays: elapsed,
-            totalDays: LedgerDates.daysInMonth(month),
-            upcomingPaise: budget.categoryId == null
-                ? 0
-                : (upcomingByCategory[budget.categoryId!] ?? 0),
+        views.add(
+          BudgetView(
+            budget: budget,
+            category: category,
+            pace: BudgetPace(
+              spentPaise: spent,
+              limitPaise: budget.limitPaise,
+              elapsedDays: elapsed,
+              totalDays: LedgerDates.daysInMonth(month),
+              upcomingPaise: budget.categoryId == null
+                  ? 0
+                  : (upcomingByCategory[budget.categoryId!] ?? 0),
+            ),
           ),
-        ));
+        );
       }
       views.sort((a, b) => b.pace.spentPaise.compareTo(a.pace.spentPaise));
       return views;
@@ -151,8 +169,7 @@ class BudgetRepo {
             ? total - assigned
             : ((total * v.pace.spentPaise / spent) / 100).round() * 100;
         assigned += share;
-        await (_db.update(_db.budgets)
-              ..where((t) => t.id.equals(v.budget.id)))
+        await (_db.update(_db.budgets)..where((t) => t.id.equals(v.budget.id)))
             .write(BudgetsCompanion(limitPaise: Value(share)));
         await bbxSync.upsert(SyncKinds.budget, v.budget.id);
       }
@@ -167,10 +184,12 @@ class BudgetRepo {
     final sum = _db.txns.amountPaise.sum();
     final q = _db.selectOnly(_db.txns)
       ..addColumns([_db.txns.categoryId, sum])
-      ..where(_db.txns.type.equalsValue(TxnType.expense) &
-          _db.txns.categoryId.isNotNull() &
-          _db.txns.at.isBiggerOrEqualValue(from) &
-          _db.txns.at.isSmallerThanValue(LedgerDates.monthStart(now)))
+      ..where(
+        _db.txns.type.equalsValue(TxnType.expense) &
+            _db.txns.categoryId.isNotNull() &
+            _db.txns.at.isBiggerOrEqualValue(from) &
+            _db.txns.at.isSmallerThanValue(LedgerDates.monthStart(now)),
+      )
       ..groupBy([_db.txns.categoryId]);
 
     final rows = await q.get();

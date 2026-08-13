@@ -16,7 +16,7 @@ class BudgetBoxApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
-      title: 'BudgetBox',
+      title: 'Krish Space',
       debugShowCheckedModeBanner: false,
       theme: ledgerDayTheme(),
       darkTheme: ledgerNightTheme(),

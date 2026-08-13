@@ -278,8 +278,9 @@ def generate(session: Session, *, today: dt.date | None = None) -> int:
                 kind=InsightKind.BUDGET_RISK,
                 title=f"{budget.name} may cross its line",
                 message=(
-                    f"At the current pace, {budget.name} is projected to reach "
-                    f"{_money(view.pace.projected_paise)}—{_money(overspend)} over its line."
+                    f"{budget.name}'s line is {_money(view.pace.limit_paise)}. "
+                    f"At the current pace, spending may reach "
+                    f"{_money(view.pace.projected_paise)}—{_money(overspend)} over."
                 ),
                 evidence=InsightEvidence(
                     reason="even_pace_projection",

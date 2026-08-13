@@ -18,12 +18,12 @@ void main() {
   late LedgerDb db;
 
   Widget host(Widget child) => ProviderScope(
-        overrides: [dbProvider.overrideWithValue(db)],
-        child: MaterialApp(
-          theme: ledgerDayTheme(),
-          home: Scaffold(body: child),
-        ),
-      );
+    overrides: [dbProvider.overrideWithValue(db)],
+    child: MaterialApp(
+      theme: ledgerDayTheme(),
+      home: Scaffold(body: child),
+    ),
+  );
 
   /// Drift's stream teardown schedules a timer; let it fire before the
   /// binding checks for leaks.
@@ -49,11 +49,9 @@ void main() {
     );
     final cats = await db.select(db.categories).get();
     final food = cats.firstWhere((c) => c.name == 'Food & chai').id;
-    await BudgetRepo(db).create(
-      name: 'Food & chai',
-      limitPaise: 600000,
-      categoryId: food,
-    );
+    await BudgetRepo(
+      db,
+    ).create(name: 'Food & chai', limitPaise: 600000, categoryId: food);
     final now = DateTime.now();
     await txns.addExpense(
       amountPaise: 18000,
@@ -83,8 +81,33 @@ void main() {
     await settleAndUnmount(tester);
   });
 
-  testWidgets('an empty goals page offers to name the first thing',
-      (tester) async {
+  testWidgets('month headline counts spending outside budgeted categories', (
+    tester,
+  ) async {
+    final cash = await seedFood();
+    final rent = (await db.select(db.categories).get())
+        .firstWhere((c) => c.name == 'Rent')
+        .id;
+    await TxnRepo(db).addExpense(
+      amountPaise: 650000,
+      accountId: cash,
+      categoryId: rent,
+      title: 'Unbudgeted rent',
+    );
+
+    await tester.pumpWidget(host(const PlansPage()));
+    await tester.pumpAndSettle();
+
+    // ₹180 Food + ₹6,500 Rent is measured against the one ₹6,000 line.
+    expect(find.text('₹0'), findsOneWidget);
+    expect(find.text('₹680 past the month’s lines'), findsOneWidget);
+
+    await settleAndUnmount(tester);
+  });
+
+  testWidgets('an empty goals page offers to name the first thing', (
+    tester,
+  ) async {
     await tester.pumpWidget(host(const PlansPage()));
     await tester.pumpAndSettle();
 

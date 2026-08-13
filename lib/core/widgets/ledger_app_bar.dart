@@ -29,8 +29,10 @@ class LedgerAppBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title ?? 'BudgetBox',
-                    style: LedgerType.wordmark.copyWith(color: c.ink)),
+                Text(
+                  title ?? 'Krish Space',
+                  style: LedgerType.wordmark.copyWith(color: c.ink),
+                ),
                 const SizedBox(width: 3),
                 PenChevron(size: 12, color: c.inkFaint),
               ],
@@ -41,9 +43,9 @@ class LedgerAppBar extends StatelessWidget {
           if (trailing != null) const SizedBox(width: Gap.x3),
           Pressable(
             scale: 0.9,
-            onTap: () => Navigator.of(context).push(
-              LedgerRoute<void>(builder: (_) => const SettingsPage()),
-            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(LedgerRoute<void>(builder: (_) => const SettingsPage())),
             // The box's mark: adjustments drawn as dots on rules, the way a
             // ledger would show its settings — never Material's machine gear.
             child: PenSliders(size: 17, color: c.inkFaint),

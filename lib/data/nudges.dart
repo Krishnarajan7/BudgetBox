@@ -10,6 +10,84 @@ import 'repos/recurring_repo.dart';
 import 'repos/settings_repo.dart';
 import 'repos/txn_repo.dart';
 
+typedef NudgeCopy = ({String title, String body});
+
+int _variant(DateTime day, int count) =>
+    DateTime.utc(day.year, day.month, day.day).millisecondsSinceEpoch ~/
+    Duration.millisecondsPerDay %
+    count;
+
+/// Stable daily rotation: relaunching cannot change the sentence already
+/// scheduled for a date, while consecutive evenings do not sound copied.
+NudgeCopy standingNudgeCopy(DateTime day) {
+  const choices = <NudgeCopy>[
+    (
+      title: 'is the page complete?',
+      body: 'take a minute to check today, then close it if everything is in',
+    ),
+    (
+      title: 'before the day rests',
+      body: 'one last look for anything unwritten, then seal the page',
+    ),
+    (
+      title: 'today is waiting to be closed',
+      body: 'check the day once; a complete page can carry its seal',
+    ),
+    (
+      title: 'a final look at today',
+      body: 'add what is missing, or close the day if the page is true',
+    ),
+  ];
+  return choices[_variant(day, choices.length)];
+}
+
+NudgeCopy eveningNudgeCopy(
+  DateTime day, {
+  required int expenseCount,
+  required int spentPaise,
+}) {
+  if (expenseCount == 0) {
+    const choices = <NudgeCopy>[
+      (
+        title: 'nothing written today',
+        body: 'was it truly ₹0? check once before closing',
+      ),
+      (
+        title: 'today’s page is empty',
+        body: 'if nothing was spent, the page is ready to close',
+      ),
+      (
+        title: 'a quiet money day?',
+        body: 'confirm the ₹0 day, then leave it complete',
+      ),
+    ];
+    return choices[_variant(day, choices.length)];
+  }
+  final count = Nudges.spelled(expenseCount);
+  final noun = expenseCount == 1 ? 'entry' : 'entries';
+  final amount = Inr.format(spentPaise);
+  final choices = <NudgeCopy>[
+    (
+      title: '$count $noun on today’s page',
+      body:
+          '$amount written — check that nothing is missing, then close the day',
+    ),
+    (
+      title: 'today holds $amount',
+      body: '$count $noun so far — one last look before the page closes',
+    ),
+    (
+      title: 'is today complete?',
+      body: '$amount across $count $noun — seal it when the total is true',
+    ),
+    (
+      title: 'the day has $count $noun',
+      body: '$amount recorded — add anything forgotten, or close the page',
+    ),
+  ];
+  return choices[_variant(day, choices.length)];
+}
+
 /// What the book says when the phone is face-down. [LedgerReminders] is the
 /// plumbing; this is the voice — it reads the day's actual state and writes
 /// tonight's line accordingly, plus the two mornings worth speaking on:
@@ -29,7 +107,7 @@ class Nudges {
   final RecurringRepo _recurring;
 
   /// Small counts in the book's hand: 'three', not '3'.
-  static String _spelled(int n) {
+  static String spelled(int n) {
     const words = [
       'two', 'three', 'four', 'five', 'six', 'seven', //
       'eight', 'nine', 'ten', 'eleven', 'twelve',
@@ -51,7 +129,12 @@ class Nudges {
       return;
     }
     await _tonight(now, at.$1, at.$2);
-    await LedgerReminders.scheduleStanding(at.$1, at.$2);
+    await LedgerReminders.scheduleStanding(at.$1, at.$2, [
+      for (var i = 1; i <= 14; i++)
+        switch (standingNudgeCopy(DateTime(now.year, now.month, now.day + i))) {
+          (:final title, :final body) => (title, body),
+        },
+    ]);
     await _salary(now);
     await _dues(now);
   }
@@ -104,23 +187,12 @@ class Nudges {
         .first;
     final expenses = txns.where((t) => t.type == TxnType.expense).toList();
     final paise = expenses.fold(0, (s, t) => s + t.amountPaise);
-    if (expenses.isEmpty) {
-      await LedgerReminders.scheduleTonight(
-        'nothing written to-day',
-        'was it truly ₹0? the page waits',
-        hour,
-        minute,
-      );
-    } else {
-      final count = _spelled(expenses.length);
-      final noun = expenses.length == 1 ? 'entry' : 'entries';
-      await LedgerReminders.scheduleTonight(
-        'the page is still open',
-        '${Inr.format(paise)} across $count $noun — close it when the day is done',
-        hour,
-        minute,
-      );
-    }
+    final copy = eveningNudgeCopy(
+      now,
+      expenseCount: expenses.length,
+      spentPaise: paise,
+    );
+    await LedgerReminders.scheduleTonight(copy.title, copy.body, hour, minute);
   }
 
   Future<void> _salary(DateTime now) async {

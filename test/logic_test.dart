@@ -18,8 +18,11 @@ void main() {
   setUp(() async {
     db = LedgerDb.forTesting(NativeDatabase.memory());
     txns = TxnRepo(db);
-    cash = await AccountRepo(db)
-        .create(name: 'Cash', kind: AccountKind.cash, openingBalancePaise: 10000000);
+    cash = await AccountRepo(db).create(
+      name: 'Cash',
+      kind: AccountKind.cash,
+      openingBalancePaise: 10000000,
+    );
     final cats = await db.select(db.categories).get();
     food = cats.firstWhere((c) => c.name == 'Food & chai').id;
     rent = cats.firstWhere((c) => c.name == 'Rent').id;
@@ -99,18 +102,48 @@ void main() {
         kind: RecurringKind.bill,
       );
       expect(await repo.yearlyTotal(), 11900 * 12 + 120000);
-      expect(await repo.yearlyTotal(kind: RecurringKind.subscription),
-          11900 * 12);
+      expect(
+        await repo.yearlyTotal(kind: RecurringKind.subscription),
+        11900 * 12,
+      );
     });
   });
 
   group('BudgetRepo', () {
+    test(
+      'month total includes expenses outside the drawn budget lines',
+      () async {
+        final repo = BudgetRepo(db);
+        await repo.create(name: 'Food', limitPaise: 600000, categoryId: food);
+        await txns.addExpense(
+          amountPaise: 115700,
+          accountId: cash,
+          categoryId: food,
+          title: 'meals',
+        );
+        await txns.addExpense(
+          amountPaise: 343400,
+          accountId: cash,
+          categoryId: rent,
+          title: 'an expense without a budget line',
+        );
+
+        expect(await repo.watchMonthSpent(DateTime.now()).first, 459100);
+        final visibleRows = await repo.watchViews(DateTime.now()).first;
+        expect(visibleRows.single.pace.spentPaise, 115700);
+      },
+    );
+
     test('views fold real spend into pace, sorted by spend', () async {
       final repo = BudgetRepo(db);
       await repo.create(name: 'Food', limitPaise: 900000, categoryId: food);
       await repo.create(name: 'Rent', limitPaise: 1500000, categoryId: rent);
       await txns.addExpense(
-          amountPaise: 20000, accountId: cash, categoryId: food, title: 'meals');
+        amountPaise: 20000,
+        accountId: cash,
+        categoryId: food,
+        title: 'meals',
+      );
 
       final views = await repo.watchViews(DateTime.now()).first;
       expect(views, hasLength(2));
@@ -124,9 +157,17 @@ void main() {
       await repo.create(name: 'Food', limitPaise: 500000, categoryId: food);
       await repo.create(name: 'Rent', limitPaise: 500000, categoryId: rent);
       await txns.addExpense(
-          amountPaise: 30000, accountId: cash, categoryId: food, title: 'a');
+        amountPaise: 30000,
+        accountId: cash,
+        categoryId: food,
+        title: 'a',
+      );
       await txns.addExpense(
-          amountPaise: 10000, accountId: cash, categoryId: rent, title: 'b');
+        amountPaise: 10000,
+        accountId: cash,
+        categoryId: rent,
+        title: 'b',
+      );
 
       final before = await repo.watchViews(DateTime.now()).first;
       await repo.rebalance(before);
@@ -144,8 +185,9 @@ void main() {
     test('contributions feed the view through real tagged entries', () async {
       final repo = GoalRepo(db, txns);
       final id = await repo.create(name: 'Ladakh', targetPaise: 6000000);
-      final goal =
-          await (db.select(db.goals)..where((g) => g.id.equals(id))).getSingle();
+      final goal = await (db.select(
+        db.goals,
+      )..where((g) => g.id.equals(id))).getSingle();
 
       await repo.contribute(goal: goal, amountPaise: 400000, accountId: cash);
       await repo.contribute(goal: goal, amountPaise: 200000, accountId: cash);
@@ -156,9 +198,9 @@ void main() {
       expect(view.remainingPaise, 5400000);
 
       // And the account genuinely paid for it.
-      final acct = await (db.select(db.accounts)
-            ..where((a) => a.id.equals(cash)))
-          .getSingle();
+      final acct = await (db.select(
+        db.accounts,
+      )..where((a) => a.id.equals(cash))).getSingle();
       expect(acct.balancePaise, 10000000 - 600000);
     });
   });

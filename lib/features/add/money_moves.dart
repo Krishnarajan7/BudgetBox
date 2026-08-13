@@ -872,6 +872,7 @@ class _CatchUpSheet extends ConsumerStatefulWidget {
 class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
   List<DateTime>? _days;
   List<Category> _chipCats = const [];
+  List<Account> _pockets = const [];
   int? _accountId;
 
   @override
@@ -914,9 +915,8 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
     setState(() {
       _days = quietDays(txns, now);
       _chipCats = [for (final id in order) cats.firstWhere((c) => c.id == id)];
-      _accountId = pockets.isEmpty
-          ? (accts.isEmpty ? null : accts.first.id)
-          : pockets.first.id;
+      _pockets = pockets.isEmpty ? accts : pockets;
+      _accountId = _pockets.isEmpty ? null : _pockets.first.id;
     });
   }
 
@@ -962,6 +962,23 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
                 color: c.inkFaint,
               ),
             ),
+            // How the money went: the pocket every stamp below draws from.
+            // Days before a balance reading won't re-drain it — the anchor
+            // rule keeps the past out of the present.
+            if (_pockets.length > 1) ...[
+              const SizedBox(height: Gap.x3),
+              Text(
+                'paid from',
+                style: LedgerType.label.copyWith(color: c.inkFaint),
+              ),
+              const SizedBox(height: Gap.x2),
+              _AccountChips(
+                accounts: _pockets,
+                selectedId: _accountId,
+                keyPrefix: 'catchup-acct',
+                onPick: (id) => setState(() => _accountId = id),
+              ),
+            ],
             const SizedBox(height: Gap.x3),
             if (days == null)
               const SizedBox(height: Gap.x8)

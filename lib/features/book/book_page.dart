@@ -20,6 +20,7 @@ import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
+import '../add/add_sheet.dart';
 import '../../data/repos/txn_repo.dart';
 import 'txn_editor.dart';
 
@@ -1072,6 +1073,7 @@ class _BookPageState extends ConsumerState<BookPage> {
     if (!mounted) return;
 
     Txn? toEdit;
+    var addHere = false;
     await showLedgerSheet<void>(
       context,
       builder: (sheetContext) => _DayPage(
@@ -1083,17 +1085,39 @@ class _BookPageState extends ConsumerState<BookPage> {
           toEdit = t;
           Navigator.of(sheetContext).pop();
         },
-        onSeal: () => db
-            .into(db.daySeals)
-            .insert(
-              DaySealsCompanion(date: Value(key)),
-              mode: InsertMode.insertOrIgnore,
-            ),
-        onUnseal: () =>
-            (db.delete(db.daySeals)..where((s) => s.date.equals(key))).go(),
+        onAdd: () {
+          addHere = true;
+          Navigator.of(sheetContext).pop();
+        },
+        onSeal: () async {
+          await db
+              .into(db.daySeals)
+              .insert(
+                DaySealsCompanion(date: Value(key)),
+                mode: InsertMode.insertOrIgnore,
+              );
+          if (key == LedgerDates.dayKey(DateTime.now())) {
+            unawaited(ref.read(nudgesProvider).resync());
+          }
+        },
+        onUnseal: () async {
+          await (db.delete(db.daySeals)..where((s) => s.date.equals(key))).go();
+          if (key == LedgerDates.dayKey(DateTime.now())) {
+            unawaited(ref.read(nudgesProvider).resync());
+          }
+        },
       ),
     );
     if (!mounted) return;
+    // Noon, like the catch-up sheet writes: a remembered day rarely
+    // remembers its o'clock.
+    if (addHere) {
+      await showAddSheet(
+        context,
+        at: DateTime(date.year, date.month, date.day, 12),
+      );
+      return;
+    }
     final open = toEdit;
     if (open != null) await showTxnEditor(context, open);
   }
@@ -1228,6 +1252,7 @@ class _DayPage extends StatefulWidget {
     required this.cats,
     required this.sealed,
     required this.onOpenEntry,
+    required this.onAdd,
     required this.onSeal,
     required this.onUnseal,
   });
@@ -1237,6 +1262,10 @@ class _DayPage extends StatefulWidget {
   final Map<int, Category> cats;
   final bool sealed;
   final ValueChanged<Txn> onOpenEntry;
+
+  /// Opens the add sheet dated to this day — the way back onto any page
+  /// once the catch-up sheet has stopped offering it.
+  final VoidCallback onAdd;
   final Future<void> Function() onSeal;
   final Future<void> Function() onUnseal;
 
@@ -1340,7 +1369,25 @@ class _DayPageState extends State<_DayPage> {
                 ),
               ),
             if (!future) ...[
-              const SizedBox(height: Gap.x4),
+              const SizedBox(height: Gap.x3),
+              // A day that fell off the catch-up sheet is still writable
+              // from here — remembering late is not a locked door.
+              Center(
+                child: Pressable(
+                  onTap: widget.onAdd,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+                    child: Text(
+                      '+ write onto this day',
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 14,
+                        color: c.quill,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: Gap.x1),
               if (_stamping)
                 Center(child: StampIn(size: 40, delay: Motion.quick))
               else

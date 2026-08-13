@@ -173,6 +173,7 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
       .suggestFromHistory();
 
   Stream<List<BudgetView>>? _viewStream;
+  Stream<int>? _totalSpentStream;
   DateTime? _streamMonth;
   Map<int, int>? _streamUpcoming;
 
@@ -224,7 +225,6 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
     return FutureBuilder<Map<int, int>>(
       future: _upcoming,
       builder: (context, upcomingSnap) {
-        final c = LedgerColors.of(context);
         // Past months are closed books: no committed-bill projections.
         final upcoming = onNow
             ? (upcomingSnap.data ?? const <int, int>{})
@@ -232,9 +232,12 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
         if (_streamMonth != _month || !identical(_streamUpcoming, upcoming)) {
           _streamMonth = _month;
           _streamUpcoming = upcoming;
-          _viewStream = ref
-              .read(budgetRepoProvider)
-              .watchViews(_month, upcomingByCategory: upcoming);
+          final budgets = ref.read(budgetRepoProvider);
+          _viewStream = budgets.watchViews(
+            _month,
+            upcomingByCategory: upcoming,
+          );
+          _totalSpentStream = budgets.watchMonthSpent(_month);
         }
         return StreamBuilder<List<BudgetView>>(
           stream: _viewStream,
@@ -254,123 +257,149 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
               );
             }
 
-            final totalLimit = views.fold(0, (s, v) => s + v.pace.limitPaise);
-            final totalSpent = views.fold(0, (s, v) => s + v.pace.spentPaise);
-
-            // The page's one seal: the single worst overrun's verdict. Every
-            // other verdict stays ink — the bars carry the forecast.
-            int? sealId;
-            var worst = 0;
-            for (final v in views) {
-              final over = v.pace.spentPaise - v.pace.limitPaise;
-              if (over > worst) {
-                worst = over;
-                sealId = v.budget.id;
-              }
-            }
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CountHero(
-                  caption: onNow
-                      ? 'left to spend this month'
-                      : 'spent in ${_label(_month)}',
-                  paise: onNow
-                      ? (totalLimit - totalSpent).clamp(0, 1 << 62)
-                      : totalSpent,
-                  format: Inr.format,
-                  size: 34,
-                  sub: onNow
-                      ? null
-                      : Text(
-                          'the lines added up to ${Inr.format(totalLimit)}',
-                          style: LedgerType.bodyText.copyWith(
-                            fontSize: 13,
-                            color: c.inkFaint,
-                          ),
-                        ),
-                ),
-                const SizedBox(height: Gap.x3),
-                // Keyed by id, position, and month: a rebalance that
-                // re-sorts the rows — or a flipped page — re-inks them.
-                for (final (i, v) in views.indexed)
-                  InkIn(
-                    key: ValueKey(
-                      'budget-${v.budget.id}-$i-${_month.year}-${_month.month}',
-                    ),
-                    delay: Duration(milliseconds: 40 * i),
-                    child: _BudgetRow(
-                      view: v,
-                      month: _month,
-                      finalized: !onNow,
-                      sealed: v.budget.id == sealId,
-                    ),
-                  ),
-                Pressable(
-                  onTap: () => _newBudget(context),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: Gap.x3),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        PenPlus(size: 13, color: c.quill),
-                        const SizedBox(width: Gap.x2),
-                        Text(
-                          'draw another line',
-                          style: LedgerType.bodyStrong.copyWith(
-                            fontSize: 13,
-                            color: c.quill,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (onNow) ...[
-                  _suggestions(c, views),
-                  const SizedBox(height: Gap.x4),
-                  if (_beforeRebalance != null)
-                    Center(
-                      child: Pressable(
-                        haptic: false,
-                        onTap: _putBack,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: Gap.x2),
-                          child: Text(
-                            'put the lines back as they were',
-                            style: LedgerType.bodyStrong.copyWith(
-                              fontSize: 12,
-                              color: c.inkFaint,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  Center(
-                    child: Pressable(
-                      haptic: false,
-                      onTap: () => _rebalance(context, views),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'rebalance to match how the month actually went',
-                            style: LedgerType.bodyStrong.copyWith(
-                              fontSize: 13,
-                              color: c.quill,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+            return StreamBuilder<int>(
+              stream: _totalSpentStream,
+              builder: (context, spentSnapshot) => _budgetPage(
+                context,
+                views: views,
+                totalSpent: spentSnapshot.data ?? 0,
+                onNow: onNow,
+              ),
             );
           },
         );
       },
+    );
+  }
+
+  Widget _budgetPage(
+    BuildContext context, {
+    required List<BudgetView> views,
+    required int totalSpent,
+    required bool onNow,
+  }) {
+    final c = LedgerColors.of(context);
+    final totalLimit = views.fold(0, (s, v) => s + v.pace.limitPaise);
+    final overBy = (totalSpent - totalLimit).clamp(0, 1 << 62);
+
+    // The page's one seal: the single worst overrun's verdict. Every other
+    // verdict stays ink — the bars carry the forecast.
+    int? sealId;
+    var worst = 0;
+    for (final v in views) {
+      final over = v.pace.spentPaise - v.pace.limitPaise;
+      if (over > worst) {
+        worst = over;
+        sealId = v.budget.id;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CountHero(
+          caption: onNow
+              ? 'left to spend this month'
+              : 'spent in ${_label(_month)}',
+          paise: onNow
+              ? (totalLimit - totalSpent).clamp(0, 1 << 62)
+              : totalSpent,
+          format: Inr.format,
+          size: 34,
+          sub: onNow
+              ? overBy == 0
+                    ? null
+                    : Text(
+                        '${Inr.format(overBy)} past the month’s lines',
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 13,
+                          color: c.warn,
+                        ),
+                      )
+              : Text(
+                  'the lines added up to ${Inr.format(totalLimit)}',
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 13,
+                    color: c.inkFaint,
+                  ),
+                ),
+        ),
+        const SizedBox(height: Gap.x3),
+        // Keyed by id, position, and month: a rebalance that
+        // re-sorts the rows — or a flipped page — re-inks them.
+        for (final (i, v) in views.indexed)
+          InkIn(
+            key: ValueKey(
+              'budget-${v.budget.id}-$i-${_month.year}-${_month.month}',
+            ),
+            delay: Duration(milliseconds: 40 * i),
+            child: _BudgetRow(
+              view: v,
+              month: _month,
+              finalized: !onNow,
+              sealed: v.budget.id == sealId,
+            ),
+          ),
+        Pressable(
+          onTap: () => _newBudget(context),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PenPlus(size: 13, color: c.quill),
+                const SizedBox(width: Gap.x2),
+                Text(
+                  'draw another line',
+                  style: LedgerType.bodyStrong.copyWith(
+                    fontSize: 13,
+                    color: c.quill,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (onNow) ...[
+          _suggestions(c, views),
+          const SizedBox(height: Gap.x4),
+          if (_beforeRebalance != null)
+            Center(
+              child: Pressable(
+                haptic: false,
+                onTap: _putBack,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+                  child: Text(
+                    'put the lines back as they were',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Center(
+            child: Pressable(
+              haptic: false,
+              onTap: () => _rebalance(context, views),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'rebalance to match how the month actually went',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 13,
+                      color: c.quill,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

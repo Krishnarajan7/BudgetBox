@@ -659,7 +659,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return switch (s.phase) {
       SyncPhase.syncing => 'talking to $host…',
       SyncPhase.offline => 'can\'t reach $host$owed — will retry',
-      SyncPhase.blocked => '$host refused the token — tap to fix',
+      SyncPhase.blocked =>
+        (s.lastError?.contains('token') ?? false)
+            ? '$host refused the token — tap to fix'
+            : '$host answered wrongly — tap to check',
       SyncPhase.idle when s.lastSyncedAt != null =>
         'settled with $host · ${_hhmm(s.lastSyncedAt!)}$owed',
       SyncPhase.idle => 'wired to $host — first sync pending',

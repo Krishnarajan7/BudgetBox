@@ -55,7 +55,9 @@ void main() {
     // then the shell fades up. Each pump advances the fake clock even when
     // no frame is scheduled, so the beat's timer actually fires.
     await tester.pump();
+    // Three beats now: the wink, the press, the pause — then the shell.
     await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('today'), findsWidgets);

@@ -10,7 +10,6 @@ import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/lottie_marks.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
-import '../../core/widgets/seal.dart';
 import '../../data/providers.dart';
 
 const kuralCount = 1330;
@@ -160,12 +159,16 @@ class _KuralPageState extends State<KuralPage>
     _streakC.forward();
   }
 
-  /// One weekday's mark (1=Mon). A past day counts as read when it falls
-  /// inside the running streak, which ends to-day — the streak preview
-  /// already includes to-day, so the days read before it are streak − 1.
-  Widget _weekMark(LedgerColors c, int d, int weekday) {
-    if (d == weekday) return const StampIn(size: 18, haptic: false);
-    if (d > weekday) {
+  /// One slot of the standing week, Sunday-first (0=Su … 6=Sa) — the same
+  /// grammar as the streak card: a target where a day was hit, the pen's
+  /// skull where one got away, open rings ahead, and to-day wearing the
+  /// full target it is waiting to take. The streak preview already includes
+  /// to-day, so the kept days before it are streak − 1.
+  Widget _weekMark(LedgerColors c, int i, int todayIx) {
+    if (i == todayIx) {
+      return Center(child: PenTarget(size: 17, color: c.seal));
+    }
+    if (i > todayIx) {
       return Container(
         width: 14,
         height: 14,
@@ -175,14 +178,14 @@ class _KuralPageState extends State<KuralPage>
         ),
       );
     }
-    final read = weekday - d <= widget.streak - 1;
+    final kept = todayIx - i <= widget.streak - 1;
     return SizedBox(
       width: 14,
       height: 14,
       child: Center(
-        child: read
-            ? PenTick(size: 13, color: c.jama)
-            : PenCross(size: 10, color: c.inkFaint.withValues(alpha: 0.55)),
+        child: kept
+            ? PenTarget(size: 13, color: c.seal)
+            : PenSkull(size: 13, color: c.inkFaint.withValues(alpha: 0.6)),
       ),
     );
   }
@@ -255,13 +258,13 @@ class _KuralPageState extends State<KuralPage>
                           ),
                         ),
                         const SizedBox(width: Gap.x3),
-                        // The week tells the truth: a tick where the day was
-                        // read, a small cross where it wasn't, to-day taking
-                        // the stamp, and the days ahead still blank.
-                        for (var d = 1; d <= 7; d++)
+                        // The standing week, Sunday to Saturday: targets
+                        // where days were hit, the pen's skull where one
+                        // got away, open rings ahead.
+                        for (var i = 0; i < 7; i++)
                           Padding(
                             padding: const EdgeInsets.only(left: 5),
-                            child: _weekMark(c, d, weekday),
+                            child: _weekMark(c, i, weekday % 7),
                           ),
                       ],
                     ),
@@ -482,7 +485,31 @@ class _StreakMoment extends StatelessWidget {
   final AnimationController controller;
   final int streak;
 
-  static const _names = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+  /// The week stands still — Sunday to Saturday, every week the same — and
+  /// to-day moves along it. Rotating the week around to-day made every day
+  /// look like the first; a calendar holds its shape.
+  static const _names = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  /// One slot of the standing week. [i] and [todayIx] are Sunday-first
+  /// (0=Su … 6=Sa); the streak includes to-day, so the kept days are the
+  /// streak−1 before it.
+  Widget _slot(LedgerColors c, int i, int todayIx, Animation<double> throwIn) {
+    if (i == todayIx) return TargetStamp(progress: throwIn);
+    if (i > todayIx) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: c.rule),
+        ),
+      );
+    }
+    final kept = todayIx - i <= streak - 1;
+    return Center(
+      child: kept
+          ? PenTarget(size: 15, color: c.seal)
+          : PenSkull(size: 14, color: c.inkFaint.withValues(alpha: 0.6)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -585,6 +612,10 @@ class _StreakMoment extends StatelessWidget {
                       const SizedBox(width: Gap.x6),
                       // The week takes what's left and spreads itself across
                       // it: seven fixed slots would overrun a 360pt phone.
+                      // Sunday-first and still; only the marks change hands:
+                      // the dart flies at to-day, kept days wear the struck
+                      // target, missed days the pen's small skull, and the
+                      // days ahead stay open rings.
                       Expanded(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -595,26 +626,19 @@ class _StreakMoment extends StatelessWidget {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    _names[(today - 1 + i) % 7],
+                                    _names[i],
                                     style: LedgerType.label.copyWith(
                                       fontSize: 9,
-                                      color: i == 0 ? c.ink : c.inkFaint,
+                                      color: i == today % 7
+                                          ? c.ink
+                                          : c.inkFaint,
                                     ),
                                   ),
                                   const SizedBox(height: 5),
-                                  // To-day keeps exactly the week's own slot —
-                                  // the dart is what marks it, not extra room.
                                   SizedBox(
                                     width: 18,
                                     height: 18,
-                                    child: i == 0
-                                        ? TargetStamp(progress: throwIn)
-                                        : DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
-                                              border: Border.all(color: c.rule),
-                                            ),
-                                          ),
+                                    child: _slot(c, i, today % 7, throwIn),
                                   ),
                                 ],
                               ),

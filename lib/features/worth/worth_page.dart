@@ -242,6 +242,43 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ),
               ),
             ),
+            // The reading everything counts from: until the shelf holds
+            // real declared money, Worth leads with its own setup ritual
+            // instead of a negative number and a shrug.
+            if (assetTotal <= 0 || all.length <= 1)
+              LedgerCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const RuleHeader('start here'),
+                    const SizedBox(height: Gap.x2),
+                    Text(
+                      'Tell the book what you actually have — cash in hand, '
+                      'each bank, GPay/PhonePe, anything kept aside. To-day '
+                      'becomes the reading everything counts from; spending '
+                      'already written for older days won\'t touch it.',
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 13,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                    const SizedBox(height: Gap.x3),
+                    Pressable(
+                      onTap: () => showLedgerSheet<void>(
+                        context,
+                        builder: (_) => _WorthSetupSheet(existing: all),
+                      ),
+                      child: Text(
+                        'set up what you have ›',
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 14,
+                          color: c.quill,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: Gap.x3),
             if (!hasLine)
               Text(
@@ -1122,4 +1159,282 @@ class _AreaPainter extends CustomPainter {
       old.points != points ||
       old.progress != progress ||
       old.peakIndex != peakIndex;
+}
+
+/// The Worth setup: one sheet, plain questions — how much, and where it
+/// sits. Each filled line becomes (or re-reads) an account anchored to
+/// to-day, so the anchor rule in the ledger keeps every already-written
+/// past day from draining what was just counted.
+class _WorthSetupSheet extends ConsumerStatefulWidget {
+  const _WorthSetupSheet({required this.existing});
+
+  final List<Account> existing;
+
+  @override
+  ConsumerState<_WorthSetupSheet> createState() => _WorthSetupSheetState();
+}
+
+class _WorthSetupSheetState extends ConsumerState<_WorthSetupSheet> {
+  final _cash = TextEditingController();
+  final _upi = TextEditingController();
+  final _sip = TextEditingController();
+  final _emergency = TextEditingController();
+  final _bankNames = <TextEditingController>[TextEditingController()];
+  final _bankAmounts = <TextEditingController>[TextEditingController()];
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _cash.dispose();
+    _upi.dispose();
+    _sip.dispose();
+    _emergency.dispose();
+    for (final c in [..._bankNames, ..._bankAmounts]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  int? _paiseOf(TextEditingController c) {
+    final t = c.text.trim().replaceAll(',', '');
+    if (t.isEmpty) return null;
+    final v = double.tryParse(t);
+    if (v == null || v < 0) return null;
+    return (v * 100).round();
+  }
+
+  /// Creates the account, or re-reads an existing one by name — either way
+  /// the balance is a declared reading anchored to now.
+  Future<void> _declare(String name, AccountKind kind, int paise) async {
+    final repo = ref.read(accountRepoProvider);
+    final match = widget.existing
+        .where((a) => a.name.toLowerCase() == name.toLowerCase())
+        .firstOrNull;
+    if (match != null) {
+      await repo.setBalance(match.id, paise);
+    } else {
+      await repo.create(name: name, kind: kind, openingBalancePaise: paise);
+    }
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    HapticFeedback.mediumImpact();
+    final cash = _paiseOf(_cash);
+    if (cash != null) await _declare('Cash', AccountKind.cash, cash);
+    final upi = _paiseOf(_upi);
+    if (upi != null) await _declare('GPay / PhonePe', AccountKind.upi, upi);
+    for (var i = 0; i < _bankNames.length; i++) {
+      final name = _bankNames[i].text.trim();
+      final paise = _paiseOf(_bankAmounts[i]);
+      if (name.isNotEmpty && paise != null) {
+        await _declare(name, AccountKind.bank, paise);
+      }
+    }
+    final sip = _paiseOf(_sip);
+    if (sip != null) {
+      await _declare('SIP / mutual funds', AccountKind.asset, sip);
+    }
+    final emergency = _paiseOf(_emergency);
+    if (emergency != null) {
+      await _declare('Emergency fund', AccountKind.asset, emergency);
+    }
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Widget _moneyRow(
+    LedgerColors c,
+    String label,
+    TextEditingController ctrl, {
+    String? sub,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Gap.x3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: LedgerType.bodyText.copyWith(color: c.ink)),
+                if (sub != null)
+                  Text(
+                    sub,
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 11,
+                      color: c.inkFaint,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 120,
+            child: TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.right,
+              onChanged: (_) => setState(() {}),
+              style: LedgerType.amount.copyWith(fontSize: 16, color: c.ink),
+              cursorColor: c.quill,
+              decoration: InputDecoration(
+                prefixText: '₹',
+                prefixStyle: LedgerType.amount.copyWith(
+                  fontSize: 16,
+                  color: c.inkFaint,
+                ),
+                hintText: '0',
+                hintStyle: LedgerType.amount.copyWith(
+                  fontSize: 16,
+                  color: c.inkFaint.withValues(alpha: 0.45),
+                ),
+                border: InputBorder.none,
+                isDense: true,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final anything =
+        _paiseOf(_cash) != null ||
+        _paiseOf(_upi) != null ||
+        _paiseOf(_sip) != null ||
+        _paiseOf(_emergency) != null ||
+        [
+          for (var i = 0; i < _bankNames.length; i++)
+            if (_bankNames[i].text.trim().isNotEmpty &&
+                _paiseOf(_bankAmounts[i]) != null)
+              true,
+        ].isNotEmpty;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: Gap.x2),
+            Text(
+              'What do you have right now?',
+              style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Count it as it stands to-day. Leave blank whatever you '
+              'don\'t have — blank writes nothing.',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
+            ),
+            const SizedBox(height: Gap.x4),
+            _moneyRow(c, 'Cash in hand', _cash),
+            _moneyRow(c, 'GPay / PhonePe', _upi),
+            for (var i = 0; i < _bankNames.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Gap.x3),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _bankNames[i],
+                        onChanged: (_) => setState(() {}),
+                        style: LedgerType.bodyText.copyWith(color: c.ink),
+                        cursorColor: c.quill,
+                        decoration: InputDecoration(
+                          hintText: 'bank name (SBI, HDFC…)',
+                          hintStyle: LedgerType.bodyText.copyWith(
+                            fontSize: 13,
+                            color: c.inkFaint.withValues(alpha: 0.6),
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 120,
+                      child: TextField(
+                        controller: _bankAmounts[i],
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.right,
+                        onChanged: (_) => setState(() {}),
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 16,
+                          color: c.ink,
+                        ),
+                        cursorColor: c.quill,
+                        decoration: InputDecoration(
+                          prefixText: '₹',
+                          prefixStyle: LedgerType.amount.copyWith(
+                            fontSize: 16,
+                            color: c.inkFaint,
+                          ),
+                          hintText: '0',
+                          hintStyle: LedgerType.amount.copyWith(
+                            fontSize: 16,
+                            color: c.inkFaint.withValues(alpha: 0.45),
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (_bankNames.length < 4)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Pressable(
+                  onTap: () => setState(() {
+                    _bankNames.add(TextEditingController());
+                    _bankAmounts.add(TextEditingController());
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: Gap.x3),
+                    child: Text(
+                      '+ another bank',
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 12,
+                        color: c.quill,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            _moneyRow(
+              c,
+              'SIP / mutual funds',
+              _sip,
+              sub: 'kept aside — daily spending never touches it',
+            ),
+            _moneyRow(
+              c,
+              'Emergency fund',
+              _emergency,
+              sub: 'kept aside — daily spending never touches it',
+            ),
+            const SizedBox(height: Gap.x2),
+            FilledButton(
+              onPressed: anything && !_saving ? _save : null,
+              child: const Text('That\'s what I have'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

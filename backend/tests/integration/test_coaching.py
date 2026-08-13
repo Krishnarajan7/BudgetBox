@@ -137,6 +137,39 @@ def test_preferences_can_disable_the_book_speaking(client: TestClient) -> None:
     assert client.get("/v1/coaching/feed").json() == []
 
 
+@time_machine.travel("2026-08-13T10:00:00+05:30")
+def test_budget_warning_reads_from_line_to_projection(client: TestClient) -> None:
+    account = make_account(client)
+    category = expense_category(client)
+    budget_id = new_id()
+    response = client.put(
+        f"/v1/budgets/{budget_id}",
+        json={
+            "name": "Food & chai",
+            "category_id": category,
+            "limit_paise": 1_500_00,
+            "period": "month",
+            "kind": "all",
+        },
+    )
+    assert response.status_code == 200, response.text
+    make_txn(
+        client,
+        account,
+        amount=1_157_00,
+        title="Meals",
+        category_id=category,
+        at="2026-08-05T12:00:00+05:30",
+    )
+
+    card = next(
+        item for item in client.get("/v1/coaching/feed").json() if item["kind"] == "budget_risk"
+    )
+    assert card["message"] == (
+        "Food & chai's line is ₹1,500. At the current pace, spending may reach ₹2,759—₹1,259 over."
+    )
+
+
 def test_merchant_rule_can_be_renamed_reclassified_and_paused(client: TestClient) -> None:
     rule_id = rule(client, match="  Tea---STAll  ", merchant="Tea stall")
     listed = client.get("/v1/coaching/merchant-rules").json()
