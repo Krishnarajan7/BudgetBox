@@ -262,7 +262,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   /// The faint line at the page's foot: "312 words · edited to-day ·
-  /// began 14 Jul". The count refreshes on the same debounce as the ink.
+  /// created 14 Jul". The count refreshes on the same debounce as the ink.
   Widget _metaLine(LedgerColors c) {
     final n = wordCount(_body.text);
     final style = LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint);
@@ -282,7 +282,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               text:
                   ' word${n == 1 ? '' : 's'}'
                   ' · edited ${relativeDayLabel(_updatedAt)}'
-                  ' · began ${relativeDayLabel(widget.note.createdAt)}',
+                  ' · created ${relativeDayLabel(widget.note.createdAt)}',
             ),
           ],
         ),

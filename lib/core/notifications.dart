@@ -13,7 +13,8 @@ import 'package:timezone/timezone.dart' as tz;
 /// The id ledger: 1 = tonight's voiced nudge (one-shot, knows the day),
 /// 2 = the standing evening nudge (daily, generic — the fallback when the
 /// app hasn't been opened to re-voice tonight's), 3 = salary morning,
-/// 1000+ = calendar days ([scheduleEventDay]), 2000+ = recurring charges.
+/// 4 = the focus session's finish line, 1000+ = calendar days
+/// ([scheduleEventDay]), 2000+ = recurring charges.
 class LedgerReminders {
   LedgerReminders._();
 
@@ -23,6 +24,7 @@ class LedgerReminders {
   static const _idTonight = 1;
   static const _idStanding = 2;
   static const _idSalary = 3;
+  static const _idFocus = 4;
   static const _dueBase = 2000;
   static const _channel = AndroidNotificationDetails(
     'close-the-day',
@@ -176,6 +178,19 @@ class LedgerReminders {
   /// Salary morning, one-shot.
   static Future<void> scheduleSalary(String title, String body, DateTime at) =>
       _once(_idSalary, title, body, at);
+
+  /// The focus session's finish line — it fires even if the app was killed
+  /// with the clock still running, so a session never ends in silence.
+  /// Cancelled on pause, give-up, or an in-app finish.
+  static Future<void> scheduleFocusEnd(int minutes, DateTime at) =>
+      _once(_idFocus, 'time\'s up', '$minutes minutes, yours.', at);
+
+  static Future<void> cancelFocusEnd() async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(_idFocus);
+    } catch (_) {}
+  }
 
   /// Upcoming recurring charges, keyed by recurring row id. Stale pending
   /// ones (a charge deleted, paid early, or slid out of the horizon) are

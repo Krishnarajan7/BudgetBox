@@ -102,9 +102,16 @@ class SettingsRepo {
 
   /// 'HH:MM' when the evening nudge is on; null when the book stays quiet.
   /// Device-local on purpose: notifications are a per-phone decision.
+  ///
+  /// On by default at nine in the evening — the reminder to write the day
+  /// down is most of why the book speaks at all, and a default that stays
+  /// silent until found in a settings sheet was doing nobody any good.
+  /// Turning it off stores an explicit 'off', so silence chosen once stays
+  /// chosen.
   Future<(int hour, int minute)?> nudgeTime() async {
     final v = await _get(_nudgeTime);
-    if (v == null) return null;
+    if (v == null) return (21, 0);
+    if (v == 'off') return null;
     final parts = v.split(':');
     final h = int.tryParse(parts.first);
     final m = parts.length > 1 ? int.tryParse(parts[1]) : null;
@@ -115,8 +122,13 @@ class SettingsRepo {
   Future<void> setNudgeTime(int hour, int minute) =>
       _set(_nudgeTime, '$hour:$minute');
 
-  Future<void> clearNudge() =>
-      (_db.delete(_db.settings)..where((s) => s.key.equals(_nudgeTime))).go();
+  Future<void> clearNudge() => _set(_nudgeTime, 'off');
+
+  /// Whether the phone has been asked, once, to allow notifications —
+  /// the ask happens at a launch, not buried behind a toggle.
+  Future<bool> nudgePermissionAsked() async => await _get('nudgeAsked') != null;
+
+  Future<void> markNudgePermissionAsked() => _set('nudgeAsked', '1');
 
   // ————— the day's kural —————
 

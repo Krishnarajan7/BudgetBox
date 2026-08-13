@@ -160,6 +160,33 @@ class _KuralPageState extends State<KuralPage>
     _streakC.forward();
   }
 
+  /// One weekday's mark (1=Mon). A past day counts as read when it falls
+  /// inside the running streak, which ends to-day — the streak preview
+  /// already includes to-day, so the days read before it are streak − 1.
+  Widget _weekMark(LedgerColors c, int d, int weekday) {
+    if (d == weekday) return const StampIn(size: 18, haptic: false);
+    if (d > weekday) {
+      return Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: c.rule),
+        ),
+      );
+    }
+    final read = weekday - d <= widget.streak - 1;
+    return SizedBox(
+      width: 14,
+      height: 14,
+      child: Center(
+        child: read
+            ? PenTick(size: 13, color: c.jama)
+            : PenCross(size: 10, color: c.inkFaint.withValues(alpha: 0.55)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
@@ -228,23 +255,13 @@ class _KuralPageState extends State<KuralPage>
                           ),
                         ),
                         const SizedBox(width: Gap.x3),
+                        // The week tells the truth: a tick where the day was
+                        // read, a small cross where it wasn't, to-day taking
+                        // the stamp, and the days ahead still blank.
                         for (var d = 1; d <= 7; d++)
                           Padding(
                             padding: const EdgeInsets.only(left: 5),
-                            child: d == weekday
-                                ? const StampIn(size: 18, haptic: false)
-                                : Container(
-                                    width: 14,
-                                    height: 14,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: d < weekday
-                                            ? c.inkFaint
-                                            : c.rule,
-                                      ),
-                                    ),
-                                  ),
+                            child: _weekMark(c, d, weekday),
                           ),
                       ],
                     ),
@@ -253,15 +270,7 @@ class _KuralPageState extends State<KuralPage>
                 const SizedBox(height: Gap.x8),
                 // ————— the couplet itself, the day's hero —————
                 InkIn(
-                  child: Text(
-                    kural.couplet,
-                    textAlign: TextAlign.center,
-                    style: LedgerType.bodyStrong.copyWith(
-                      fontSize: 24,
-                      height: 1.7,
-                      color: c.ink,
-                    ),
-                  ),
+                  child: _Couplet(text: kural.couplet, color: c.ink),
                 ),
                 const SizedBox(height: Gap.x3),
                 InkIn(
@@ -373,6 +382,42 @@ class _KuralPageState extends State<KuralPage>
           },
         ),
       ),
+    );
+  }
+}
+
+/// The couplet in its own metre. A kural is seven cīrs — four on the first
+/// line, three on the second — and the page keeps that shape instead of
+/// letting the phone wrap scripture wherever the margin happens to fall.
+/// Each line scales down to fit rather than break.
+class _Couplet extends StatelessWidget {
+  const _Couplet({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = LedgerType.bodyStrong.copyWith(
+      fontSize: 24,
+      height: 1.55,
+      color: color,
+    );
+    final words = text
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    // Anything that isn't a seven-cīr couplet (it happens in edited texts)
+    // falls back to a plain centred wrap.
+    if (words.length < 5) {
+      return Text(text, textAlign: TextAlign.center, style: style);
+    }
+    Widget line(String s) => FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(s, style: style),
+    );
+    return Column(
+      children: [line(words.take(4).join(' ')), line(words.skip(4).join(' '))],
     );
   }
 }

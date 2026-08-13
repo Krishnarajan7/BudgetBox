@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/notifications.dart';
 import '../../core/occasions.dart';
 import '../providers.dart';
 import 'sync_engine.dart';
@@ -56,6 +57,13 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
   /// first round.
   Future<void> _bootstrap() async {
     final settings = ref.read(settingsRepoProvider);
+    // The nudge is on by default now, and the phone still has to allow it —
+    // asked once, at a launch, never buried behind a toggle.
+    if (await settings.nudgeTime() != null &&
+        !await settings.nudgePermissionAsked()) {
+      await settings.markNudgePermissionAsked();
+      await LedgerReminders.requestPermission();
+    }
     // Re-assert the book's voice every launch: schedules survive reboots
     // via the boot receiver, but not an app update — and re-scheduling the
     // same ids is free.
@@ -78,6 +86,10 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
       return;
     }
     if (state != AppLifecycleState.resumed) return;
+    // Coming back is when the book catches up with the clock: days that
+    // ended while it was away seal themselves, and tonight's nudge
+    // re-reads the page it now stands on.
+    unawaited(ref.read(nudgesProvider).resync());
     final last = _lastRun;
     if (last != null && DateTime.now().difference(last) < _resumeQuietPeriod) {
       return;

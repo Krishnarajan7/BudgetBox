@@ -604,11 +604,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               delay: next(),
               children: [
                 const RuleHeader('the other half'),
-                _Row('Server', switch (_server) {
-                  null => 'reading the book…',
-                  final s when s.wired => 'syncing with ${s.host}',
-                  _ => 'not set — this book syncs with nothing',
-                }, onTap: _server == null ? null : _setServer),
+                // The row listens to the engine: "syncing with host" told
+                // nobody whether anything ever actually happened. Now it
+                // answers — settled and when, still talking, offline with a
+                // count owed, or a refused token that needs a hand.
+                ValueListenableBuilder<SyncStatus>(
+                  valueListenable: ref.read(syncEngineProvider).status,
+                  builder: (context, s, _) => _Row(
+                    'Server',
+                    _serverCaption(s),
+                    captionColor: _serverTone(c, s),
+                    onTap: _server == null ? null : _setServer,
+                  ),
+                ),
               ],
             ),
             _Section(
@@ -637,6 +645,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ),
       ),
     );
+  }
+
+  /// What the server row says, from the engine's own mouth.
+  String _serverCaption(SyncStatus s) {
+    final server = _server;
+    if (server == null) return 'reading the book…';
+    if (!server.wired) return 'not set — this book syncs with nothing';
+    final host = server.host;
+    final owed = s.pending == 0
+        ? ''
+        : ' · ${s.pending} ${s.pending == 1 ? 'entry' : 'entries'} owed';
+    return switch (s.phase) {
+      SyncPhase.syncing => 'talking to $host…',
+      SyncPhase.offline => 'can\'t reach $host$owed — will retry',
+      SyncPhase.blocked => '$host refused the token — tap to fix',
+      SyncPhase.idle when s.lastSyncedAt != null =>
+        'settled with $host · ${_hhmm(s.lastSyncedAt!)}$owed',
+      SyncPhase.idle => 'wired to $host — first sync pending',
+    };
+  }
+
+  Color? _serverTone(LedgerColors c, SyncStatus s) {
+    if (_server?.wired != true) return null;
+    return switch (s.phase) {
+      SyncPhase.blocked => c.seal,
+      SyncPhase.offline => c.warn,
+      SyncPhase.idle when s.lastSyncedAt != null => c.jama,
+      _ => null,
+    };
   }
 
   /// Where the book syncs — typed once, kept in the book itself.

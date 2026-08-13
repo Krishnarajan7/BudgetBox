@@ -191,7 +191,11 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   context,
                 ).push(LedgerRoute<void>(builder: (_) => const StoryPage())),
                 child: Text(
-                  'the month\'s story ›',
+                  // The finished story belongs to a finished month; until
+                  // then the door says exactly what it opens onto.
+                  now.day == LedgerDates.daysInMonth(now)
+                      ? 'the month\'s story ›'
+                      : 'the month, so far ›',
                   style: LedgerType.bodyStrong.copyWith(
                     fontSize: 13,
                     color: c.quill,
@@ -609,9 +613,39 @@ class _AccountRow extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    account.name,
-                    style: LedgerType.bodyText.copyWith(color: c.ink),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          account.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: LedgerType.bodyText.copyWith(color: c.ink),
+                        ),
+                      ),
+                      // A holding wears its protection on the row: daily
+                      // spending never sees this line.
+                      if (account.keptAside) ...[
+                        const SizedBox(width: Gap.x2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: c.rule),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'kept aside',
+                            style: LedgerType.label.copyWith(
+                              fontSize: 9,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   Text(
                     stale ? '$asOf — update?' : asOf,
@@ -741,12 +775,14 @@ class _AccountRow extends ConsumerWidget {
   }
 
   Future<void> _correctBalance(BuildContext context, WidgetRef ref) async {
-    final rupees = await showLedgerSheet<int>(
+    // The sheet hands back paise, already resolved under whichever meaning
+    // of the typed figure was chosen ("in it now" vs "before the spending").
+    final paise = await showLedgerSheet<int>(
       context,
       builder: (context) => _CorrectBalanceSheet(account: account),
     );
-    if (rupees != null) {
-      await ref.read(accountRepoProvider).setBalance(account.id, rupees * 100);
+    if (paise != null) {
+      await ref.read(accountRepoProvider).setBalance(account.id, paise);
     }
   }
 }
@@ -769,6 +805,13 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
   );
   bool _stamping = false;
 
+  /// True when the typed figure means "what I HAD, before the spending the
+  /// book already holds" — the number every fresh book actually knows. The
+  /// recorded spending is then taken out of it, instead of being erased by
+  /// a flat overwrite. Offered only while the balance sits below zero,
+  /// because that is exactly the sign of spending with no money behind it.
+  bool _beforeSpending = false;
+
   @override
   void dispose() {
     _field.dispose();
@@ -777,8 +820,16 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
 
   int? get _rupees => int.tryParse(_field.text.trim().replaceAll(',', ''));
 
+  /// What the account will actually read, in paise, under the chosen
+  /// meaning of the typed figure.
+  int? get _resultPaise {
+    final r = _rupees;
+    if (r == null) return null;
+    return _beforeSpending ? r * 100 + widget.account.balancePaise : r * 100;
+  }
+
   void _stamp() {
-    if (_stamping || _rupees == null) return;
+    if (_stamping || _resultPaise == null) return;
     FocusScope.of(context).unfocus();
     setState(() => _stamping = true);
   }
@@ -786,13 +837,15 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
   void _landed() {
     // The seal has pressed down; hand the figure back to the page.
     Future<void>.delayed(const Duration(milliseconds: 240), () {
-      if (mounted) Navigator.of(context).pop(_rupees);
+      if (mounted) Navigator.of(context).pop(_resultPaise);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
+    final owes = widget.account.balancePaise < 0;
+    final result = _resultPaise;
     return Padding(
       padding: EdgeInsets.only(
         left: Gap.page,
@@ -806,16 +859,8 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
           const SheetHandle(),
           const SizedBox(height: Gap.x2),
           Text(
-            '${widget.account.name} — what\'s true right now?',
+            '${widget.account.name} — set the balance',
             style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
-          ),
-          Text(
-            'This SETS the balance — it does not add to it. Money coming '
-            'in belongs in the add sheet, flipped to "money in".',
-            style: LedgerType.bodyText.copyWith(
-              fontSize: 13,
-              color: c.inkFaint,
-            ),
           ),
           const SizedBox(height: Gap.x2),
           TextField(
@@ -835,6 +880,48 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
               border: InputBorder.none,
             ),
           ),
+          if (owes) ...[
+            const SizedBox(height: Gap.x2),
+            // The number below zero is spending the book saw with no money
+            // behind it. The typed figure can mean two things — say which.
+            Wrap(
+              spacing: Gap.x2,
+              runSpacing: Gap.x2,
+              children: [
+                LedgerChip(
+                  'what\'s in it right now',
+                  selected: !_beforeSpending,
+                  onTap: () => setState(() => _beforeSpending = false),
+                ),
+                LedgerChip(
+                  'what I had before the spending',
+                  selected: _beforeSpending,
+                  onTap: () => setState(() => _beforeSpending = true),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: Gap.x2),
+          // The preview is the explanation: no guessing what the stamp does.
+          AnimatedSwitcher(
+            duration: Motion.quick,
+            child: Text(
+              result == null
+                  ? 'type the amount'
+                  : _beforeSpending
+                  ? '${widget.account.name} will read '
+                        '${Inr.format(result)} — the '
+                        '${Inr.format(-widget.account.balancePaise)} '
+                        'already written comes out of it'
+                  : '${widget.account.name} will read '
+                        '${Inr.format(result)}',
+              key: ValueKey('$result-$_beforeSpending'),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
+            ),
+          ),
           const SizedBox(height: Gap.x2),
           SizedBox(
             height: 48,
@@ -847,12 +934,12 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
                   child: Pressable(
                     // The stamp landing is the haptic; one is enough.
                     haptic: false,
-                    onTap: _rupees == null ? null : _stamp,
+                    onTap: _resultPaise == null ? null : _stamp,
                     child: AbsorbPointer(
                       child: SizedBox(
                         width: double.infinity,
                         child: FilledButton(
-                          onPressed: _rupees == null ? null : () {},
+                          onPressed: _resultPaise == null ? null : () {},
                           child: const Text('That\'s the number'),
                         ),
                       ),

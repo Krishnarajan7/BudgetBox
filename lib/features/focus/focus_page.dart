@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
 import '../../core/tokens.dart';
+import '../../core/notifications.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_widgets.dart';
@@ -282,7 +283,9 @@ class _FocusPageState extends ConsumerState<FocusPage>
               (s) =>
                   s.kind.equalsValue(FocusKind.work) &
                   s.completed.equals(true) &
-                  s.startedAt.isBiggerOrEqualValue(LedgerDates.monthStart(now)) &
+                  s.startedAt.isBiggerOrEqualValue(
+                    LedgerDates.monthStart(now),
+                  ) &
                   s.startedAt.isSmallerThanValue(LedgerDates.monthEnd(now)),
             ))
             .get();
@@ -350,6 +353,9 @@ class _FocusPageState extends ConsumerState<FocusPage>
       _chipsIn = false;
     });
     _ticker = Timer.periodic(const Duration(milliseconds: 250), (_) => _tick());
+    // The finish line is told to the phone itself, so the session ends out
+    // loud even if the app is killed with the clock running.
+    unawaited(LedgerReminders.scheduleFocusEnd(minutes, now.add(_total)));
     _breathe();
   }
 
@@ -373,6 +379,17 @@ class _FocusPageState extends ConsumerState<FocusPage>
         _paused = true;
       }
     });
+    // A paused clock has no finish line; resuming draws a fresh one.
+    if (_paused) {
+      unawaited(LedgerReminders.cancelFocusEnd());
+    } else {
+      unawaited(
+        LedgerReminders.scheduleFocusEnd(
+          _total.inMinutes,
+          DateTime.now().add(_pausedRemaining),
+        ),
+      );
+    }
     // The line holds its breath with the clock.
     if (_paused) {
       _holdBreath();
@@ -386,6 +403,7 @@ class _FocusPageState extends ConsumerState<FocusPage>
   Future<void> _giveUp() async {
     _ticker?.cancel();
     _ticker = null;
+    unawaited(LedgerReminders.cancelFocusEnd());
     _holdBreath();
     final elapsedMinutes = (_total - _remaining).inMinutes;
     setState(() {
@@ -421,6 +439,8 @@ class _FocusPageState extends ConsumerState<FocusPage>
   Future<void> _complete() async {
     _ticker?.cancel();
     _ticker = null;
+    // The page saw the finish itself — the phone needn't repeat it.
+    unawaited(LedgerReminders.cancelFocusEnd());
     _holdBreath();
     HapticFeedback.mediumImpact();
     final minutes = _total.inMinutes;
@@ -622,7 +642,10 @@ class _FocusPageState extends ConsumerState<FocusPage>
             m < 1
                 ? 'Too short to write down. Nothing lost.'
                 : '$m ${m == 1 ? 'minute' : 'minutes'} still counted.',
-            style: LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 12,
+              color: c.inkFaint,
+            ),
           ),
         ),
       ),
@@ -745,7 +768,7 @@ class _FocusPageState extends ConsumerState<FocusPage>
           child: TextButton(
             onPressed: _giveUp,
             child: Text(
-              'give up',
+              'stop early',
               style: LedgerType.bodyText.copyWith(
                 fontSize: 13,
                 color: c.inkFaint,
@@ -931,7 +954,9 @@ class _FocusPageState extends ConsumerState<FocusPage>
     return LedgerLine(
       leading: _hhmm(s.startedAt),
       title: s.label ?? (rest ? 'rest' : 'focus'),
-      detail: s.completed ? (rest ? 'rest' : null) : 'left after ${s.minutes}m',
+      detail: s.completed
+          ? (rest ? 'rest' : null)
+          : 'stopped after ${s.minutes}m',
       amount: '${s.minutes}m',
       amountColor: rest ? c.jama : null,
       last: last,
@@ -1023,7 +1048,7 @@ class _FocusPageState extends ConsumerState<FocusPage>
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: Gap.x3),
             child: Text(
-              'no sittings this month, yet.',
+              'no sessions this month, yet.',
               style: LedgerType.bodyText.copyWith(color: c.inkFaint),
             ),
           );
@@ -1084,7 +1109,7 @@ class _FocusPageState extends ConsumerState<FocusPage>
               ),
             ),
             LedgerLine(
-              title: 'sittings',
+              title: 'sessions',
               amountWidget: CountUp(
                 value: r.sessions,
                 format: (n) => '$n',
@@ -1092,7 +1117,7 @@ class _FocusPageState extends ConsumerState<FocusPage>
               ),
             ),
             LedgerLine(
-              title: 'longest sitting',
+              title: 'longest session',
               amountWidget: _onDate(
                 c,
                 r.longestAt,
@@ -1176,8 +1201,7 @@ class _PresetSheetState extends State<_PresetSheet> {
     super.dispose();
   }
 
-  void _keep() =>
-      Navigator.of(context).pop(int.tryParse(_ctrl.text.trim()));
+  void _keep() => Navigator.of(context).pop(int.tryParse(_ctrl.text.trim()));
 
   @override
   Widget build(BuildContext context) {
@@ -1196,7 +1220,7 @@ class _PresetSheetState extends State<_PresetSheet> {
           const SheetHandle(),
           const SizedBox(height: Gap.x3),
           Text(
-            'this chip, in minutes',
+            'preset length, in minutes',
             style: LedgerType.label.copyWith(color: c.inkFaint),
           ),
           const SizedBox(height: Gap.x3),

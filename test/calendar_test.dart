@@ -1,4 +1,5 @@
 import 'package:budgetbox/core/theme.dart';
+import 'package:budgetbox/core/widgets/motion.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
@@ -182,9 +183,11 @@ void main() {
   group('occurrencesInMonth', () {
     test('a yearly anchor from 2001 lands in august 2026', () {
       final birthday = _ev(
-          date: '2001-08-14', repeat: EventRepeat.yearly, title: 'birthday');
-      final occ =
-          EventRepo.occurrencesInMonth([birthday], DateTime(2026, 8));
+        date: '2001-08-14',
+        repeat: EventRepeat.yearly,
+        title: 'birthday',
+      );
+      final occ = EventRepo.occurrencesInMonth([birthday], DateTime(2026, 8));
       expect(occ, hasLength(1));
       expect(occ.single.on, DateTime(2026, 8, 14));
       expect(occ.single.event.title, 'birthday');
@@ -194,9 +197,13 @@ void main() {
       final e = _ev(date: '2026-07-20');
       expect(EventRepo.occurrencesInMonth([e], DateTime(2026, 8)), isEmpty);
       expect(
-          EventRepo.occurrencesInMonth([e], DateTime(2026, 7)), hasLength(1));
-      expect(EventRepo.occurrencesInMonth([e], DateTime(2026, 7)).single.on,
-          DateTime(2026, 7, 20));
+        EventRepo.occurrencesInMonth([e], DateTime(2026, 7)),
+        hasLength(1),
+      );
+      expect(
+        EventRepo.occurrencesInMonth([e], DateTime(2026, 7)).single.on,
+        DateTime(2026, 7, 20),
+      );
     });
 
     test('a none event does not repeat across years', () {
@@ -206,8 +213,9 @@ void main() {
 
     test('feb-29 anchor lands on feb-28 when the year is not leap', () {
       final leapling = _ev(date: '2000-02-29', repeat: EventRepeat.yearly);
-      final nonLeap =
-          EventRepo.occurrencesInMonth([leapling], DateTime(2027, 2));
+      final nonLeap = EventRepo.occurrencesInMonth([
+        leapling,
+      ], DateTime(2027, 2));
       expect(nonLeap.single.on, DateTime(2027, 2, 28));
 
       final leap = EventRepo.occurrencesInMonth([leapling], DateTime(2028, 2));
@@ -226,8 +234,11 @@ void main() {
 
     test('resolves yearly repeats across a year boundary', () {
       final newYear = _ev(
-          id: 1, title: 'new year', date: '2000-01-05',
-          repeat: EventRepeat.yearly);
+        id: 1,
+        title: 'new year',
+        date: '2000-01-05',
+        repeat: EventRepeat.yearly,
+      );
       final up = EventRepo.upcoming([newYear], DateTime(2026, 12, 20));
       expect(up, hasLength(1));
       expect(up.single.on, DateTime(2027, 1, 5));
@@ -245,16 +256,32 @@ void main() {
 
     test('sorts by date, then time with all-day first', () {
       final evening = _ev(
-          id: 1, title: 'evening', date: '2026-08-14', timeMinutes: 18 * 60);
+        id: 1,
+        title: 'evening',
+        date: '2026-08-14',
+        timeMinutes: 18 * 60,
+      );
       final morning = _ev(
-          id: 2, title: 'morning', date: '2026-08-14', timeMinutes: 60);
+        id: 2,
+        title: 'morning',
+        date: '2026-08-14',
+        timeMinutes: 60,
+      );
       final allDay = _ev(id: 3, title: 'all day', date: '2026-08-14');
       final earlier = _ev(id: 4, title: 'earlier date', date: '2026-08-13');
 
-      final up = EventRepo.upcoming(
-          [evening, morning, allDay, earlier], DateTime(2026, 8, 10));
-      expect(up.map((o) => o.event.title),
-          ['earlier date', 'all day', 'morning', 'evening']);
+      final up = EventRepo.upcoming([
+        evening,
+        morning,
+        allDay,
+        earlier,
+      ], DateTime(2026, 8, 10));
+      expect(up.map((o) => o.event.title), [
+        'earlier date',
+        'all day',
+        'morning',
+        'evening',
+      ]);
     });
   });
 
@@ -284,11 +311,20 @@ void main() {
       // The agenda spine shows the month sideways, to-day's number sits on
       // its paper chip, and the entry rides beside it with its hour.
       const months = [
-        'january', 'february', 'march', 'april', 'may', 'june',
-        'july', 'august', 'september', 'october', 'november', 'december',
+        'january',
+        'february',
+        'march',
+        'april',
+        'may',
+        'june',
+        'july',
+        'august',
+        'september',
+        'october',
+        'november',
+        'december',
       ];
-      expect(find.text('${months[now.month - 1]} ${now.year}'),
-          findsOneWidget);
+      expect(find.text('${months[now.month - 1]} ${now.year}'), findsOneWidget);
       expect(find.text('${now.day}'), findsWidgets);
       expect(find.text('Chai with Amma'), findsOneWidget);
       expect(find.text('09:30'), findsOneWidget);
@@ -300,8 +336,9 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
 
-    testWidgets('swiping the week strip carries the agenda a week on',
-        (tester) async {
+    testWidgets('swiping the week strip carries the agenda a week on', (
+      tester,
+    ) async {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
       await _pumpCalendar(tester, db);
 
@@ -317,8 +354,9 @@ void main() {
       await _drain(tester, db);
     });
 
-    testWidgets('the grid names its month, flips to the next, and peeks',
-        (tester) async {
+    testWidgets('the grid names its month, flips to the next, and peeks', (
+      tester,
+    ) async {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
       await _pumpCalendar(tester, db);
       final now = DateTime.now();
@@ -388,6 +426,64 @@ void main() {
       expect(find.textContaining('Rent'), findsWidgets);
       expect(find.text('₹18,000'), findsWidgets);
       expect(find.text('₹180 out'), findsOneWidget);
+      await _drain(tester, db);
+    });
+
+    testWidgets('the composer writes a monthly charge, not just plans', (
+      tester,
+    ) async {
+      // A tall surface so the sheet's button stays hittable over the
+      // test keyboard.
+      tester.view.physicalSize = const Size(800, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      await AccountRepo(db).create(
+        name: 'Cash',
+        kind: AccountKind.cash,
+        openingBalancePaise: 100000,
+      );
+
+      await _pumpCalendar(tester, db);
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      // Drift's account stream needs a beat before the sheet knows a
+      // pocket exists — same courtesy _pumpCalendar extends.
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Flip the composer from plan to charge and fill the line.
+      await tester.tap(find.text('a monthly charge'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'what charges? Netflix, rent…'),
+        'Netflix',
+      );
+      await tester.enterText(find.widgetWithText(TextField, '0'), '649');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('subscription'));
+      await tester.tap(find.text('subscription'));
+      // The modal's hit-testing under the test binding is not what this
+      // test guards; the save wiring is. Press the button by its handler.
+      final save = tester.widget<Pressable>(
+        find
+            .ancestor(
+              of: find.text('Add the charge'),
+              matching: find.byType(Pressable),
+            )
+            .first,
+      );
+      save.onTap!();
+      // Drift resolves the pocket on a timer; settle alone never fires it.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
+
+      final rows = await db.select(db.recurrings).get();
+      expect(rows.length, 1);
+      expect(rows.single.title, 'Netflix');
+      expect(rows.single.amountPaise, 64900);
+      expect(rows.single.kind, RecurringKind.subscription);
+      expect(rows.single.dayOfMonth, DateTime.now().day);
       await _drain(tester, db);
     });
   });

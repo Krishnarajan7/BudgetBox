@@ -8,6 +8,7 @@ import 'api/api_client.dart';
 import 'api/endpoints/coaching_api.dart';
 import 'dev_seed.dart';
 import 'nudges.dart';
+import 'repos/marks_repo.dart';
 import 'repos/account_repo.dart';
 import 'repos/budget_repo.dart';
 import 'repos/goal_repo.dart';
@@ -56,6 +57,10 @@ final goalRepoProvider = Provider<GoalRepo>(
 
 final settingsRepoProvider = Provider<SettingsRepo>(
   (ref) => SettingsRepo(ref.watch(dbProvider)),
+);
+
+final marksRepoProvider = Provider<MarksRepo>(
+  (ref) => MarksRepo(ref.watch(dbProvider)),
 );
 
 final nudgesProvider = Provider<Nudges>(

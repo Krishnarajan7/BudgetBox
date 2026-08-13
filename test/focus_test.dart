@@ -292,8 +292,8 @@ void main() {
       expect(find.text('this week'), findsOneWidget);
       expect(find.text('the record'), findsOneWidget);
       expect(find.text('focused, all-time'), findsOneWidget);
-      expect(find.text('sittings'), findsOneWidget);
-      expect(find.text('longest sitting'), findsOneWidget);
+      expect(find.text('sessions'), findsOneWidget);
+      expect(find.text('longest session'), findsOneWidget);
       expect(find.text('best day'), findsOneWidget);
       expect(find.text('the streak'), findsOneWidget);
       expect(find.text('1h 12m'), findsOneWidget); // 72 minutes, all-time

@@ -1,5 +1,6 @@
 import 'package:budgetbox/core/dates.dart';
 import 'package:budgetbox/core/theme.dart';
+import 'package:budgetbox/core/widgets/motion.dart';
 import 'package:budgetbox/core/widgets/seal.dart';
 import 'package:budgetbox/core/widgets/sheets.dart';
 import 'package:budgetbox/data/db.dart';
@@ -117,7 +118,7 @@ void main() {
 
     // The sheet comes up through the shared kit — handle and all.
     expect(find.byType(SheetHandle), findsOneWidget);
-    expect(find.textContaining('what\'s true right now?'), findsOneWidget);
+    expect(find.textContaining('set the balance'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), '7200');
     await tester.pumpAndSettle();
@@ -138,6 +139,62 @@ void main() {
     final row = await (db.select(db.accounts)..where((a) => a.id.equals(id)))
         .getSingle();
     expect(row.balancePaise, 720000);
+
+    await settleAndUnmount(tester);
+  });
+
+  testWidgets(
+      'a below-zero pocket can absorb the recorded spending: '
+      '"what I had" minus what was written', (tester) async {
+    // ₹500 of spending was recorded before any money was declared — the
+    // classic young-book state that reads −₹500.
+    final id = await AccountRepo(db).create(
+      name: 'Cash',
+      kind: AccountKind.cash,
+      openingBalancePaise: -50000,
+    );
+    await tester.pumpWidget(host(const WorthPage()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cash'));
+    await tester.pumpAndSettle();
+
+    // Below zero, the sheet offers both readings of the typed figure.
+    expect(find.text('what\'s in it right now'), findsOneWidget);
+    expect(find.text('what I had before the spending'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '1000');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('what I had before the spending'));
+    await tester.pumpAndSettle();
+
+    // The preview does the arithmetic out loud: 1000 − 500 = 500.
+    expect(find.textContaining('will read ₹500'), findsOneWidget);
+    expect(find.textContaining('₹500 already written'), findsOneWidget);
+
+    // The chips make this sheet taller than the flat one; under the test
+    // binding the button sits below the keyboard, so press it by handler —
+    // the save wiring is what this test guards, not hit-testing.
+    tester
+        .widget<Pressable>(
+          find
+              .ancestor(
+                of: find.text('That\'s the number'),
+                matching: find.byType(Pressable),
+              )
+              .first,
+        )
+        .onTap!();
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+    await tester.pumpAndSettle();
+    // Let the write behind the pop reach the database.
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final row = await (db.select(db.accounts)..where((a) => a.id.equals(id)))
+        .getSingle();
+    expect(row.balancePaise, 50000);
 
     await settleAndUnmount(tester);
   });

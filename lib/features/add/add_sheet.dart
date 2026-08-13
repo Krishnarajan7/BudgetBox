@@ -24,10 +24,7 @@ import 'amount_engine.dart';
 /// field, and Save is a stamp: press, haptic, seal flash, done — the ledger
 /// line is the confirmation, so there is no toast.
 Future<void> showAddSheet(BuildContext context) {
-  return showLedgerSheet<void>(
-    context,
-    builder: (_) => const AddSheet(),
-  );
+  return showLedgerSheet<void>(context, builder: (_) => const AddSheet());
 }
 
 class AddSheet extends ConsumerStatefulWidget {
@@ -86,20 +83,27 @@ class _AddSheetState extends ConsumerState<AddSheet> {
   Future<void> _load() async {
     final db = ref.read(dbProvider);
     final txns = ref.read(txnRepoProvider);
-    final cats = await (db.select(db.categories)
-          ..where((c) => c.archived.equals(false))
-          ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
-        .get();
-    final accts = await (db.select(db.accounts)
-          ..where((a) => a.archived.equals(false))
-          ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
-        .get();
+    final cats =
+        await (db.select(db.categories)
+              ..where((c) => c.archived.equals(false))
+              ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
+            .get();
+    final accts =
+        await (db.select(db.accounts)
+              ..where((a) => a.archived.equals(false))
+              ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
+            .get();
+    // Daily spending is offered pockets, never holdings — the emergency
+    // fund does not sit next to the chai money. (If holdings are ALL there
+    // is, they stay offered rather than leaving the sheet unusable.)
+    final pockets = accts.where((a) => !a.keptAside).toList();
+    final offered = pockets.isEmpty ? accts : pockets;
     final top = await txns.topCategoryIds();
     if (!mounted) return;
     setState(() {
       _categories = cats;
-      _accounts = accts;
-      _accountId = accts.isEmpty ? null : accts.first.id;
+      _accounts = offered;
+      _accountId = offered.isEmpty ? null : offered.first.id;
       final expenseCats = cats
           .where((c) => c.kind == CategoryKind.expense)
           .map((c) => c.id)
@@ -124,13 +128,16 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       return;
     }
     final db = ref.read(dbProvider);
-    final rows = await (db.select(db.txns)
-          ..where((t) =>
-              t.categoryId.equals(categoryId) &
-              t.type.equalsValue(TxnType.expense))
-          ..orderBy([(t) => OrderingTerm.desc(t.at)])
-          ..limit(60))
-        .get();
+    final rows =
+        await (db.select(db.txns)
+              ..where(
+                (t) =>
+                    t.categoryId.equals(categoryId) &
+                    t.type.equalsValue(TxnType.expense),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.at)])
+              ..limit(60))
+            .get();
     final tally = <int, int>{};
     final firstSeen = <int, int>{};
     for (final (i, r) in rows.indexed) {
@@ -168,8 +175,8 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       if (!mounted || _title.text != text) return;
       setState(() {
         final match = s.isEmpty ? null : s.first;
-        _suggestion = (match == null ||
-                match.title.toLowerCase() == text.toLowerCase())
+        _suggestion =
+            (match == null || match.title.toLowerCase() == text.toLowerCase())
             ? null
             : match;
         // A remembered title quietly brings its category and account along.
@@ -357,10 +364,11 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 trigger: _engine.paise,
                 child: CountUp(
                   value: _engine.paise,
-                  format: (p) =>
-                      _moneyIn ? '+${Inr.format(p)}' : Inr.format(p),
+                  format: (p) => _moneyIn ? '+${Inr.format(p)}' : Inr.format(p),
                   style: LedgerType.heroAmount.copyWith(
-                      fontSize: 38, color: _moneyIn ? c.jama : c.ink),
+                    fontSize: 38,
+                    color: _moneyIn ? c.jama : c.ink,
+                  ),
                   // Typing must feel instant, just soft.
                   duration: const Duration(milliseconds: 160),
                 ),
@@ -372,7 +380,9 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 onTap: () => setState(() => _moneyIn = !_moneyIn),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: Gap.x2, vertical: 5),
+                    horizontal: Gap.x2,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: _moneyIn
                         ? c.jama.withValues(alpha: 0.16)
@@ -483,35 +493,36 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     );
   }
 
-  Widget _chip(LedgerColors c,
-      {required Category category, required bool selected}) {
+  Widget _chip(
+    LedgerColors c, {
+    required Category category,
+    required bool selected,
+  }) {
     Widget body(Color? wash) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: wash,
-            border: Border.all(color: selected ? c.quill : c.rule),
-            borderRadius: BorderRadius.circular(Corner.chip),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: wash,
+        border: Border.all(color: selected ? c.quill : c.rule),
+        borderRadius: BorderRadius.circular(Corner.chip),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CatMark(
+            category.icon,
+            size: 13,
+            color: selected ? c.quill : c.inkFaint,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CatMark(
-                category.icon,
-                size: 13,
-                color: selected ? c.quill : c.inkFaint,
-              ),
-              const SizedBox(width: 5),
-              Text(
-                category.name,
-                style: selected
-                    ? LedgerType.bodyStrong
-                        .copyWith(fontSize: 13, color: c.quill)
-                    : LedgerType.bodyText
-                        .copyWith(fontSize: 13, color: c.inkFaint),
-              ),
-            ],
+          const SizedBox(width: 5),
+          Text(
+            category.name,
+            style: selected
+                ? LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill)
+                : LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
           ),
-        );
+        ],
+      ),
+    );
 
     // When the title's memory picked this chip, it takes one soft quill
     // wash — out and back in 250ms, self-settling.
@@ -524,19 +535,22 @@ class _AddSheetState extends ConsumerState<AddSheet> {
               tween: Tween(begin: 0, end: 1),
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeOutCubic,
-              builder: (context, t, _) => body(Color.lerp(
-                c.quillSoft,
-                c.quill.withValues(alpha: 0.3),
-                math.sin(math.pi * t),
-              )),
+              builder: (context, t, _) => body(
+                Color.lerp(
+                  c.quillSoft,
+                  c.quill.withValues(alpha: 0.3),
+                  math.sin(math.pi * t),
+                ),
+              ),
             )
           : body(selected ? c.quillSoft : null),
     );
   }
 
   Future<void> _pickCategory() async {
-    final cats =
-        _categories.where((x) => x.kind == CategoryKind.expense).toList();
+    final cats = _categories
+        .where((x) => x.kind == CategoryKind.expense)
+        .toList();
     final picked = await showLedgerSheet<int>(
       context,
       builder: (context) {
@@ -550,11 +564,13 @@ class _AddSheetState extends ConsumerState<AddSheet> {
               children: [
                 const SheetHandle(),
                 Padding(
-                  padding:
-                      const EdgeInsets.only(top: Gap.x2, bottom: Gap.x3),
+                  padding: const EdgeInsets.only(top: Gap.x2, bottom: Gap.x3),
                   child: Text(
                     'which shelf does this go on?',
-                    style: LedgerType.title.copyWith(fontSize: 18, color: c.ink),
+                    style: LedgerType.title.copyWith(
+                      fontSize: 18,
+                      color: c.ink,
+                    ),
                   ),
                 ),
                 Flexible(
@@ -665,7 +681,8 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     final acct =
         _accounts.where((a) => a.id == _accountId).firstOrNull?.name ?? '—';
     final today = DateTime.now();
-    final sameDay = _at.year == today.year &&
+    final sameDay =
+        _at.year == today.year &&
         _at.month == today.month &&
         _at.day == today.day;
     final dateLabel = sameDay ? 'today' : '${_at.day}/${_at.month}';
@@ -716,8 +733,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
           style: LedgerType.bodyText.copyWith(fontSize: 14, color: c.ink),
           decoration: InputDecoration(
             hintText: 'a line for later',
-            hintStyle:
-                LedgerType.bodyText.copyWith(fontSize: 14, color: c.inkFaint),
+            hintStyle: LedgerType.bodyText.copyWith(
+              fontSize: 14,
+              color: c.inkFaint,
+            ),
             border: InputBorder.none,
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(vertical: Gap.x2),
@@ -735,8 +754,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         children: [
           Text(
             label,
-            style:
-                LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
           ),
           const SizedBox(width: 2),
           PenChevron(size: 12, color: c.inkFaint),
@@ -762,8 +783,15 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       lastDate: DateTime.now(),
     );
     if (picked != null) {
-      setState(() => _at = DateTime(
-          picked.year, picked.month, picked.day, _at.hour, _at.minute));
+      setState(
+        () => _at = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _at.hour,
+          _at.minute,
+        ),
+      );
     }
   }
 }
@@ -839,36 +867,46 @@ class _Keypad extends StatelessWidget {
     // sit at the same width as . and ⌫ — one key grid, one rhythm.
     return Column(
       children: [
-        Row(children: [
-          key('7', () => onDigit('7')),
-          key('8', () => onDigit('8')),
-          key('9', () => onDigit('9')),
-          key('+', () => onOp('+'), op: true),
-        ]),
-        Row(children: [
-          key('4', () => onDigit('4')),
-          key('5', () => onDigit('5')),
-          key('6', () => onDigit('6')),
-          key('−', () => onOp('−'), op: true),
-        ]),
+        Row(
+          children: [
+            key('7', () => onDigit('7')),
+            key('8', () => onDigit('8')),
+            key('9', () => onDigit('9')),
+            key('+', () => onOp('+'), op: true),
+          ],
+        ),
+        Row(
+          children: [
+            key('4', () => onDigit('4')),
+            key('5', () => onDigit('5')),
+            key('6', () => onDigit('6')),
+            key('−', () => onOp('−'), op: true),
+          ],
+        ),
         IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
                 flex: 3,
-                child: Column(children: [
-                  Row(children: [
-                    key('1', () => onDigit('1')),
-                    key('2', () => onDigit('2')),
-                    key('3', () => onDigit('3')),
-                  ]),
-                  Row(children: [
-                    key('0', () => onDigit('0')),
-                    key('.', onPoint),
-                    key('⌫', onBackspace),
-                  ]),
-                ]),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        key('1', () => onDigit('1')),
+                        key('2', () => onDigit('2')),
+                        key('3', () => onDigit('3')),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        key('0', () => onDigit('0')),
+                        key('.', onPoint),
+                        key('⌫', onBackspace),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               Expanded(
                 child: _StampKey(
@@ -971,11 +1009,9 @@ class _StampKey extends StatelessWidget {
                         height: 22,
                         decoration: BoxDecoration(
                           border: Border.all(color: c.paperRaised, width: 2),
-                          borderRadius:
-                              BorderRadius.circular(Corner.stamp),
+                          borderRadius: BorderRadius.circular(Corner.stamp),
                         ),
-                        child:
-                            PenTick(size: 13, color: c.paperRaised),
+                        child: PenTick(size: 13, color: c.paperRaised),
                       ),
                       const SizedBox(height: 6),
                       Text(

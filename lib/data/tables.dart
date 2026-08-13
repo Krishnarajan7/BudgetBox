@@ -216,6 +216,19 @@ class BalanceSnapshots extends Table {
   Set<Column> get primaryKey => {accountId, date};
 }
 
+/// The day's marks — the small daily truths the book keeps besides money.
+/// One row per mark: a habit done ('bath', 'run', 'push', 'pull', 'squat'),
+/// a meal eaten ('meal', with the food in [note]), or the one mark that
+/// counts by its absence ('slip' — a clean day is a day with no slip row).
+/// [kind] is a plain string so a new habit never needs a schema change.
+class DayMarks extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get date => text()(); // yyyy-MM-dd
+  TextColumn get kind => text()();
+  TextColumn get note => text().nullable()();
+  DateTimeColumn get at => dateTime().withDefault(currentDateAndTime)();
+}
+
 // ————— the wire —————
 //
 // The phone keeps its own row numbers because every screen is built on them.

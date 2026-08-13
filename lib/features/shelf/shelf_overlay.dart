@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show BooleanExpressionOperators;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,7 +8,9 @@ import '../../core/typography.dart';
 import '../../core/widgets/motion.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
+import '../../data/repos/marks_repo.dart';
 import '../calendar/calendar_page.dart';
+import '../daily/daily_page.dart';
 import '../focus/focus_page.dart';
 import '../journal/journal_page.dart';
 import '../notes/notes_page.dart';
@@ -27,8 +30,10 @@ Future<void> showShelf(BuildContext context) {
     transitionBuilder: (context, anim, a, child) {
       final curved = CurvedAnimation(parent: anim, curve: Motion.curve);
       return SlideTransition(
-        position: Tween(begin: const Offset(0, -0.06), end: Offset.zero)
-            .animate(curved),
+        position: Tween(
+          begin: const Offset(0, -0.06),
+          end: Offset.zero,
+        ).animate(curved),
         child: FadeTransition(opacity: curved, child: child),
       );
     },
@@ -37,84 +42,118 @@ Future<void> showShelf(BuildContext context) {
 
 /// What each book would say if you asked it how it's going — one short
 /// truthful line per spine, read fresh every time the box opens.
-final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>(
-  (ref) async {
-    final db = ref.watch(dbProvider);
-    final now = DateTime.now();
+final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
+  ref,
+) async {
+  final db = ref.watch(dbProvider);
+  final now = DateTime.now();
 
-    // Calendar: the next thing coming, or a clear road.
-    final events = await (db.select(db.events)
-          ..where((e) => e.archived.equals(false)))
-        .get();
-    DateTime? next;
-    for (final e in events) {
-      var d = DateTime.parse(e.date);
-      if (e.repeat == EventRepeat.yearly) {
-        d = DateTime(now.year, d.month, d.day);
-        if (d.isBefore(DateTime(now.year, now.month, now.day))) {
-          d = DateTime(now.year + 1, d.month, d.day);
-        }
+  // Calendar: the next thing coming, or a clear road.
+  final events = await (db.select(
+    db.events,
+  )..where((e) => e.archived.equals(false))).get();
+  DateTime? next;
+  for (final e in events) {
+    var d = DateTime.parse(e.date);
+    if (e.repeat == EventRepeat.yearly) {
+      d = DateTime(now.year, d.month, d.day);
+      if (d.isBefore(DateTime(now.year, now.month, now.day))) {
+        d = DateTime(now.year + 1, d.month, d.day);
       }
-      if (d.isBefore(DateTime(now.year, now.month, now.day))) continue;
-      if (next == null || d.isBefore(next)) next = d;
     }
-    final calendar = next == null
-        ? 'clear ahead'
-        : (LedgerDates.dayKey(next) == LedgerDates.dayKey(now)
+    if (d.isBefore(DateTime(now.year, now.month, now.day))) continue;
+    if (next == null || d.isBefore(next)) next = d;
+  }
+  final calendar = next == null
+      ? 'clear ahead'
+      : (LedgerDates.dayKey(next) == LedgerDates.dayKey(now)
             ? 'something to-day'
             : 'next · ${LedgerDates.ddMmm(next)}');
 
-    // Notes: how many thoughts are held.
-    final notes = await (db.select(db.notes)
-          ..where((n) => n.archived.equals(false)))
-        .get();
-    final notesLine = notes.isEmpty
-        ? 'blank'
-        : '${notes.length} ${notes.length == 1 ? 'note' : 'notes'} held';
+  // Notes: how many thoughts are held.
+  final notes = await (db.select(
+    db.notes,
+  )..where((n) => n.archived.equals(false))).get();
+  final notesLine = notes.isEmpty
+      ? 'blank'
+      : '${notes.length} ${notes.length == 1 ? 'note' : 'notes'} held';
 
-    // Focus: minutes sat this week.
-    final weekStart = DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: now.weekday - 1));
-    final sessions = await (db.select(db.focusSessions)
-          ..where((s) => s.completed.equals(true)))
-        .get();
-    final weekMin = sessions
-        .where((s) => !s.startedAt.isBefore(weekStart))
-        .fold<int>(0, (a, s) => a + s.minutes);
-    final focus = weekMin == 0
-        ? 'quiet this week'
-        : weekMin >= 60
-            ? '${weekMin ~/ 60}h ${weekMin % 60 == 0 ? '' : '${weekMin % 60}m '}this week'
-            : '${weekMin}m this week';
+  // Focus: minutes sat this week.
+  final weekStart = DateTime(
+    now.year,
+    now.month,
+    now.day,
+  ).subtract(Duration(days: now.weekday - 1));
+  final sessions = await (db.select(
+    db.focusSessions,
+  )..where((s) => s.completed.equals(true))).get();
+  final weekMin = sessions
+      .where((s) => !s.startedAt.isBefore(weekStart))
+      .fold<int>(0, (a, s) => a + s.minutes);
+  final focus = weekMin == 0
+      ? 'quiet this week'
+      : weekMin >= 60
+      ? '${weekMin ~/ 60}h ${weekMin % 60 == 0 ? '' : '${weekMin % 60}m '}this week'
+      : '${weekMin}m this week';
 
-    // Journal: is to-day's page written?
-    final today = await (db.select(db.journalEntries)
-          ..where((j) => j.date.equals(LedgerDates.dayKey(now))))
-        .get();
-    final pages = await db.select(db.journalEntries).get();
-    final journal = today.isNotEmpty &&
-            (today.first.body.trim().isNotEmpty || today.first.mood != null)
-        ? 'written to-day'
-        : pages.isEmpty
-            ? 'unwritten'
-            : '${pages.length} ${pages.length == 1 ? 'page' : 'pages'}';
+  // Journal: is to-day's page written?
+  final today = await (db.select(
+    db.journalEntries,
+  )..where((j) => j.date.equals(LedgerDates.dayKey(now)))).get();
+  final pages = await db.select(db.journalEntries).get();
+  final journal =
+      today.isNotEmpty &&
+          (today.first.body.trim().isNotEmpty || today.first.mood != null)
+      ? 'written to-day'
+      : pages.isEmpty
+      ? 'unwritten'
+      : '${pages.length} ${pages.length == 1 ? 'page' : 'pages'}';
 
-    // Vault: sealed, and how much it guards.
-    final vaultCount =
-        (await db.select(db.vaultItems).get()).length;
-    final vault = vaultCount == 0
-        ? 'sealed'
-        : 'sealed · $vaultCount inside';
-
-    return {
-      'Calendar': calendar,
-      'Notes': notesLine,
-      'Focus': focus,
-      'Journal': journal,
-      'Vault': vault,
+  // Daily: the clean count leads; the checklist trails.
+  final todayKey = LedgerDates.dayKey(now);
+  final marks = await (db.select(
+    db.dayMarks,
+  )..where((m) => m.kind.equals('slip') | m.date.equals(todayKey))).get();
+  final sinceRow = await (db.select(
+    db.settings,
+  )..where((s) => s.key.equals('marksSince'))).getSingleOrNull();
+  final String daily;
+  if (sinceRow == null) {
+    daily = 'unopened';
+  } else if (marks.any((m) => m.kind == 'slip' && m.date == todayKey)) {
+    daily = 'slipped to-day';
+  } else {
+    final slipDates = {
+      for (final m in marks)
+        if (m.kind == 'slip') m.date,
     };
-  },
-);
+    final ticked = marks
+        .where(
+          (m) =>
+              m.date == todayKey &&
+              m.kind != 'slip' &&
+              m.kind != 'meal' &&
+              m.kind != 'pledge',
+        )
+        .length;
+    final clean = cleanStreak(slipDates, sinceRow.value, now);
+    daily =
+        'day $clean clean${ticked > 0 ? ' · $ticked of ${habitKinds.length} ticked' : ''}';
+  }
+
+  // Vault: sealed, and how much it guards.
+  final vaultCount = (await db.select(db.vaultItems).get()).length;
+  final vault = vaultCount == 0 ? 'sealed' : 'sealed · $vaultCount inside';
+
+  return {
+    'Calendar': calendar,
+    'Notes': notesLine,
+    'Focus': focus,
+    'Journal': journal,
+    'Daily': daily,
+    'Vault': vault,
+  };
+});
 
 class _Spine {
   const _Spine(this.name, {this.builder, this.subIcon, this.thickness = 30});
@@ -138,10 +177,13 @@ class _Shelf extends ConsumerWidget {
     _Spine('Notes', builder: (_) => const NotesPage()),
     _Spine('Focus', builder: (_) => const FocusPage()),
     _Spine('Journal', builder: (_) => const JournalPage(), thickness: 34),
-    _Spine('Vault',
-        subIcon: Icons.lock_outline,
-        builder: (_) => const VaultPage(),
-        thickness: 26),
+    _Spine('Daily', builder: (_) => const DailyPage()),
+    _Spine(
+      'Vault',
+      subIcon: Icons.lock_outline,
+      builder: (_) => const VaultPage(),
+      thickness: 26,
+    ),
   ];
 
   void _go(BuildContext context, _Spine s) {
@@ -164,18 +206,25 @@ class _Shelf extends ConsumerWidget {
       child: Material(
         color: c.paperRaised,
         borderRadius: const BorderRadius.vertical(
-            bottom: Radius.circular(Corner.sheet + 4)),
+          bottom: Radius.circular(Corner.sheet + 4),
+        ),
         child: SafeArea(
           bottom: false,
           child: Padding(
-            padding:
-                const EdgeInsets.fromLTRB(Gap.page, Gap.x4, Gap.page, Gap.x6),
+            padding: const EdgeInsets.fromLTRB(
+              Gap.page,
+              Gap.x4,
+              Gap.page,
+              Gap.x6,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('the box',
-                    style: LedgerType.label.copyWith(color: c.inkFaint)),
+                Text(
+                  'the box',
+                  style: LedgerType.label.copyWith(color: c.inkFaint),
+                ),
                 const SizedBox(height: Gap.x2),
                 for (final (i, s) in _spines.indexed)
                   InkIn(
@@ -211,8 +260,7 @@ class _Shelf extends ConsumerWidget {
                                       height: 4,
                                       decoration: BoxDecoration(
                                         color: c.quill,
-                                        borderRadius:
-                                            BorderRadius.circular(2),
+                                        borderRadius: BorderRadius.circular(2),
                                       ),
                                     )
                                   : null,
@@ -220,8 +268,9 @@ class _Shelf extends ConsumerWidget {
                             const SizedBox(width: Gap.x3),
                             Text(
                               s.name,
-                              style:
-                                  LedgerType.bodyStrong.copyWith(color: c.ink),
+                              style: LedgerType.bodyStrong.copyWith(
+                                color: c.ink,
+                              ),
                             ),
                             const Spacer(),
                             if (s.subIcon != null) ...[
@@ -236,7 +285,9 @@ class _Shelf extends ConsumerWidget {
                                     : status?[s.name] ?? '',
                                 key: ValueKey(status?[s.name] ?? ''),
                                 style: LedgerType.bodyText.copyWith(
-                                    fontSize: 12, color: c.inkFaint),
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                ),
                               ),
                             ),
                           ],

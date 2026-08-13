@@ -40,8 +40,11 @@ Future<void> showCatchUpSheet(BuildContext context) =>
 /// the quiet days the catch-up sheet offers back, most recent first.
 /// Today is skipped (the day is still being written), and only expenses
 /// mark a day as written; income and transfers keep a day quiet.
-List<DateTime> quietDays(List<Txn> monthTxns, DateTime now,
-    {int lookback = 7}) {
+List<DateTime> quietDays(
+  List<Txn> monthTxns,
+  DateTime now, {
+  int lookback = 7,
+}) {
   final written = <String>{
     for (final t in monthTxns)
       if (t.type == TxnType.expense) LedgerDates.dayKey(t.at),
@@ -244,12 +247,15 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
 
   Future<void> _load() async {
     final db = ref.read(dbProvider);
-    final cats = await (db.select(db.categories)
-          ..where((c) =>
-              c.archived.equals(false) &
-              c.kind.equalsValue(CategoryKind.income))
-          ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
-        .get();
+    final cats =
+        await (db.select(db.categories)
+              ..where(
+                (c) =>
+                    c.archived.equals(false) &
+                    c.kind.equalsValue(CategoryKind.income),
+              )
+              ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
+            .get();
     final accts = await _activeAccounts(ref.read(dbProvider));
     if (!mounted) return;
     setState(() {
@@ -281,7 +287,9 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
     final title = _title.text.trim().isEmpty
         ? (_selected?.name ?? 'Money in')
         : _title.text.trim();
-    await ref.read(txnRepoProvider).addIncome(
+    await ref
+        .read(txnRepoProvider)
+        .addIncome(
           amountPaise: paise,
           accountId: _accountId!,
           categoryId: _categoryId,
@@ -325,8 +333,10 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
                 children: [
                   for (final cat in _categories) ...[
                     Pressable(
-                      onTap: () => setState(() => _categoryId =
-                          _categoryId == cat.id ? null : cat.id),
+                      onTap: () => setState(
+                        () =>
+                            _categoryId = _categoryId == cat.id ? null : cat.id,
+                      ),
                       child: LedgerChip(
                         cat.name,
                         icon: LedgerIcons.resolve(cat.icon),
@@ -350,8 +360,7 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
                   if (_title.text.isEmpty)
                     IgnorePointer(
                       child: Padding(
-                        padding:
-                            const EdgeInsets.symmetric(vertical: Gap.x2),
+                        padding: const EdgeInsets.symmetric(vertical: Gap.x2),
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 150),
                           switchInCurve: Curves.easeOutCubic,
@@ -359,9 +368,11 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
                           child: Text(
                             _selected?.name ?? 'what came in?',
                             key: ValueKey(
-                                'income-hint-${_selected?.id ?? 'none'}'),
-                            style: LedgerType.bodyText
-                                .copyWith(color: c.inkFaint),
+                              'income-hint-${_selected?.id ?? 'none'}',
+                            ),
+                            style: LedgerType.bodyText.copyWith(
+                              color: c.inkFaint,
+                            ),
                           ),
                         ),
                       ),
@@ -394,7 +405,8 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
     final acct =
         _accounts.where((a) => a.id == _accountId).firstOrNull?.name ?? '—';
     final today = DateTime.now();
-    final sameDay = _at.year == today.year &&
+    final sameDay =
+        _at.year == today.year &&
         _at.month == today.month &&
         _at.day == today.day;
     final dateLabel = sameDay ? 'today' : LedgerDates.ddMmm(_at);
@@ -418,8 +430,10 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
         children: [
           Text(
             label,
-            style:
-                LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
           ),
           const SizedBox(width: 2),
           PenChevron(size: 12, color: c.inkFaint),
@@ -446,8 +460,15 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
       lastDate: DateTime.now(),
     );
     if (picked != null && mounted) {
-      setState(() => _at = DateTime(
-          picked.year, picked.month, picked.day, _at.hour, _at.minute));
+      setState(
+        () => _at = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _at.hour,
+          _at.minute,
+        ),
+      );
     }
   }
 }
@@ -489,8 +510,7 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
     super.dispose();
   }
 
-  Account? _byId(int? id) =>
-      _accounts.where((a) => a.id == id).firstOrNull;
+  Account? _byId(int? id) => _accounts.where((a) => a.id == id).firstOrNull;
 
   bool get _sidesOk => _fromId != null && _toId != null && _fromId != _toId;
 
@@ -499,7 +519,9 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
     if (_busy || paise == null || paise <= 0 || !_sidesOk) return;
     setState(() => _busy = true);
     HapticFeedback.lightImpact();
-    await ref.read(txnRepoProvider).addTransfer(
+    await ref
+        .read(txnRepoProvider)
+        .addTransfer(
           amountPaise: paise,
           fromAccountId: _fromId!,
           toAccountId: _toId!,
@@ -532,8 +554,10 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
           children: [
             const SheetHandle(),
             const SizedBox(height: Gap.x2),
-            Text('from one pocket to another',
-                style: LedgerType.label.copyWith(color: c.inkFaint)),
+            Text(
+              'from one pocket to another',
+              style: LedgerType.label.copyWith(color: c.inkFaint),
+            ),
             _AmountField(
               controller: _amount,
               fieldKey: const Key('transfer-amount'),
@@ -577,8 +601,10 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
                             format: (p) =>
                                 '${fromAcct!.name} − ${Inr.format(p)}'
                                 ' · ${toAcct!.name} + ${Inr.format(p)}',
-                            style: LedgerType.amount
-                                .copyWith(fontSize: 12, color: c.inkFaint),
+                            style: LedgerType.amount.copyWith(
+                              fontSize: 12,
+                              color: c.inkFaint,
+                            ),
                             duration: const Duration(milliseconds: 300),
                           ),
                         ),
@@ -655,8 +681,10 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
     setState(() {
       _accountId = id;
       _amount.text = _rupeesText(acct.balancePaise);
-      _amount.selection =
-          TextSelection(baseOffset: 0, extentOffset: _amount.text.length);
+      _amount.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _amount.text.length,
+      );
     });
     _focus.requestFocus();
   }
@@ -702,8 +730,7 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
     final c = LedgerColors.of(context);
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
     final acct = _selected;
-    final ready =
-        !_busy && acct != null && _paiseFrom(_amount.text) != null;
+    final ready = !_busy && acct != null && _paiseFrom(_amount.text) != null;
 
     return Padding(
       padding: EdgeInsets.only(bottom: viewInsets),
@@ -715,8 +742,10 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
           children: [
             const SheetHandle(),
             const SizedBox(height: Gap.x2),
-            Text('make the book match the world',
-                style: LedgerType.label.copyWith(color: c.inkFaint)),
+            Text(
+              'make the book match the world',
+              style: LedgerType.label.copyWith(color: c.inkFaint),
+            ),
             const SizedBox(height: Gap.x3),
             _AccountChips(
               accounts: _accounts,
@@ -733,8 +762,10 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
                       padding: const EdgeInsets.symmetric(vertical: Gap.x3),
                       child: Text(
                         'Pick the account that drifted.',
-                        style: LedgerType.bodyText
-                            .copyWith(fontSize: 13, color: c.inkFaint),
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 13,
+                          color: c.inkFaint,
+                        ),
                       ),
                     )
                   : Column(
@@ -746,14 +777,17 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
                           key: ValueKey('book-says-${acct.id}'),
                           child: Text(
                             'the book says ${Inr.format(acct.balancePaise)}',
-                            style: LedgerType.amount
-                                .copyWith(fontSize: 13, color: c.inkFaint),
+                            style: LedgerType.amount.copyWith(
+                              fontSize: 13,
+                              color: c.inkFaint,
+                            ),
                           ),
                         ),
                         const SizedBox(height: Gap.x3),
-                        Text("what's true right now?",
-                            style: LedgerType.label
-                                .copyWith(color: c.inkFaint)),
+                        Text(
+                          "what's true right now?",
+                          style: LedgerType.label.copyWith(color: c.inkFaint),
+                        ),
                         _AmountField(
                           controller: _amount,
                           fieldKey: const Key('fix-amount'),
@@ -769,8 +803,10 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
             if (_stamped)
               const _StampBeat()
             else
-              _SheetButton("That's the number",
-                  onPressed: ready ? _save : null),
+              _SheetButton(
+                "That's the number",
+                onPressed: ready ? _save : null,
+              ),
           ],
         ),
       ),
@@ -798,9 +834,7 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
                 border: Border.all(color: _asEntry ? c.quill : c.rule),
                 borderRadius: BorderRadius.circular(Corner.stamp),
               ),
-              child: _asEntry
-                  ? PenTick(size: 11, color: c.paper)
-                  : null,
+              child: _asEntry ? PenTick(size: 11, color: c.paper) : null,
             ),
             const SizedBox(width: Gap.x2),
             Expanded(
@@ -813,9 +847,7 @@ class _FixBalanceSheetState extends ConsumerState<_FixBalanceSheet> {
               ),
             ),
             Text(
-              short
-                  ? '+ ${Inr.format(diff)}'
-                  : '− ${Inr.format(diff.abs())}',
+              short ? '+ ${Inr.format(diff)}' : '− ${Inr.format(diff.abs())}',
               style: LedgerType.amount.copyWith(
                 fontSize: 13,
                 color: short ? c.jama : c.inkFaint,
@@ -852,16 +884,19 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
     final db = ref.read(dbProvider);
     final now = DateTime.now();
     final from = DateTime(now.year, now.month, now.day - 7);
-    final txns = await (db.select(db.txns)
-          ..where((t) => t.at.isBiggerOrEqualValue(from)))
-        .get();
+    final txns = await (db.select(
+      db.txns,
+    )..where((t) => t.at.isBiggerOrEqualValue(from))).get();
 
-    final cats = await (db.select(db.categories)
-          ..where((c) =>
-              c.archived.equals(false) &
-              c.kind.equalsValue(CategoryKind.expense))
-          ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
-        .get();
+    final cats =
+        await (db.select(db.categories)
+              ..where(
+                (c) =>
+                    c.archived.equals(false) &
+                    c.kind.equalsValue(CategoryKind.expense),
+              )
+              ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
+            .get();
     final top = await ref.read(txnRepoProvider).topCategoryIds();
     final ids = cats.map((c) => c.id).toList();
     // Every active category, the most-used first. Four was a guess about
@@ -872,20 +907,25 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
     ];
 
     final accts = await _activeAccounts(ref.read(dbProvider));
+    // Catch-up writes daily spending, and daily spending never drains a
+    // holding — the quiet days pay from a pocket like every other day.
+    final pockets = accts.where((a) => !a.keptAside).toList();
     if (!mounted) return;
     setState(() {
       _days = quietDays(txns, now);
-      _chipCats = [
-        for (final id in order) cats.firstWhere((c) => c.id == id),
-      ];
-      _accountId = accts.isEmpty ? null : accts.first.id;
+      _chipCats = [for (final id in order) cats.firstWhere((c) => c.id == id)];
+      _accountId = pockets.isEmpty
+          ? (accts.isEmpty ? null : accts.first.id)
+          : pockets.first.id;
     });
   }
 
   Future<void> _save(DateTime day, int paise, Category? cat) async {
     final accountId = _accountId;
     if (accountId == null) return;
-    await ref.read(txnRepoProvider).addExpense(
+    await ref
+        .read(txnRepoProvider)
+        .addExpense(
           amountPaise: paise,
           accountId: accountId,
           categoryId: cat?.id,
@@ -917,8 +957,10 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
             const SizedBox(height: Gap.x1),
             Text(
               'Fill what you remember. A blank day just stays blank.',
-              style:
-                  LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
             ),
             const SizedBox(height: Gap.x3),
             if (days == null)
@@ -989,8 +1031,14 @@ class _QuietDayRowState extends State<_QuietDayRow> {
   final _amount = TextEditingController();
   int? _catId;
   bool _saving = false;
-  bool _saved = false;
-  int _savedPaise = 0;
+
+  /// What this day has taken so far, in stamp order. A day is rarely one
+  /// spend — dress AND the bus home — so a stamp settles the row without
+  /// closing it: "one more" reopens the field for the next entry.
+  final _written = <(int paise, String label)>[];
+
+  /// True while the entry field is open (always, until the first stamp).
+  bool _adding = true;
 
   /// The seal is on this row only for a beat; then it settles back to the
   /// small jama check, so a long catch-up never turns into a wall of red.
@@ -1015,19 +1063,27 @@ class _QuietDayRowState extends State<_QuietDayRow> {
 
   Future<void> _stamp() async {
     final paise = _paiseFrom(_amount.text);
-    if (_saving || _saved || paise == null || paise <= 0) return;
+    if (_saving || paise == null || paise <= 0) return;
     setState(() => _saving = true);
     HapticFeedback.lightImpact();
     await widget.onSave(paise, _cat);
     if (!mounted) return;
     setState(() {
-      _saved = true;
-      _savedPaise = paise;
+      _written.add((paise, _cat?.name ?? 'Entry'));
+      _adding = false;
+      _saving = false;
       _flash = true;
+      _amount.clear();
+      _catId = null;
     });
     _flashTimer = Timer(const Duration(milliseconds: 700), () {
       if (mounted) setState(() => _flash = false);
     });
+  }
+
+  void _oneMore() {
+    HapticFeedback.selectionClick();
+    setState(() => _adding = true);
   }
 
   @override
@@ -1048,13 +1104,21 @@ class _QuietDayRowState extends State<_QuietDayRow> {
             child: child,
           ),
         ),
-        child: _saved ? _writtenLine(c) : _entryLine(c),
+        child: (!_adding && _written.isNotEmpty)
+            ? _writtenLine(c)
+            : _entryLine(c),
       ),
     );
   }
 
-  /// The row after its stamp: a settled ledger line with a small jama check.
+  /// The row between stamps: what the day holds so far, the jama check, and
+  /// the way back in — because closing a day after one entry is the sheet
+  /// deciding how much a Tuesday cost.
   Widget _writtenLine(LedgerColors c) {
+    final total = _written.fold(0, (s, e) => s + e.$1);
+    final label = _written.length == 1
+        ? _written.first.$2
+        : '${_written.length} entries';
     return Row(
       key: const ValueKey('written'),
       children: [
@@ -1062,18 +1126,35 @@ class _QuietDayRowState extends State<_QuietDayRow> {
           width: 84,
           child: Text(
             LedgerDates.dayLabel(widget.day),
-            style: LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
           ),
         ),
         Expanded(
-          child: Text(
-            _cat?.name ?? 'Entry',
-            style: LedgerType.bodyText.copyWith(color: c.ink),
-            overflow: TextOverflow.ellipsis,
+          child: Pressable(
+            onTap: _oneMore,
+            child: Text.rich(
+              TextSpan(
+                text: label,
+                children: [
+                  TextSpan(
+                    text: '  + one more?',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 12,
+                      color: c.quill,
+                    ),
+                  ),
+                ],
+              ),
+              style: LedgerType.bodyText.copyWith(color: c.ink),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ),
         Text(
-          Inr.format(_savedPaise),
+          Inr.format(total),
           style: LedgerType.amount.copyWith(color: c.ink),
         ),
         const SizedBox(width: Gap.x2),
@@ -1102,24 +1183,45 @@ class _QuietDayRowState extends State<_QuietDayRow> {
           children: [
             SizedBox(
               width: 84,
-              child: Text(
-                LedgerDates.dayLabel(widget.day),
-                style: LedgerType.bodyText.copyWith(fontSize: 13, color: c.ink),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    LedgerDates.dayLabel(widget.day),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 13,
+                      color: c.ink,
+                    ),
+                  ),
+                  // Back for a second entry: what the day already holds.
+                  if (_written.isNotEmpty)
+                    Text(
+                      'has ${Inr.format(_written.fold(0, (s, e) => s + e.$1))}',
+                      style: LedgerType.amount.copyWith(
+                        fontSize: 10,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                ],
               ),
             ),
             Expanded(
               child: TextField(
                 key: Key('quiet-amount-${LedgerDates.dayKey(widget.day)}'),
                 controller: _amount,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 inputFormatters: [_amountFilter],
                 style: LedgerType.amount.copyWith(fontSize: 16, color: c.ink),
                 cursorColor: c.quill,
                 decoration: InputDecoration(
                   prefixText: '₹',
-                  prefixStyle: LedgerType.amount
-                      .copyWith(fontSize: 16, color: c.inkFaint),
+                  prefixStyle: LedgerType.amount.copyWith(
+                    fontSize: 16,
+                    color: c.inkFaint,
+                  ),
                   hintText: '0',
                   hintStyle: LedgerType.amount.copyWith(
                     fontSize: 16,
@@ -1168,7 +1270,8 @@ class _QuietDayRowState extends State<_QuietDayRow> {
                 for (final cat in widget.categories) ...[
                   Pressable(
                     onTap: () => setState(
-                        () => _catId = _catId == cat.id ? null : cat.id),
+                      () => _catId = _catId == cat.id ? null : cat.id,
+                    ),
                     child: LedgerChip(
                       cat.name,
                       icon: LedgerIcons.resolve(cat.icon),

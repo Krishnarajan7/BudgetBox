@@ -6,8 +6,9 @@ import '../providers.dart';
 import '../sync/ids.dart';
 import '../sync/seam.dart';
 
-final noteRepoProvider =
-    Provider<NoteRepo>((ref) => NoteRepo(ref.watch(dbProvider)));
+final noteRepoProvider = Provider<NoteRepo>(
+  (ref) => NoteRepo(ref.watch(dbProvider)),
+);
 
 /// The notes book. A note is never deleted from here — archiving slides it
 /// off the page; the ink stays in the ledger.
@@ -19,12 +20,9 @@ class NoteRepo {
   /// Writes a new note and returns its id.
   Future<int> create({String title = '', String body = ''}) {
     return _db.transaction(() async {
-      final id = await _db.into(_db.notes).insert(
-            NotesCompanion(
-              title: Value(title),
-              body: Value(body),
-            ),
-          );
+      final id = await _db
+          .into(_db.notes)
+          .insert(NotesCompanion(title: Value(title), body: Value(body)));
       await bbxSync.upsert(SyncKinds.note, id);
       return id;
     });
@@ -49,8 +47,9 @@ class NoteRepo {
   /// place on the page, not recency.
   Future<void> setPinned(int id, bool pinned) {
     return _db.transaction(() async {
-      await (_db.update(_db.notes)..where((n) => n.id.equals(id)))
-          .write(NotesCompanion(pinned: Value(pinned)));
+      await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
+        NotesCompanion(pinned: Value(pinned)),
+      );
       await bbxSync.upsert(SyncKinds.note, id);
     });
   }
@@ -58,10 +57,25 @@ class NoteRepo {
   /// Slides the note off the page. Nothing is destroyed.
   Future<void> archive(int id) {
     return _db.transaction(() async {
-      await (_db.update(_db.notes)..where((n) => n.id.equals(id)))
-          .write(const NotesCompanion(archived: Value(true)));
+      await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
+        const NotesCompanion(archived: Value(true)),
+      );
       // NoteIn carries no `archived`; sliding a note off the page is a PATCH.
       await bbxSync.patch(SyncKinds.note, id, {'archived': true});
+    });
+  }
+
+  /// Brings an archived note back onto the page, freshly touched so it
+  /// surfaces where it can be seen.
+  Future<void> restore(int id) {
+    return _db.transaction(() async {
+      await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
+        NotesCompanion(
+          archived: const Value(false),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await bbxSync.patch(SyncKinds.note, id, {'archived': false});
     });
   }
 
@@ -73,6 +87,14 @@ class NoteRepo {
         (n) => OrderingTerm.desc(n.pinned),
         (n) => OrderingTerm.desc(n.updatedAt),
       ]);
+    return q.watch();
+  }
+
+  /// The notes slid off the page, most recently touched first.
+  Stream<List<Note>> watchArchived() {
+    final q = _db.select(_db.notes)
+      ..where((n) => n.archived.equals(true))
+      ..orderBy([(n) => OrderingTerm.desc(n.updatedAt)]);
     return q.watch();
   }
 }

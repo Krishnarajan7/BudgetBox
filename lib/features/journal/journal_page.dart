@@ -13,6 +13,7 @@ import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/journal_repo.dart';
@@ -96,15 +97,17 @@ int journalStreakDays(Iterable<String> writtenDates, DateTime today) {
 
 /// How many pages were written in [month]'s calendar month.
 int journalPagesInMonth(Iterable<String> writtenDates, DateTime month) {
-  final prefix =
-      LedgerDates.dayKey(DateTime(month.year, month.month)).substring(0, 8);
+  final prefix = LedgerDates.dayKey(
+    DateTime(month.year, month.month),
+  ).substring(0, 8);
   return writtenDates.where((d) => d.startsWith(prefix)).toSet().length;
 }
 
 /// One slot per day of [month]'s calendar month: the recorded mood, or null.
 List<int?> monthMoodDots(Iterable<(String, int?)> entries, DateTime month) {
-  final prefix =
-      LedgerDates.dayKey(DateTime(month.year, month.month)).substring(0, 8);
+  final prefix = LedgerDates.dayKey(
+    DateTime(month.year, month.month),
+  ).substring(0, 8);
   final dots = List<int?>.filled(LedgerDates.daysInMonth(month), null);
   for (final (date, mood) in entries) {
     if (mood == null || !date.startsWith(prefix)) continue;
@@ -175,31 +178,180 @@ void _openEditor(BuildContext context, String dateKey) {
 }
 
 /// The Journal book: today's page on top, half-written by the rest of the
-/// box — the day's facts, last year's echo, the month's moods — with every
-/// earlier page ruled beneath it.
-class JournalPage extends ConsumerWidget {
+/// box — the day's facts, every past year's echo of this date, the month's
+/// moods — with every earlier page ruled beneath it, and a search that
+/// reaches all of them.
+class JournalPage extends ConsumerStatefulWidget {
   const JournalPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<JournalPage> createState() => _JournalPageState();
+}
+
+class _JournalPageState extends ConsumerState<JournalPage> {
+  final _search = TextEditingController();
+  bool _searching = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
     final now = DateTime.now();
     final todayKey = LedgerDates.dayKey(now);
+    final query = _search.text.trim();
     return ModuleScaffold(
       title: 'Journal',
-      child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+      trailing: Pressable(
+        scale: 0.9,
+        onTap: () => setState(() {
+          _searching = !_searching;
+          if (!_searching) _search.clear();
+        }),
+        child: Padding(
+          padding: const EdgeInsets.all(Gap.x1),
+          child: _searching
+              ? PenCross(size: 15, color: c.inkFaint)
+              : PenSearch(size: 17, color: c.inkFaint),
+        ),
+      ),
+      child: Column(
         children: [
-          const SizedBox(height: Gap.x4),
-          _PageEditor(dateKey: todayKey),
-          const RuleHeader('the day, in facts'),
-          _DayFacts(day: now),
-          _YearAgo(today: now),
-          _MonthMoods(today: now),
-          const RuleHeader('earlier pages'),
-          _EarlierPages(todayKey: todayKey),
-          const SizedBox(height: Gap.x8),
+          if (_searching)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(Gap.page, Gap.x2, Gap.page, 0),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: c.rule)),
+                ),
+                child: TextField(
+                  controller: _search,
+                  autofocus: true,
+                  onChanged: (_) => setState(() {}),
+                  style: LedgerType.bodyText.copyWith(color: c.ink),
+                  cursorColor: c.quill,
+                  decoration: InputDecoration(
+                    hintText: 'a word from any page…',
+                    hintStyle: LedgerType.bodyText.copyWith(color: c.inkFaint),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: Gap.x2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Expanded(
+            child: query.isNotEmpty
+                ? _SearchResults(query: query)
+                : ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+                    children: [
+                      const SizedBox(height: Gap.x4),
+                      _PageEditor(dateKey: todayKey),
+                      const RuleHeader('the day, in facts'),
+                      _DayFacts(day: now),
+                      _OnThisDay(today: now),
+                      _MonthMoods(today: now),
+                      const RuleHeader('earlier pages'),
+                      _EarlierPages(todayKey: todayKey),
+                      const SizedBox(height: Gap.x8),
+                    ],
+                  ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// Pages holding the searched word, newest first — each one tap from its
+/// full editor.
+class _SearchResults extends ConsumerWidget {
+  const _SearchResults({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    return FutureBuilder<List<JournalEntry>>(
+      // Keyed so a new query re-reads; a stale future never lingers.
+      key: ValueKey(query),
+      future: ref.read(journalRepoProvider).search(query),
+      builder: (context, snap) {
+        final rows = snap.data;
+        if (rows == null) return const SizedBox.shrink();
+        if (rows.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(Gap.page),
+            child: Text(
+              'No page holds that word.',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
+            ),
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+          children: [
+            const SizedBox(height: Gap.x3),
+            Text(
+              '${rows.length} ${rows.length == 1 ? 'page holds' : 'pages hold'} it',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 12,
+                color: c.inkFaint,
+              ),
+            ),
+            const SizedBox(height: Gap.x2),
+            for (final (i, e) in rows.indexed)
+              InkIn(
+                delay: Duration(milliseconds: 30 * i),
+                child: Pressable(
+                  onTap: () => _openEditor(context, e.date),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                    decoration: BoxDecoration(
+                      border: i == rows.length - 1
+                          ? null
+                          : Border(bottom: BorderSide(color: c.rule)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          LedgerDates.dayLabel(DateTime.parse(e.date)),
+                          style: LedgerType.amount.copyWith(
+                            fontSize: 11,
+                            color: c.inkFaint,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          e.body.trim(),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 14,
+                            color: c.ink,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: Gap.x8),
+          ],
+        );
+      },
     );
   }
 }
@@ -304,8 +456,9 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
   /// The prompt becomes the page's first line, cursor waiting on the next.
   void _usePrompt(String prompt) {
     _controller.text = '$prompt\n';
-    _controller.selection =
-        TextSelection.collapsed(offset: _controller.text.length);
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
     _onBodyChanged(_controller.text);
   }
 
@@ -333,7 +486,7 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
               duration: still ? Duration.zero : Motion.settle,
               curve: Motion.curve,
               child: Text(
-                '· dried',
+                '· saved',
                 style: LedgerType.bodyText.copyWith(
                   fontSize: 12,
                   color: c.inkFaint,
@@ -539,79 +692,88 @@ class _DayFactsState extends ConsumerState<_DayFacts> {
   }
 }
 
-/// The page he wrote on this date last year, if there is one — two quiet
-/// quoted lines behind a hairline. Absent when the book doesn't reach back.
-class _YearAgo extends ConsumerStatefulWidget {
-  const _YearAgo({required this.today});
+/// Every past year's page for this date — the Day One lesson: a journal is
+/// an app, not a tab, when what was captured can come back. Each year is
+/// two quiet quoted lines behind a hairline, one tap from its full page.
+/// Absent entirely when the book doesn't reach back.
+class _OnThisDay extends ConsumerStatefulWidget {
+  const _OnThisDay({required this.today});
 
   final DateTime today;
 
   @override
-  ConsumerState<_YearAgo> createState() => _YearAgoState();
+  ConsumerState<_OnThisDay> createState() => _OnThisDayState();
 }
 
-class _YearAgoState extends ConsumerState<_YearAgo> {
-  late final Future<JournalEntry?> _entry;
+class _OnThisDayState extends ConsumerState<_OnThisDay> {
+  late final Future<List<JournalEntry>> _entries = ref
+      .read(journalRepoProvider)
+      .onThisDay(widget.today);
 
-  @override
-  void initState() {
-    super.initState();
-    _entry =
-        ref.read(journalRepoProvider).watch(yearAgoKey(widget.today)).first;
-  }
+  static String _back(int years) =>
+      years == 1 ? 'a year back' : '$years years back';
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    return FutureBuilder<JournalEntry?>(
-      future: _entry,
+    return FutureBuilder<List<JournalEntry>>(
+      future: _entries,
       builder: (context, snapshot) {
-        final e = snapshot.data;
-        if (e == null || e.body.trim().isEmpty) {
-          return const SizedBox.shrink();
-        }
-        final date = DateTime.parse(e.date);
+        final entries = snapshot.data ?? const <JournalEntry>[];
+        if (entries.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            RuleHeader(
-              'a year ago to-day',
-              trailing: Text(
-                '${date.year}',
-                style: LedgerType.amount.copyWith(
-                  fontSize: 11,
-                  color: c.inkFaint,
-                ),
-              ),
-            ),
+            const RuleHeader('on this day'),
             const SizedBox(height: Gap.x2),
-            InkIn(
-              child: Pressable(
-                onTap: () => _openEditor(context, e.date),
-                child: Container(
-                  padding: const EdgeInsets.only(
-                    left: Gap.x3,
-                    top: 2,
-                    bottom: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      left: BorderSide(color: c.rule, width: 2),
-                    ),
-                  ),
-                  child: Text(
-                    e.body.trim(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: LedgerType.bodyText.copyWith(
-                      fontSize: 14,
-                      height: 1.5,
-                      color: c.inkFaint,
+            for (final (i, e) in entries.indexed)
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom: i == entries.length - 1 ? 0 : Gap.x3,
+                ),
+                child: InkIn(
+                  delay: Duration(milliseconds: 60 * i),
+                  child: Pressable(
+                    onTap: () => _openEditor(context, e.date),
+                    child: Container(
+                      padding: const EdgeInsets.only(
+                        left: Gap.x3,
+                        top: 2,
+                        bottom: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          left: BorderSide(color: c.rule, width: 2),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${DateTime.parse(e.date).year} · '
+                            '${_back(widget.today.year - DateTime.parse(e.date).year)}',
+                            style: LedgerType.amount.copyWith(
+                              fontSize: 11,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            e.body.trim(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: LedgerType.bodyText.copyWith(
+                              fontSize: 14,
+                              height: 1.5,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -680,9 +842,7 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
   void _openDay(int day) {
     _openEditor(
       context,
-      LedgerDates.dayKey(
-        DateTime(widget.today.year, widget.today.month, day),
-      ),
+      LedgerDates.dayKey(DateTime(widget.today.year, widget.today.month, day)),
     );
   }
 

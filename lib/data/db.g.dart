@@ -7509,6 +7509,337 @@ class OutboxCompanion extends UpdateCompanion<OutboxData> {
   }
 }
 
+class $DayMarksTable extends DayMarks with TableInfo<$DayMarksTable, DayMark> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DayMarksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _dateMeta = const VerificationMeta('date');
+  @override
+  late final GeneratedColumn<String> date = GeneratedColumn<String>(
+    'date',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _noteMeta = const VerificationMeta('note');
+  @override
+  late final GeneratedColumn<String> note = GeneratedColumn<String>(
+    'note',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _atMeta = const VerificationMeta('at');
+  @override
+  late final GeneratedColumn<DateTime> at = GeneratedColumn<DateTime>(
+    'at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, date, kind, note, at];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'day_marks';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DayMark> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('date')) {
+      context.handle(
+        _dateMeta,
+        date.isAcceptableOrUnknown(data['date']!, _dateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dateMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('note')) {
+      context.handle(
+        _noteMeta,
+        note.isAcceptableOrUnknown(data['note']!, _noteMeta),
+      );
+    }
+    if (data.containsKey('at')) {
+      context.handle(_atMeta, at.isAcceptableOrUnknown(data['at']!, _atMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DayMark map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DayMark(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      date: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}date'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      note: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note'],
+      ),
+      at: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}at'],
+      )!,
+    );
+  }
+
+  @override
+  $DayMarksTable createAlias(String alias) {
+    return $DayMarksTable(attachedDatabase, alias);
+  }
+}
+
+class DayMark extends DataClass implements Insertable<DayMark> {
+  final int id;
+  final String date;
+  final String kind;
+  final String? note;
+  final DateTime at;
+  const DayMark({
+    required this.id,
+    required this.date,
+    required this.kind,
+    this.note,
+    required this.at,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['date'] = Variable<String>(date);
+    map['kind'] = Variable<String>(kind);
+    if (!nullToAbsent || note != null) {
+      map['note'] = Variable<String>(note);
+    }
+    map['at'] = Variable<DateTime>(at);
+    return map;
+  }
+
+  DayMarksCompanion toCompanion(bool nullToAbsent) {
+    return DayMarksCompanion(
+      id: Value(id),
+      date: Value(date),
+      kind: Value(kind),
+      note: note == null && nullToAbsent ? const Value.absent() : Value(note),
+      at: Value(at),
+    );
+  }
+
+  factory DayMark.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DayMark(
+      id: serializer.fromJson<int>(json['id']),
+      date: serializer.fromJson<String>(json['date']),
+      kind: serializer.fromJson<String>(json['kind']),
+      note: serializer.fromJson<String?>(json['note']),
+      at: serializer.fromJson<DateTime>(json['at']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'date': serializer.toJson<String>(date),
+      'kind': serializer.toJson<String>(kind),
+      'note': serializer.toJson<String?>(note),
+      'at': serializer.toJson<DateTime>(at),
+    };
+  }
+
+  DayMark copyWith({
+    int? id,
+    String? date,
+    String? kind,
+    Value<String?> note = const Value.absent(),
+    DateTime? at,
+  }) => DayMark(
+    id: id ?? this.id,
+    date: date ?? this.date,
+    kind: kind ?? this.kind,
+    note: note.present ? note.value : this.note,
+    at: at ?? this.at,
+  );
+  DayMark copyWithCompanion(DayMarksCompanion data) {
+    return DayMark(
+      id: data.id.present ? data.id.value : this.id,
+      date: data.date.present ? data.date.value : this.date,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      note: data.note.present ? data.note.value : this.note,
+      at: data.at.present ? data.at.value : this.at,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DayMark(')
+          ..write('id: $id, ')
+          ..write('date: $date, ')
+          ..write('kind: $kind, ')
+          ..write('note: $note, ')
+          ..write('at: $at')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, date, kind, note, at);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DayMark &&
+          other.id == this.id &&
+          other.date == this.date &&
+          other.kind == this.kind &&
+          other.note == this.note &&
+          other.at == this.at);
+}
+
+class DayMarksCompanion extends UpdateCompanion<DayMark> {
+  final Value<int> id;
+  final Value<String> date;
+  final Value<String> kind;
+  final Value<String?> note;
+  final Value<DateTime> at;
+  const DayMarksCompanion({
+    this.id = const Value.absent(),
+    this.date = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.note = const Value.absent(),
+    this.at = const Value.absent(),
+  });
+  DayMarksCompanion.insert({
+    this.id = const Value.absent(),
+    required String date,
+    required String kind,
+    this.note = const Value.absent(),
+    this.at = const Value.absent(),
+  }) : date = Value(date),
+       kind = Value(kind);
+  static Insertable<DayMark> custom({
+    Expression<int>? id,
+    Expression<String>? date,
+    Expression<String>? kind,
+    Expression<String>? note,
+    Expression<DateTime>? at,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (date != null) 'date': date,
+      if (kind != null) 'kind': kind,
+      if (note != null) 'note': note,
+      if (at != null) 'at': at,
+    });
+  }
+
+  DayMarksCompanion copyWith({
+    Value<int>? id,
+    Value<String>? date,
+    Value<String>? kind,
+    Value<String?>? note,
+    Value<DateTime>? at,
+  }) {
+    return DayMarksCompanion(
+      id: id ?? this.id,
+      date: date ?? this.date,
+      kind: kind ?? this.kind,
+      note: note ?? this.note,
+      at: at ?? this.at,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (date.present) {
+      map['date'] = Variable<String>(date.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (note.present) {
+      map['note'] = Variable<String>(note.value);
+    }
+    if (at.present) {
+      map['at'] = Variable<DateTime>(at.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DayMarksCompanion(')
+          ..write('id: $id, ')
+          ..write('date: $date, ')
+          ..write('kind: $kind, ')
+          ..write('note: $note, ')
+          ..write('at: $at')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$LedgerDb extends GeneratedDatabase {
   _$LedgerDb(QueryExecutor e) : super(e);
   $LedgerDbManager get managers => $LedgerDbManager(this);
@@ -7532,6 +7863,7 @@ abstract class _$LedgerDb extends GeneratedDatabase {
   );
   late final $RemoteIdsTable remoteIds = $RemoteIdsTable(this);
   late final $OutboxTable outbox = $OutboxTable(this);
+  late final $DayMarksTable dayMarks = $DayMarksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7555,6 +7887,7 @@ abstract class _$LedgerDb extends GeneratedDatabase {
     balanceSnapshots,
     remoteIds,
     outbox,
+    dayMarks,
   ];
 }
 
@@ -13460,6 +13793,194 @@ typedef $$OutboxTableProcessedTableManager =
       OutboxData,
       PrefetchHooks Function()
     >;
+typedef $$DayMarksTableCreateCompanionBuilder =
+    DayMarksCompanion Function({
+      Value<int> id,
+      required String date,
+      required String kind,
+      Value<String?> note,
+      Value<DateTime> at,
+    });
+typedef $$DayMarksTableUpdateCompanionBuilder =
+    DayMarksCompanion Function({
+      Value<int> id,
+      Value<String> date,
+      Value<String> kind,
+      Value<String?> note,
+      Value<DateTime> at,
+    });
+
+class $$DayMarksTableFilterComposer
+    extends Composer<_$LedgerDb, $DayMarksTable> {
+  $$DayMarksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get at => $composableBuilder(
+    column: $table.at,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DayMarksTableOrderingComposer
+    extends Composer<_$LedgerDb, $DayMarksTable> {
+  $$DayMarksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get at => $composableBuilder(
+    column: $table.at,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DayMarksTableAnnotationComposer
+    extends Composer<_$LedgerDb, $DayMarksTable> {
+  $$DayMarksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get date =>
+      $composableBuilder(column: $table.date, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get note =>
+      $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get at =>
+      $composableBuilder(column: $table.at, builder: (column) => column);
+}
+
+class $$DayMarksTableTableManager
+    extends
+        RootTableManager<
+          _$LedgerDb,
+          $DayMarksTable,
+          DayMark,
+          $$DayMarksTableFilterComposer,
+          $$DayMarksTableOrderingComposer,
+          $$DayMarksTableAnnotationComposer,
+          $$DayMarksTableCreateCompanionBuilder,
+          $$DayMarksTableUpdateCompanionBuilder,
+          (DayMark, BaseReferences<_$LedgerDb, $DayMarksTable, DayMark>),
+          DayMark,
+          PrefetchHooks Function()
+        > {
+  $$DayMarksTableTableManager(_$LedgerDb db, $DayMarksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DayMarksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DayMarksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DayMarksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> date = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<String?> note = const Value.absent(),
+                Value<DateTime> at = const Value.absent(),
+              }) => DayMarksCompanion(
+                id: id,
+                date: date,
+                kind: kind,
+                note: note,
+                at: at,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String date,
+                required String kind,
+                Value<String?> note = const Value.absent(),
+                Value<DateTime> at = const Value.absent(),
+              }) => DayMarksCompanion.insert(
+                id: id,
+                date: date,
+                kind: kind,
+                note: note,
+                at: at,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DayMarksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$LedgerDb,
+      $DayMarksTable,
+      DayMark,
+      $$DayMarksTableFilterComposer,
+      $$DayMarksTableOrderingComposer,
+      $$DayMarksTableAnnotationComposer,
+      $$DayMarksTableCreateCompanionBuilder,
+      $$DayMarksTableUpdateCompanionBuilder,
+      (DayMark, BaseReferences<_$LedgerDb, $DayMarksTable, DayMark>),
+      DayMark,
+      PrefetchHooks Function()
+    >;
 
 class $LedgerDbManager {
   final _$LedgerDb _db;
@@ -13499,4 +14020,6 @@ class $LedgerDbManager {
       $$RemoteIdsTableTableManager(_db, _db.remoteIds);
   $$OutboxTableTableManager get outbox =>
       $$OutboxTableTableManager(_db, _db.outbox);
+  $$DayMarksTableTableManager get dayMarks =>
+      $$DayMarksTableTableManager(_db, _db.dayMarks);
 }

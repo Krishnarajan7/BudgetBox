@@ -21,10 +21,26 @@ List<Note> filterNotes(List<Note> notes, String query) {
   if (q.isEmpty) return notes;
   return [
     for (final n in notes)
-      if (n.title.toLowerCase().contains(q) ||
-          n.body.toLowerCase().contains(q))
+      if (n.title.toLowerCase().contains(q) || n.body.toLowerCase().contains(q))
         n,
   ];
+}
+
+/// Tags by convention, not by schema: any `#word` written inside a note is a
+/// tag. Returns the distinct tags across [notes], most-used first — the same
+/// trick as the checklist lines: structure that costs nothing to type.
+List<String> noteTags(List<Note> notes) {
+  final pattern = RegExp(r'#([a-zA-Z0-9_]{2,24})');
+  final counts = <String, int>{};
+  for (final n in notes) {
+    for (final m in pattern.allMatches('${n.title} ${n.body}')) {
+      final tag = m.group(0)!.toLowerCase();
+      counts[tag] = (counts[tag] ?? 0) + 1;
+    }
+  }
+  final tags = counts.keys.toList()
+    ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+  return tags;
 }
 
 /// One line of a note that reads as a checklist item — `- milk`, or
@@ -55,11 +71,13 @@ List<ChecklistItem> checklistItems(String body) {
     if (m == null) continue;
     final text = (m.group(2) ?? '').trim();
     if (text.isEmpty) continue;
-    items.add(ChecklistItem(
-      line: i,
-      ticked: (m.group(1) ?? ' ').toLowerCase() == 'x',
-      text: text,
-    ));
+    items.add(
+      ChecklistItem(
+        line: i,
+        ticked: (m.group(1) ?? ' ').toLowerCase() == 'x',
+        text: text,
+      ),
+    );
   }
   return items;
 }
@@ -312,12 +330,38 @@ class _NotesPageState extends ConsumerState<NotesPage> {
           // Section headers only earn their ink when both kinds are present.
           final sectioned = pinned.isNotEmpty && rest.isNotEmpty;
 
+          final tags = noteTags(notes);
+
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: Gap.page),
             children: [
               const SizedBox(height: Gap.x3),
               _captureLine(c),
               _searchArea(c, shown.length, notes.length),
+              // Any #word written in a note is a tag; one tap filters the
+              // book to it, tapping again lets go.
+              if (tags.isNotEmpty) ...[
+                const SizedBox(height: Gap.x3),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final t in tags) ...[
+                        LedgerChip(
+                          t,
+                          selected: _query.trim().toLowerCase() == t,
+                          onTap: () => setState(() {
+                            final was = _query.trim().toLowerCase() == t;
+                            _query = was ? '' : t;
+                            _search.text = _query;
+                          }),
+                        ),
+                        const SizedBox(width: Gap.x2),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: Gap.x4),
               if (snapshot.hasData && notes.isEmpty)
                 const EmptyPage(
@@ -326,7 +370,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
               else if (_query.trim().isNotEmpty && shown.isEmpty)
                 const EmptyPage(
                   line: 'Nothing in the book matches.',
-                  sub: 'Fewer words usually finds it.',
+                  sub: 'Try fewer words.',
                 )
               else ...[
                 _SectionHeader(
@@ -352,6 +396,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
                     pinPopped: pinFlipped.contains(n.id),
                   ),
               ],
+              const _ArchivedDoor(),
               const SizedBox(height: Gap.x8),
             ],
           );
@@ -669,10 +714,7 @@ class _NoteLine extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                if (note.pinned) ...[
-                  _pin(c),
-                  const SizedBox(width: 6),
-                ],
+                if (note.pinned) ...[_pin(c), const SizedBox(width: 6)],
                 Expanded(
                   child: Text(
                     _title,
@@ -710,7 +752,11 @@ class _NoteLine extends StatelessWidget {
                         ? null
                         : () => onToggleCheck!(item.line),
                     child: Padding(
-                      padding: const EdgeInsets.only(right: 6, top: 4, bottom: 4),
+                      padding: const EdgeInsets.only(
+                        right: 6,
+                        top: 4,
+                        bottom: 4,
+                      ),
                       child: _CheckBox(ticked: item.ticked, size: 11),
                     ),
                   ),
@@ -754,7 +800,7 @@ class _NoteLine extends StatelessWidget {
   Widget _whisper(LedgerColors c) {
     if (struck) {
       return Text(
-        'tap to keep',
+        'tap to undo',
         style: LedgerType.bodyText.copyWith(fontSize: 11, color: c.quill),
       );
     }
@@ -787,9 +833,125 @@ class _CheckBox extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border.all(color: ticked ? c.quill : c.inkFaint),
       ),
-      child: ticked
-          ? Icon(Icons.check, size: size - 2, color: c.quill)
-          : null,
+      child: ticked ? Icon(Icons.check, size: size - 2, color: c.quill) : null,
+    );
+  }
+}
+
+/// The quiet way into the notes that were slid off the page. Hidden until
+/// something is actually in there — an empty archive is not a feature.
+class _ArchivedDoor extends ConsumerWidget {
+  const _ArchivedDoor();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    return StreamBuilder<List<Note>>(
+      stream: ref.watch(noteRepoProvider).watchArchived(),
+      builder: (context, snap) {
+        final n = (snap.data ?? const <Note>[]).length;
+        if (n == 0) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: Gap.x6),
+          child: Pressable(
+            onTap: () => Navigator.of(
+              context,
+            ).push(LedgerRoute<void>(builder: (_) => const _ArchivePage())),
+            child: Text(
+              'archived · $n — tap to look',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 12,
+                color: c.inkFaint,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The archive itself: everything slid off, most recent first. Tapping a
+/// note brings it straight back onto the page — no menus, no second step.
+class _ArchivePage extends ConsumerWidget {
+  const _ArchivePage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    final repo = ref.watch(noteRepoProvider);
+    return ModuleScaffold(
+      title: 'Archived',
+      child: StreamBuilder<List<Note>>(
+        stream: repo.watchArchived(),
+        builder: (context, snap) {
+          final notes = snap.data ?? const <Note>[];
+          if (snap.hasData && notes.isEmpty) {
+            return const EmptyPage(
+              line: 'Nothing archived.',
+              sub: 'Notes swiped off the page wait here.',
+            );
+          }
+          return ListView(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+            children: [
+              const SizedBox(height: Gap.x3),
+              Text(
+                'tap a note to bring it back',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+              ),
+              const SizedBox(height: Gap.x2),
+              for (final (i, n) in notes.indexed)
+                Pressable(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    repo.restore(n.id);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                    decoration: BoxDecoration(
+                      border: i == notes.length - 1
+                          ? null
+                          : Border(bottom: BorderSide(color: c.rule)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          n.title.trim().isEmpty
+                              ? (n.body.trim().isEmpty
+                                    ? 'Untitled'
+                                    : n.body.trim().split('\n').first)
+                              : n.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: LedgerType.bodyText.copyWith(color: c.ink),
+                        ),
+                        if (n.body.trim().isNotEmpty &&
+                            n.title.trim().isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            n.body.trim().split('\n').first,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: LedgerType.bodyText.copyWith(
+                              fontSize: 12,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: Gap.x8),
+            ],
+          );
+        },
+      ),
     );
   }
 }

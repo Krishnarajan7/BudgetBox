@@ -1433,7 +1433,9 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
               InkIn(
                 delay: const Duration(milliseconds: 300),
                 child: Text(
-                  'day closed · good night, ${widget.name}',
+                  // "Good night" at two in the afternoon is the book not
+                  // looking up from its page.
+                  'day closed · ${DateTime.now().hour >= 17 ? 'good night' : 'the rest of it is yours'}, ${widget.name}',
                   style: LedgerType.bodyText.copyWith(
                     fontSize: 12,
                     color: c.inkFaint,

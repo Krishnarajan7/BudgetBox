@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +18,7 @@ import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/event_repo.dart';
 import '../../data/repos/recurring_repo.dart';
+import '../book/book_page.dart' show bookOrdinal;
 
 /// A plan resolved onto a day.
 typedef Occurrence = ({Event event, DateTime on});
@@ -34,11 +37,7 @@ String _monthWord(DateTime d) =>
 ///
 /// The calendar borrows the money book's shelf so a day can show both what
 /// was planned and what is owed. Pure math over the rows — no query per day.
-List<Charge> chargesBetween(
-  List<Recurring> rows,
-  DateTime from,
-  DateTime to,
-) {
+List<Charge> chargesBetween(List<Recurring> rows, DateTime from, DateTime to) {
   final start = DateTime(from.year, from.month, from.day);
   final out = <Charge>[];
   for (final r in rows) {
@@ -357,9 +356,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     final money = moneyByDay(txns);
 
     // Group plans and charges by day; the chosen day always gets a page.
-    final byDay = <String, List<Occurrence>>{
-      LedgerDates.dayKey(_selected): [],
-    };
+    final byDay = <String, List<Occurrence>>{LedgerDates.dayKey(_selected): []};
     for (final o in occ) {
       byDay.putIfAbsent(LedgerDates.dayKey(o.on), () => []).add(o);
     }
@@ -1218,9 +1215,7 @@ class _CountdownSection extends StatelessWidget {
                               color: c.ink,
                             ),
                           ),
-                          TextSpan(
-                            text: ' day${l.daysAway == 1 ? '' : 's'}',
-                          ),
+                          TextSpan(text: ' day${l.daysAway == 1 ? '' : 's'}'),
                         ],
                       ),
                       style: LedgerType.bodyText.copyWith(
@@ -1285,7 +1280,9 @@ class _MonthGrid extends StatelessWidget {
       plansByDay.putIfAbsent(o.on.day, () => []).add(o);
       marks
           .putIfAbsent(o.on.day, () => [])
-          .add(o.event.repeat == EventRepeat.yearly ? _Mark.yearly : _Mark.plan);
+          .add(
+            o.event.repeat == EventRepeat.yearly ? _Mark.yearly : _Mark.plan,
+          );
     }
     var billTotal = 0;
     for (final b in bills) {
@@ -1604,6 +1601,16 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
   bool _yearly = false;
   bool _saving = false;
 
+  /// The composer writes charges too, not just plans — a bill noticed while
+  /// looking at the month is written where you noticed it, instead of a walk
+  /// to the Plans screen. (The Fantastical lesson: the second thing you
+  /// create belongs inside the first thing's composer.)
+  bool _charge = false;
+  final _amount = TextEditingController();
+  RecurringKind _chargeKind = RecurringKind.bill;
+  List<Account> _accounts = const [];
+  int? _accountId;
+
   /// The two inline pickers. Both stay shut for the common case — the day
   /// the sheet opened on is nearly always the right one.
   bool _pickingDate = false;
@@ -1620,12 +1627,39 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
       _yearly = e.repeat == EventRepeat.yearly;
     }
     _title.addListener(() => setState(() {}));
+    _amount.addListener(() => setState(() {}));
+    _activeAccounts().then((accounts) {
+      if (!mounted) return;
+      setState(() {
+        _accounts = accounts;
+        _accountId = accounts.isEmpty ? null : accounts.first.id;
+      });
+    });
+  }
+
+  /// One plain read, not a stream: the sheet needs the shelf as it stands,
+  /// and a future off a query resolves without any watcher machinery.
+  Future<List<Account>> _activeAccounts() {
+    final db = ref.read(dbProvider);
+    return (db.select(db.accounts)
+          ..where((a) => a.archived.equals(false))
+          ..orderBy([(a) => drift.OrderingTerm.asc(a.sortOrder)]))
+        .get();
   }
 
   @override
   void dispose() {
     _title.dispose();
+    _amount.dispose();
     super.dispose();
+  }
+
+  int? get _paise {
+    final t = _amount.text.trim().replaceAll(',', '');
+    if (t.isEmpty) return null;
+    final v = double.tryParse(t);
+    if (v == null || v <= 0) return null;
+    return (v * 100).round();
   }
 
   DateTime get _today {
@@ -1641,7 +1675,34 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
     });
   }
 
+  Future<void> _saveCharge() async {
+    final title = _title.text.trim();
+    final paise = _paise;
+    if (title.isEmpty || paise == null || _saving) return;
+    // The chips choose the pocket when there are several; with one (or when
+    // a fast hand beats the load) the save resolves it itself.
+    final accountId = _accountId ?? (await _activeAccounts()).firstOrNull?.id;
+    if (accountId == null || !mounted) return;
+    setState(() => _saving = true);
+    HapticFeedback.lightImpact();
+    await ref
+        .read(recurringRepoProvider)
+        .create(
+          title: title,
+          amountPaise: paise,
+          accountId: accountId,
+          dayOfMonth: _date.day,
+          kind: _chargeKind,
+          everyMonths: _yearly ? 12 : 1,
+        );
+    // The new charge earns its evening-before warning right away.
+    unawaited(ref.read(nudgesProvider).resync());
+    if (!mounted) return;
+    Navigator.of(context).pop(_date);
+  }
+
   Future<void> _save() async {
+    if (_charge) return _saveCharge();
     final title = _title.text.trim();
     if (title.isEmpty || _saving) return;
     setState(() => _saving = true);
@@ -1698,7 +1759,10 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    final canSave = _title.text.trim().isNotEmpty && !_saving;
+    final canSave =
+        !_saving &&
+        _title.text.trim().isNotEmpty &&
+        (!_charge || _paise != null);
     final today = _today;
     final tomorrow = DateTime(today.year, today.month, today.day + 1);
     final grow = Motion.reduced(context) ? Duration.zero : Motion.quick;
@@ -1715,6 +1779,32 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
           children: [
             const SheetHandle(),
             const SizedBox(height: Gap.x3),
+            // Plan or charge — the one composer writes both. Editing an
+            // existing plan keeps the sheet a plan's sheet.
+            if (widget.event == null) ...[
+              Row(
+                children: [
+                  LedgerChip(
+                    'a plan',
+                    selected: !_charge,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _charge = false);
+                    },
+                  ),
+                  const SizedBox(width: Gap.x2),
+                  LedgerChip(
+                    'a monthly charge',
+                    selected: _charge,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _charge = true);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: Gap.x3),
+            ],
             Container(
               decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: c.rule)),
@@ -1725,7 +1815,9 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
                 maxLength: 120,
                 style: LedgerType.bodyText.copyWith(color: c.ink),
                 decoration: InputDecoration(
-                  hintText: "what's happening?",
+                  hintText: _charge
+                      ? 'what charges? Netflix, rent…'
+                      : "what's happening?",
                   hintStyle: LedgerType.bodyText.copyWith(color: c.inkFaint),
                   border: InputBorder.none,
                   counterText: '',
@@ -1734,6 +1826,38 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
                 ),
               ),
             ),
+            if (_charge) ...[
+              const SizedBox(height: Gap.x2),
+              Container(
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: c.rule)),
+                ),
+                child: TextField(
+                  controller: _amount,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  style: LedgerType.amount.copyWith(fontSize: 18, color: c.ink),
+                  decoration: InputDecoration(
+                    prefixText: '₹',
+                    prefixStyle: LedgerType.amount.copyWith(
+                      fontSize: 18,
+                      color: c.inkFaint,
+                    ),
+                    hintText: '0',
+                    hintStyle: LedgerType.amount.copyWith(
+                      fontSize: 18,
+                      color: c.inkFaint.withValues(alpha: 0.45),
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: Gap.x2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: Gap.x3),
             // The day, without a dialog: two shortcuts and the book itself.
             Wrap(
@@ -1770,44 +1894,106 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
                   : const SizedBox(width: double.infinity),
             ),
             const SizedBox(height: Gap.x3),
-            Wrap(
-              spacing: Gap.x2,
-              runSpacing: Gap.x2,
-              children: [
-                LedgerChip(
-                  'all day',
-                  selected: _timeMinutes == null,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _timeMinutes = null;
-                      _pickingTime = false;
-                    });
-                  },
-                ),
-                LedgerChip(
-                  _timeLabel,
-                  icon: Icons.schedule,
-                  selected: _timeMinutes != null,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _timeMinutes ??= 9 * 60;
-                      _pickingTime = !_pickingTime;
-                    });
-                  },
-                ),
-                LedgerChip(
-                  'every year',
-                  icon: Icons.cake_outlined,
-                  selected: _yearly,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _yearly = !_yearly);
-                  },
+            if (_charge) ...[
+              // A charge has no clock — it has a kind, a pocket it leaves
+              // from, and the day of the month it lands (the date above).
+              Wrap(
+                spacing: Gap.x2,
+                runSpacing: Gap.x2,
+                children: [
+                  LedgerChip(
+                    'bill',
+                    selected: _chargeKind == RecurringKind.bill,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _chargeKind = RecurringKind.bill);
+                    },
+                  ),
+                  LedgerChip(
+                    'subscription',
+                    selected: _chargeKind == RecurringKind.subscription,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _chargeKind = RecurringKind.subscription);
+                    },
+                  ),
+                  LedgerChip(
+                    'once a year',
+                    selected: _yearly,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _yearly = !_yearly);
+                    },
+                  ),
+                ],
+              ),
+              if (_accounts.length > 1) ...[
+                const SizedBox(height: Gap.x2),
+                Wrap(
+                  spacing: Gap.x2,
+                  runSpacing: Gap.x2,
+                  children: [
+                    for (final a in _accounts)
+                      LedgerChip(
+                        a.name,
+                        selected: _accountId == a.id,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _accountId = a.id);
+                        },
+                      ),
+                  ],
                 ),
               ],
-            ),
+              const SizedBox(height: Gap.x2),
+              Text(
+                'lands ${_yearly ? 'once a year' : 'every month'} on the '
+                '${bookOrdinal(_date.day)} — pick a different date above '
+                'to change that',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+              ),
+            ] else
+              Wrap(
+                spacing: Gap.x2,
+                runSpacing: Gap.x2,
+                children: [
+                  LedgerChip(
+                    'all day',
+                    selected: _timeMinutes == null,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        _timeMinutes = null;
+                        _pickingTime = false;
+                      });
+                    },
+                  ),
+                  LedgerChip(
+                    _timeLabel,
+                    icon: Icons.schedule,
+                    selected: _timeMinutes != null,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        _timeMinutes ??= 9 * 60;
+                        _pickingTime = !_pickingTime;
+                      });
+                    },
+                  ),
+                  LedgerChip(
+                    'every year',
+                    icon: Icons.cake_outlined,
+                    selected: _yearly,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _yearly = !_yearly);
+                    },
+                  ),
+                ],
+              ),
             AnimatedSize(
               duration: grow,
               curve: Motion.curve,
@@ -1826,9 +2012,11 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
                 child: FilledButton(
                   onPressed: canSave ? () {} : null,
                   child: Text(
-                    widget.event == null
+                    _charge
+                        ? 'Add the charge'
+                        : widget.event == null
                         ? 'Put it on the page'
-                        : 'Rewrite the line',
+                        : 'Save changes',
                   ),
                 ),
               ),
@@ -1838,7 +2026,7 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
               TextButton(
                 onPressed: _saving ? null : _takeOff,
                 child: Text(
-                  'take it off the page',
+                  'delete this plan',
                   style: LedgerType.bodyText.copyWith(
                     fontSize: 13,
                     color: c.seal,

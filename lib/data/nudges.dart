@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:drift/drift.dart' show InsertMode, Value;
+
 import '../core/dates.dart';
 import '../core/inr.dart';
 import '../core/notifications.dart';
@@ -40,16 +42,50 @@ class Nudges {
   }
 
   Future<void> resync() async {
+    final now = DateTime.now();
+    // The book keeps its own evenings regardless of whether it may speak.
+    await _autoSeal(now);
     final at = await _settings.nudgeTime();
     if (at == null) {
       await LedgerReminders.quiet();
       return;
     }
-    final now = DateTime.now();
     await _tonight(now, at.$1, at.$2);
     await LedgerReminders.scheduleStanding(at.$1, at.$2);
     await _salary(now);
     await _dues(now);
+  }
+
+  /// The book closes its own days: every written day before to-day, and
+  /// to-day itself once ten at night has passed. The close-the-day button
+  /// stays for closing early by hand — the ritual is offered, not owed.
+  /// Quiet days are left unsealed; there is nothing on them to close, and
+  /// the catch-up sheet may still write onto them.
+  Future<void> _autoSeal(DateTime now) async {
+    final from = DateTime(now.year, now.month, now.day - 60);
+    final txns = await _txns
+        .watchRange(from, DateTime(now.year, now.month, now.day + 1))
+        .first;
+    final written = <String>{for (final t in txns) LedgerDates.dayKey(t.at)};
+    if (written.isEmpty) return;
+    final cutoff = now.hour >= 22
+        ? now
+        : DateTime(now.year, now.month, now.day - 1);
+    final rows = <DaySealsCompanion>[];
+    for (
+      var d = from;
+      !d.isAfter(cutoff);
+      d = DateTime(d.year, d.month, d.day + 1)
+    ) {
+      final key = LedgerDates.dayKey(d);
+      if (written.contains(key)) {
+        rows.add(DaySealsCompanion(date: Value(key)));
+      }
+    }
+    if (rows.isEmpty) return;
+    await _db.batch(
+      (b) => b.insertAll(_db.daySeals, rows, mode: InsertMode.insertOrIgnore),
+    );
   }
 
   /// Tonight's line carries the day as it stood the last time the app was

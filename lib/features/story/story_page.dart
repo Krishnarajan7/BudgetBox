@@ -18,10 +18,9 @@ import '../../data/repos/goal_repo.dart';
 /// rather than as four nested builders.
 final _monthTxnsProvider = StreamProvider.autoDispose<List<Txn>>((ref) {
   final now = DateTime.now();
-  return ref.watch(txnRepoProvider).watchRange(
-        LedgerDates.monthStart(now),
-        LedgerDates.monthEnd(now),
-      );
+  return ref
+      .watch(txnRepoProvider)
+      .watchRange(LedgerDates.monthStart(now), LedgerDates.monthEnd(now));
 });
 
 final _categoriesProvider = StreamProvider.autoDispose<List<Category>>((ref) {
@@ -30,10 +29,12 @@ final _categoriesProvider = StreamProvider.autoDispose<List<Category>>((ref) {
 });
 
 final _budgetsProvider = StreamProvider.autoDispose<List<Budget>>(
-    (ref) => ref.watch(budgetRepoProvider).watchAll());
+  (ref) => ref.watch(budgetRepoProvider).watchAll(),
+);
 
 final _goalsProvider = StreamProvider.autoDispose<List<GoalView>>(
-    (ref) => ref.watch(goalRepoProvider).watchViews());
+  (ref) => ref.watch(goalRepoProvider).watchViews(),
+);
 
 /// The monthly story: swipeable pages in the app's voice — the spend, the
 /// Sankey, whatever else the month actually earned a page for — closing on a
@@ -89,8 +90,8 @@ class _StoryPageState extends ConsumerState<StoryPage> {
     final facts = _MonthFacts(
       month: ref.watch(_monthTxnsProvider).value ?? const <Txn>[],
       cats: {
-        for (final x in ref.watch(_categoriesProvider).value ??
-            const <Category>[])
+        for (final x
+            in ref.watch(_categoriesProvider).value ?? const <Category>[])
           x.id: x,
       },
       budgets: ref.watch(_budgetsProvider).value ?? const <Budget>[],
@@ -104,15 +105,16 @@ class _StoryPageState extends ConsumerState<StoryPage> {
         child: Column(
           children: [
             Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(Gap.page, Gap.x3, Gap.page, 0),
+              padding: const EdgeInsets.fromLTRB(Gap.page, Gap.x3, Gap.page, 0),
               child: Row(
                 children: [
                   Text(
                     '${facts.monthName.toLowerCase()}, '
                     'page ${_page + 1} of ${pages.length}',
-                    style: LedgerType.amount
-                        .copyWith(fontSize: 12, color: c.inkFaint),
+                    style: LedgerType.amount.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
                   ),
                   const Spacer(),
                   Pressable(
@@ -178,13 +180,13 @@ class _StoryPageState extends ConsumerState<StoryPage> {
           ),
         );
 
-    InlineSpan money(int index, int paise) =>
-        figure(index, paise, Inr.format);
-    InlineSpan tally(int index, int count) =>
-        figure(index, count, (v) => '$v');
+    InlineSpan money(int index, int paise) => figure(index, paise, Inr.format);
+    InlineSpan tally(int index, int count) => figure(index, count, (v) => '$v');
 
-    void add(List<InlineSpan> Function(int index) spans,
-        {Widget? Function(int index)? extra}) {
+    void add(
+      List<InlineSpan> Function(int index) spans, {
+      Widget? Function(int index)? extra,
+    }) {
       final index = pages.length;
       pages.add(
         Padding(
@@ -208,12 +210,27 @@ class _StoryPageState extends ConsumerState<StoryPage> {
     }
 
     // ── The five that always run ──────────────────────────────────────────
+    // A finished month opens with its verdict; a month still being written
+    // says how far in it is, so a 13-day recap never dresses up as a whole
+    // month's story.
+    final now = DateTime.now();
+    final monthDone = now.day == LedgerDates.daysInMonth(now);
     add(
-      (i) => [
-        const TextSpan(text: 'This month, '),
-        money(i, f.spent),
-        const TextSpan(text: ' left the book.'),
-      ],
+      (i) => monthDone
+          ? [
+              const TextSpan(text: 'This month, '),
+              money(i, f.spent),
+              const TextSpan(text: ' left the book.'),
+            ]
+          : [
+              TextSpan(
+                text:
+                    '${LedgerDates.monthsFull[now.month - 1]}, '
+                    'day ${now.day} — ',
+              ),
+              money(i, f.spent),
+              const TextSpan(text: ' out so far.'),
+            ],
       // A faint nudge for the first read; it retires after one page turn.
       extra: (_) => AnimatedOpacity(
         duration: Motion.spring,
@@ -222,21 +239,27 @@ class _StoryPageState extends ConsumerState<StoryPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('swipe',
-                style: LedgerType.bodyText
-                    .copyWith(fontSize: 13, color: c.inkFaint)),
+            Text(
+              'swipe',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
+            ),
             Icon(Icons.chevron_right, size: 15, color: c.inkFaint),
           ],
         ),
       ),
     );
 
-    add((i) => [
-          bold(f.topCategoryName),
-          const TextSpan(text: ' took the biggest bite — '),
-          money(i, f.topCategoryPaise),
-          const TextSpan(text: '.'),
-        ]);
+    add(
+      (i) => [
+        bold(f.topCategoryName),
+        const TextSpan(text: ' took the biggest bite — '),
+        money(i, f.topCategoryPaise),
+        const TextSpan(text: '.'),
+      ],
+    );
 
     add(
       (i) => [
@@ -252,10 +275,12 @@ class _StoryPageState extends ConsumerState<StoryPage> {
       ),
     );
 
-    add((i) => [
-          tally(i, f.quietDays),
-          const TextSpan(text: ' quiet days — pages with nothing on them.'),
-        ]);
+    add(
+      (i) => [
+        tally(i, f.quietDays),
+        const TextSpan(text: ' quiet days — pages with nothing on them.'),
+      ],
+    );
 
     // ── The Sankey ────────────────────────────────────────────────────────
     final sankeyIndex = pages.length;
@@ -268,8 +293,10 @@ class _StoryPageState extends ConsumerState<StoryPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('where it went',
-                  style: LedgerType.label.copyWith(color: c.inkFaint)),
+              Text(
+                'where it went',
+                style: LedgerType.label.copyWith(color: c.inkFaint),
+              ),
               const SizedBox(height: Gap.x3),
               SizedBox(
                 height: 260,
@@ -289,12 +316,14 @@ class _StoryPageState extends ConsumerState<StoryPage> {
               ),
               const SizedBox(height: Gap.x4),
               Text.rich(
-                TextSpan(children: [
-                  money(sankeyIndex, math.max(f.income, f.spent)),
-                  const TextSpan(text: ' came in. '),
-                  money(sankeyIndex, f.kept),
-                  const TextSpan(text: ' stayed.'),
-                ]),
+                TextSpan(
+                  children: [
+                    money(sankeyIndex, math.max(f.income, f.spent)),
+                    const TextSpan(text: ' came in. '),
+                    money(sankeyIndex, f.kept),
+                    const TextSpan(text: ' stayed.'),
+                  ],
+                ),
                 style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
               ),
             ],
@@ -334,7 +363,7 @@ class _StoryPageState extends ConsumerState<StoryPage> {
           moved.reached
               ? 'And that was the last of it. The goal closed this month.'
               : '${Inr.format(moved.remaining)} to go — '
-                  '${_months(moved.monthsLeft)} more like this one.',
+                    '${_months(moved.monthsLeft)} more like this one.',
           style: LedgerType.bodyText.copyWith(color: c.inkFaint),
         ),
       );
@@ -431,7 +460,12 @@ class _MovedGoal {
 /// The cheapest full week of the month, and what a month of them would cost.
 class _QuietWeek {
   const _QuietWeek(
-      this.start, this.end, this.paise, this.weeksInMonth, this.projected);
+    this.start,
+    this.end,
+    this.paise,
+    this.weeksInMonth,
+    this.projected,
+  );
   final int start;
   final int end;
   final int paise;
@@ -472,8 +506,9 @@ class _MonthFacts {
         topCat = k;
       }
     });
-    topCategoryName =
-        topCat == null ? 'Nothing' : (cats[topCat]?.name ?? 'Uncategorised');
+    topCategoryName = topCat == null
+        ? 'Nothing'
+        : (cats[topCat]?.name ?? 'Uncategorised');
     topCategoryPaise = topPaise;
 
     var bigDay = 1;
@@ -487,9 +522,10 @@ class _MonthFacts {
     biggestDay = bigDay;
     biggestDayPaise = bigPaise;
 
-    quietDays = List.generate(now.day, (i) => i + 1)
-        .where((d) => !byDay.containsKey(d))
-        .length;
+    quietDays = List.generate(
+      now.day,
+      (i) => i + 1,
+    ).where((d) => !byDay.containsKey(d)).length;
 
     final sorted = byCat.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -499,7 +535,7 @@ class _MonthFacts {
         (
           (cats[e.key]?.name.split(' ').first.toLowerCase()) ?? 'other',
           e.value,
-          false
+          false,
         ),
     ];
 
@@ -511,7 +547,9 @@ class _MonthFacts {
   /// A budget only "held" if it was genuinely used — an untouched budget is
   /// not a win, it's an unopened envelope. Tightest hold wins the page.
   static _HeldBudget? _findHeldBudget(
-      List<Budget> budgets, Map<int?, int> byCat) {
+    List<Budget> budgets,
+    Map<int?, int> byCat,
+  ) {
     _HeldBudget? best;
     var bestUse = 0.0;
     for (final b in budgets) {
@@ -553,7 +591,10 @@ class _MonthFacts {
   /// The quietest *finished* week. Needs at least two to compare, or it's
   /// not a stretch, it's just the only week there is.
   static _QuietWeek? _findQuietWeek(
-      Map<int, int> byDay, DateTime now, int daysInMonth) {
+    Map<int, int> byDay,
+    DateTime now,
+    int daysInMonth,
+  ) {
     final done = <(int, int, int)>[]; // start, end, paise
     for (var s = 1; s <= daysInMonth; s += 7) {
       final e = math.min(s + 6, daysInMonth);
@@ -610,8 +651,7 @@ class _SankeyPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (income <= 0 || flows.isEmpty) return;
     if (progress < 1) {
-      canvas.clipRect(
-          Rect.fromLTWH(0, 0, size.width * progress, size.height));
+      canvas.clipRect(Rect.fromLTWH(0, 0, size.width * progress, size.height));
     }
     const gapPx = 7.0;
     final x0 = 40.0;
@@ -643,8 +683,7 @@ class _SankeyPainter extends CustomPainter {
         ..lineTo(x1, yr + h)
         ..cubicTo(x1 - 70, yr + h, x0 + 70, yl + h, x0, yl + h)
         ..close();
-      canvas.drawPath(
-          path, Paint()..color = color.withValues(alpha: opacity));
+      canvas.drawPath(path, Paint()..color = color.withValues(alpha: opacity));
 
       canvas.drawRRect(
         RRect.fromRectAndRadius(
