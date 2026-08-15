@@ -150,10 +150,10 @@ class RecurringRepo {
 
   /// Mark a recurring charge as actually paid — writes the real entry and
   /// advances the schedule.
-  Future<int> markPaid(Recurring r, {int? amountPaise}) async {
+  Future<int> markPaid(Recurring r, {int? amountPaise, int? accountId}) async {
     final id = await _txns.addExpense(
       amountPaise: amountPaise ?? r.amountPaise,
-      accountId: r.accountId,
+      accountId: accountId ?? r.accountId,
       categoryId: r.categoryId,
       title: r.title,
       recurringId: r.id,

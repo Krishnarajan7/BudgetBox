@@ -28,6 +28,7 @@ part 'db.g.dart';
     RemoteIds,
     Outbox,
     DayMarks,
+    Alarms,
   ],
 )
 class LedgerDb extends _$LedgerDb {
@@ -37,7 +38,7 @@ class LedgerDb extends _$LedgerDb {
   LedgerDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -46,6 +47,39 @@ class LedgerDb extends _$LedgerDb {
       await _seedCategories();
     },
     onUpgrade: (m, from, to) async {
+      if (from < 12) {
+        // v12: the check-in's second breath — why the day sat that way,
+        // and the context chips.
+        await m.addColumn(journalEntries, journalEntries.feelWhy);
+        await m.addColumn(journalEntries, journalEntries.feelTags);
+      }
+      if (from < 11) {
+        // v11: the felt field. Mood widens from a 1–5 row to pleasantness
+        // 1–9, gains an energy axis and the chosen word. Old marks are
+        // re-ruled onto the wider scale so their meaning doesn't move.
+        await m.addColumn(journalEntries, journalEntries.energy);
+        await m.addColumn(journalEntries, journalEntries.feelWord);
+        await customStatement(
+          'UPDATE journal_entries SET mood = (mood - 1) * 2 + 1 '
+          'WHERE mood IS NOT NULL AND mood <= 5',
+        );
+      }
+      if (from < 10) {
+        // v10: alarms that ring.
+        await m.createTable(alarms);
+      }
+      if (from < 9) {
+        // v9 lets any note become a real, completable reminder. Nullable time
+        // keeps every existing note exactly as it was.
+        await m.addColumn(notes, notes.remindAt);
+        await m.addColumn(notes, notes.completed);
+      }
+      if (from < 8) {
+        // v8 widens the words for money: clothes, grooming, gear, the bike,
+        // games, sport, going out. Added by name, so a book that already
+        // wrote its own "Clothes" keeps the one it has.
+        await _addMissingCategories(_ownShelfSeed);
+      }
       if (from < 7) {
         // v7: the day's marks — habits, meals, and the clean count.
         await m.createTable(dayMarks);
@@ -102,6 +136,21 @@ class LedgerDb extends _$LedgerDb {
     ('film', 'Fun & extras'),
     ('health', 'Health'),
     ('gift', 'Family & gifts'),
+    ..._ownShelfSeed,
+  ];
+
+  /// The rest of his own shelf, added in v8: the money that used to get
+  /// dumped into "Fun & extras" because nothing else fit — a shirt, a
+  /// haircut, petrol for the bike, a controller, Sunday's match.
+  static const _ownShelfSeed = [
+    ('shirt', 'Clothes & shoes'),
+    ('groom', 'Grooming & care'),
+    ('gadget', 'Gadgets & gear'),
+    ('gym', 'Gym & protein'),
+    ('bike', 'Bike & fuel'),
+    ('game', 'Games & apps'),
+    ('sport', 'Cricket & sport'),
+    ('people', 'Friends & going out'),
   ];
 
   static const _incomeSeed = [('work', 'Salary'), ('up', 'Extra income')];
@@ -127,6 +176,7 @@ class LedgerDb extends _$LedgerDb {
         goals,
         daySeals,
         dayMarks,
+        alarms,
         journalEntries,
         notes,
         focusSessions,
@@ -140,6 +190,30 @@ class LedgerDb extends _$LedgerDb {
       }
       await _seedCategories();
     });
+  }
+
+  /// Appends any of [wanted] the book doesn't already have a name for, after
+  /// whatever is there — an upgrade adds words, it never reorders his.
+  Future<void> _addMissingCategories(
+    List<(String icon, String name)> wanted,
+  ) async {
+    final existing = await select(categories).get();
+    final names = {for (final c in existing) c.name.toLowerCase()};
+    var order = existing.fold<int>(
+      0,
+      (a, c) => c.sortOrder > a ? c.sortOrder : a,
+    );
+    for (final (icon, name) in wanted) {
+      if (names.contains(name.toLowerCase())) continue;
+      await into(categories).insert(
+        CategoriesCompanion.insert(
+          name: name,
+          icon: Value(icon),
+          kind: CategoryKind.expense,
+          sortOrder: Value(++order),
+        ),
+      );
+    }
   }
 
   Future<void> _seedCategories() async {

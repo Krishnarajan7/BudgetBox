@@ -38,8 +38,13 @@ void main() {
 
   test('seeds his categories on create', () async {
     final cats = await db.select(db.categories).get();
-    expect(cats.length, 10);
+    expect(cats.length, 18);
     expect(cats.where((c) => c.kind == CategoryKind.income).length, 2);
+    // His own shelf, not just the household's.
+    expect(
+      cats.map((c) => c.name),
+      containsAll(['Clothes & shoes', 'Grooming & care', 'Bike & fuel']),
+    );
   });
 
   test('expense debits its account inside one db transaction', () async {

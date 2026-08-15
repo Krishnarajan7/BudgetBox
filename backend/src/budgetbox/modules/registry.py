@@ -38,6 +38,7 @@ _ROUTER_MODULES: list[str] = [
     "budgetbox.modules.insights.router",
     "budgetbox.modules.changes.router",
     "budgetbox.modules.export.router",
+    "budgetbox.modules.book.router",
     "budgetbox.modules.notes.router",
     "budgetbox.modules.focus.router",
     "budgetbox.modules.journal.router",

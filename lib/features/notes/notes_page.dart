@@ -137,6 +137,7 @@ class NotesPage extends ConsumerStatefulWidget {
 class _NotesPageState extends ConsumerState<NotesPage> {
   late final NoteRepo _repo;
   final _capture = TextEditingController();
+  DateTime? _captureReminder;
 
   /// Ids already on the page — anything new fades and slides in; nothing
   /// animates on first open.
@@ -214,8 +215,19 @@ class _NotesPageState extends ConsumerState<NotesPage> {
     if (line.isEmpty) return;
     HapticFeedback.selectionClick();
     _capture.clear();
-    setState(() => _penLift++);
-    await _repo.create(title: line);
+    final reminder = _captureReminder;
+    setState(() {
+      _penLift++;
+      _captureReminder = null;
+    });
+    await _repo.create(title: line, remindAt: reminder);
+  }
+
+  Future<void> _chooseCaptureReminder() async {
+    final picked = await pickNoteReminder(context, initial: _captureReminder);
+    if (picked == null || !mounted) return;
+    HapticFeedback.selectionClick();
+    setState(() => _captureReminder = picked);
   }
 
   /// A swipe strikes the row out; it keeps its place, faint and crossed
@@ -321,14 +333,22 @@ class _NotesPageState extends ConsumerState<NotesPage> {
           final shown = filterNotes(notes, _query);
           final pinned = [
             for (final n in shown)
-              if (n.pinned) n,
+              if (n.pinned && (n.remindAt == null || n.completed)) n,
           ];
           final rest = [
             for (final n in shown)
-              if (!n.pinned) n,
+              if (!n.pinned && (n.remindAt == null || n.completed)) n,
           ];
-          // Section headers only earn their ink when both kinds are present.
-          final sectioned = pinned.isNotEmpty && rest.isNotEmpty;
+          final reminders = [
+            for (final n in shown)
+              if (n.remindAt != null && !n.completed) n,
+          ]..sort((a, b) => a.remindAt!.compareTo(b.remindAt!));
+          final sectionCount = [
+            reminders,
+            pinned,
+            rest,
+          ].where((group) => group.isNotEmpty).length;
+          final sectioned = sectionCount > 1;
 
           final tags = noteTags(notes);
 
@@ -337,6 +357,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
             children: [
               const SizedBox(height: Gap.x3),
               _captureLine(c),
+              _captureReminderLine(c),
               _searchArea(c, shown.length, notes.length),
               // Any #word written in a note is a tag; one tap filters the
               // book to it, tapping again lets go.
@@ -365,7 +386,9 @@ class _NotesPageState extends ConsumerState<NotesPage> {
               const SizedBox(height: Gap.x4),
               if (snapshot.hasData && notes.isEmpty)
                 const EmptyPage(
-                  line: 'Nothing here yet. First thought goes on top.',
+                  line:
+                      'Keep a thought, a list, a client detail, or a reminder.',
+                  sub: 'Write above. Add a time when the phone should speak.',
                 )
               else if (_query.trim().isNotEmpty && shown.isEmpty)
                 const EmptyPage(
@@ -373,9 +396,18 @@ class _NotesPageState extends ConsumerState<NotesPage> {
                   sub: 'Try fewer words.',
                 )
               else ...[
+                _SectionHeader('coming up', shown: reminders.isNotEmpty),
+                for (final (i, n) in reminders.indexed)
+                  _noteRow(
+                    c,
+                    n,
+                    last: i == reminders.length - 1,
+                    fresh: fresh.contains(n.id),
+                    pinPopped: pinFlipped.contains(n.id),
+                  ),
                 _SectionHeader(
                   'pinned',
-                  shown: sectioned,
+                  shown: pinned.isNotEmpty && sectioned,
                   trailing: _heldCount(c, pinned.length),
                 ),
                 for (final (i, n) in pinned.indexed)
@@ -386,7 +418,10 @@ class _NotesPageState extends ConsumerState<NotesPage> {
                     fresh: fresh.contains(n.id),
                     pinPopped: pinFlipped.contains(n.id),
                   ),
-                _SectionHeader('everything else', shown: sectioned),
+                _SectionHeader(
+                  reminders.isNotEmpty ? 'notes' : 'everything else',
+                  shown: rest.isNotEmpty && sectioned,
+                ),
                 for (final (i, n) in rest.indexed)
                   _noteRow(
                     c,
@@ -442,6 +477,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
           struck: true,
           onTap: () => _unstrike(n.id),
           onLongPress: () => _unstrike(n.id),
+          onToggleDone: () => _repo.setCompleted(n.id, !n.completed),
         ),
       );
     }
@@ -476,6 +512,7 @@ class _NotesPageState extends ConsumerState<NotesPage> {
             HapticFeedback.lightImpact();
             _repo.setPinned(n.id, !n.pinned);
           },
+          onToggleDone: () => _repo.setCompleted(n.id, !n.completed),
           onToggleCheck: (line) => _toggleCheck(n, line),
         ),
       ),
@@ -606,6 +643,52 @@ class _NotesPageState extends ConsumerState<NotesPage> {
       ),
     );
   }
+
+  Widget _captureReminderLine(LedgerColors c) {
+    final at = _captureReminder;
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.x2),
+      child: Row(
+        children: [
+          Pressable(
+            onTap: _chooseCaptureReminder,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.x1),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    at == null
+                        ? Icons.notifications_none
+                        : Icons.notifications_active_outlined,
+                    size: 15,
+                    color: at == null ? c.inkFaint : c.quill,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    at == null ? 'add a reminder' : noteReminderLabel(at),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 12,
+                      color: at == null ? c.inkFaint : c.quill,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (at != null) ...[
+            const SizedBox(width: Gap.x2),
+            IconButton(
+              tooltip: 'Remove reminder',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => setState(() => _captureReminder = null),
+              icon: Icon(Icons.close, size: 15, color: c.inkFaint),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 /// A section's rule, on the book's one spring: it grows and inks in when a
@@ -652,6 +735,7 @@ class _NoteLine extends StatelessWidget {
     required this.pinPopped,
     required this.onTap,
     required this.onLongPress,
+    this.onToggleDone,
     this.onToggleCheck,
     this.struck = false,
   });
@@ -669,6 +753,7 @@ class _NoteLine extends StatelessWidget {
 
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final VoidCallback? onToggleDone;
 
   /// Ticks the checklist line at this index of the note's body.
   final void Function(int line)? onToggleCheck;
@@ -715,6 +800,16 @@ class _NoteLine extends StatelessWidget {
               textBaseline: TextBaseline.alphabetic,
               children: [
                 if (note.pinned) ...[_pin(c), const SizedBox(width: 6)],
+                if (note.remindAt != null) ...[
+                  Pressable(
+                    scale: 0.82,
+                    onTap: struck ? null : onToggleDone,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _CheckBox(ticked: note.completed, size: 13),
+                    ),
+                  ),
+                ],
                 Expanded(
                   child: Text(
                     _title,
@@ -731,7 +826,29 @@ class _NoteLine extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            if (item == null)
+            if (note.remindAt case final at?)
+              Row(
+                children: [
+                  Icon(
+                    Icons.notifications_none,
+                    size: 12,
+                    color: note.completed ? c.inkFaint : c.quill,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    note.completed
+                        ? 'done · ${noteReminderLabel(at)}'
+                        : noteReminderLabel(at),
+                    style: faint.copyWith(
+                      color: note.completed ? c.inkFaint : c.quill,
+                      decoration: note.completed
+                          ? TextDecoration.lineThrough
+                          : strike,
+                    ),
+                  ),
+                ],
+              )
+            else if (item == null)
               Text(
                 _snippet.isEmpty
                     ? relativeDayLabel(note.updatedAt)

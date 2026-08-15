@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/note_reminders.dart';
 import '../db.dart';
 import '../providers.dart';
 import '../sync/ids.dart';
@@ -18,14 +19,26 @@ class NoteRepo {
   final LedgerDb _db;
 
   /// Writes a new note and returns its id.
-  Future<int> create({String title = '', String body = ''}) {
-    return _db.transaction(() async {
+  Future<int> create({
+    String title = '',
+    String body = '',
+    DateTime? remindAt,
+  }) async {
+    final id = await _db.transaction(() async {
       final id = await _db
           .into(_db.notes)
-          .insert(NotesCompanion(title: Value(title), body: Value(body)));
+          .insert(
+            NotesCompanion(
+              title: Value(title),
+              body: Value(body),
+              remindAt: Value(remindAt),
+            ),
+          );
       await bbxSync.upsert(SyncKinds.note, id);
       return id;
     });
+    if (remindAt != null) await NoteReminders(_db).resync();
+    return id;
   }
 
   /// Rewrites title and/or body, and bumps [Note.updatedAt] so the note
@@ -54,21 +67,52 @@ class NoteRepo {
     });
   }
 
+  /// Adds, moves or clears a note's one-shot reminder. Moving a completed
+  /// reminder makes it active again: choosing another time is an explicit
+  /// decision to bring the task back.
+  Future<void> setReminder(int id, DateTime? at) async {
+    await _db.transaction(() async {
+      await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
+        NotesCompanion(
+          remindAt: Value(at),
+          completed: const Value(false),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await bbxSync.upsert(SyncKinds.note, id);
+    });
+    await NoteReminders(_db).resync();
+  }
+
+  Future<void> setCompleted(int id, bool completed) async {
+    await _db.transaction(() async {
+      await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
+        NotesCompanion(
+          completed: Value(completed),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
+      await bbxSync.upsert(SyncKinds.note, id);
+    });
+    await NoteReminders(_db).resync();
+  }
+
   /// Slides the note off the page. Nothing is destroyed.
-  Future<void> archive(int id) {
-    return _db.transaction(() async {
+  Future<void> archive(int id) async {
+    await _db.transaction(() async {
       await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
         const NotesCompanion(archived: Value(true)),
       );
       // NoteIn carries no `archived`; sliding a note off the page is a PATCH.
       await bbxSync.patch(SyncKinds.note, id, {'archived': true});
     });
+    await NoteReminders(_db).resync();
   }
 
   /// Brings an archived note back onto the page, freshly touched so it
   /// surfaces where it can be seen.
-  Future<void> restore(int id) {
-    return _db.transaction(() async {
+  Future<void> restore(int id) async {
+    await _db.transaction(() async {
       await (_db.update(_db.notes)..where((n) => n.id.equals(id))).write(
         NotesCompanion(
           archived: const Value(false),
@@ -77,6 +121,7 @@ class NoteRepo {
       );
       await bbxSync.patch(SyncKinds.note, id, {'archived': false});
     });
+    await NoteReminders(_db).resync();
   }
 
   /// Active notes: pinned first, then most recently touched.

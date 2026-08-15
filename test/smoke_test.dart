@@ -47,17 +47,8 @@ void main() {
 
     // The opening plays out and hands off to the cover page. No PIN is set,
     // so the cover offers a plain open.
+    // No PIN, no cover, nothing to tap: the book opens itself.
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expect(find.text('Tap to open the book'), findsOneWidget);
-
-    await tester.tap(find.text('Tap to open the book'));
-    // The unlock is a choreography: stamp animation (380ms), a beat (260ms),
-    // then the shell fades up. Each pump advances the fake clock even when
-    // no frame is scheduled, so the beat's timer actually fires.
-    await tester.pump();
-    // Three beats now: the wink, the press, the pause — then the shell.
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('today'), findsWidgets);
@@ -104,8 +95,10 @@ void main() {
     await tester.tap(find.text('Open the book'));
     await tester.pumpAndSettle();
 
-    // Landed on the cover; the book behind it is real.
-    expect(find.text('Tap to open the book'), findsOneWidget);
+    // Straight through — no cover stands between the ritual and the day.
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.text('today'), findsWidgets);
     expect(await db.select(db.accounts).get(), isNotEmpty);
     expect(await db.select(db.budgets).get(), hasLength(6));
     expect(await db.select(db.goals).get(), hasLength(1));

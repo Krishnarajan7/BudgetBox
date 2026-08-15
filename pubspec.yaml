@@ -24,6 +24,7 @@ dependencies:
   http: ^1.5.0
   connectivity_plus: ^7.0.0
   lottie: ^3.5.1
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:
@@ -35,6 +36,7 @@ dev_dependencies:
 flutter:
   assets:
     - assets/kural/kural.json
+    - assets/calendar/holidays.json
     - assets/animation/
   uses-material-design: true
 

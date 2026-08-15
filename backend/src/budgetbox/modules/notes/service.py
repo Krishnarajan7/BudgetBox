@@ -34,6 +34,8 @@ def upsert(session: Session, note_id: str, data: NoteIn) -> Note:
     row.title = data.title
     row.body = data.body
     row.pinned = data.pinned
+    row.remind_at = data.remind_at
+    row.completed = data.completed
     session.commit()
     return row
 

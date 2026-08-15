@@ -280,7 +280,10 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
   }) {
     final c = LedgerColors.of(context);
     final totalLimit = views.fold(0, (s, v) => s + v.pace.limitPaise);
-    final overBy = (totalSpent - totalLimit).clamp(0, 1 << 62);
+    final balance = budgetBalance(
+      limitPaise: totalLimit,
+      spentPaise: totalSpent,
+    );
 
     // The page's one seal: the single worst overrun's verdict. Every other
     // verdict stays ink — the bars carry the forecast.
@@ -299,23 +302,15 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
       children: [
         CountHero(
           caption: onNow
-              ? 'left to spend this month'
+              ? balance.over
+                    ? 'over this month’s lines'
+                    : 'left to spend this month'
               : 'spent in ${_label(_month)}',
-          paise: onNow
-              ? (totalLimit - totalSpent).clamp(0, 1 << 62)
-              : totalSpent,
+          paise: onNow ? balance.amountPaise : totalSpent,
           format: Inr.format,
           size: 34,
           sub: onNow
-              ? overBy == 0
-                    ? null
-                    : Text(
-                        '${Inr.format(overBy)} past the month’s lines',
-                        style: LedgerType.bodyText.copyWith(
-                          fontSize: 13,
-                          color: c.warn,
-                        ),
-                      )
+              ? null
               : Text(
                   'the lines added up to ${Inr.format(totalLimit)}',
                   style: LedgerType.bodyText.copyWith(

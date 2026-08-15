@@ -7,7 +7,17 @@
     <!-- The evening nudge: Android 13+ asks, and the schedule survives a
          reboot through the boot receiver below. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- User-granted precise alarms for time-sensitive note reminders (ticket
+         openings, departures). The scheduler falls back safely when denied. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Alarms that ring: they must take the lock screen, and they must keep
+         ringing rather than politely stopping. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- The sky. Coarse is plenty for a temperature; the app never asks for
+         precise, and a refusal simply removes the weather line. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
         android:label="Krish Space"
         android:name="${applicationName}"

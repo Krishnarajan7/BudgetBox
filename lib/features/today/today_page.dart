@@ -23,9 +23,11 @@ import '../../data/api/endpoints/coaching_api.dart';
 import '../../data/providers.dart';
 import '../../data/repos/budget_math.dart';
 import '../../data/repos/goal_repo.dart';
+import '../../data/repos/journal_repo.dart' show journalRepoProvider;
 import '../../data/repos/recurring_repo.dart';
 import '../add/money_moves.dart' show quietDays, showCatchUpSheet;
 import '../book/book_page.dart' show whereItWent;
+import '../../core/widgets/feel_picker.dart';
 import '../insights/insights_page.dart';
 
 /// The day's page: it greets, it counts, it knows what yesterday looked
@@ -64,6 +66,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   (int, int)? _birthday;
   bool _burst = false;
   final Set<int> _seenTxnIds = {};
+  final Set<String> _hiddenCoachingIds = {};
   bool _firstEmission = true;
 
   /// A one-breath acknowledgment when fresh money lands on a past page —
@@ -113,6 +116,31 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         _birthday = birthday;
         _burst = burst;
       });
+    }
+  }
+
+  Future<void> _dismissCoaching(CoachingInsight insight) async {
+    // Move the card away first. The feed already carries several candidates,
+    // so waiting for a round-trip here only turns a small choice into a stuck
+    // loading state on an ordinary mobile connection.
+    setState(() => _hiddenCoachingIds.add(insight.id));
+
+    final config = await ref.read(settingsRepoProvider).serverConfig();
+    if (!config.wired) {
+      if (mounted) setState(() => _hiddenCoachingIds.remove(insight.id));
+      return;
+    }
+
+    final client = BbxClient(config);
+    try {
+      await CoachingApi(client).dismiss(insight.id);
+      if (mounted) ref.invalidate(coachingFeedProvider);
+    } on Object {
+      // A dismissal that never reached the server must not silently lose the
+      // advice. Put it back and let the person retry when signal returns.
+      if (mounted) setState(() => _hiddenCoachingIds.remove(insight.id));
+    } finally {
+      client.close();
     }
   }
 
@@ -255,6 +283,10 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               elapsedDays: now.day,
               totalDays: LedgerDates.daysInMonth(now),
             );
+            final monthBalance = budgetBalance(
+              limitPaise: monthLimit,
+              spentPaise: monthPaise,
+            );
 
             // The modules, in the order setup promised: 'leaks' watches the
             // month and what's about to charge, 'goal' leads with the saving,
@@ -292,10 +324,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 CountUp(
-                                  value: (monthLimit - monthPaise).clamp(
-                                    0,
-                                    1 << 62,
-                                  ),
+                                  value: monthBalance.amountPaise,
                                   format: Inr.format,
                                   style: LedgerType.heroAmount.copyWith(
                                     fontSize: 34,
@@ -304,17 +333,20 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'left · ${_daysToSalary(now)} '
+                                  '${monthBalance.over ? 'over the month’s lines' : 'left'} · '
+                                  '${_daysToSalary(now)} '
                                   '${_daysToSalary(now) == 1 ? 'day' : 'days'} to salary',
                                   style: LedgerType.amount.copyWith(
                                     fontSize: 11,
-                                    color: c.inkFaint,
+                                    color: monthBalance.over
+                                        ? c.warn
+                                        : c.inkFaint,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          _VerdictChip(pace: pace),
+                          if (!monthBalance.over) _VerdictChip(pace: pace),
                         ],
                       ),
                       const SizedBox(height: Gap.x3),
@@ -377,9 +409,20 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             ];
             final coachingModule = <Widget>[
               ...coaching.maybeWhen(
-                data: (items) => items.isEmpty
-                    ? const <Widget>[]
-                    : <Widget>[_CoachingCard(insight: items.first)],
+                data: (items) {
+                  final visible = items
+                      .where((item) => !_hiddenCoachingIds.contains(item.id))
+                      .firstOrNull;
+                  return visible == null
+                      ? const <Widget>[]
+                      : <Widget>[
+                          _CoachingCard(
+                            key: ValueKey(visible.id),
+                            insight: visible,
+                            onDismiss: () => _dismissCoaching(visible),
+                          ),
+                        ];
+                },
                 orElse: () => const <Widget>[],
               ),
             ];
@@ -476,6 +519,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 else
                   _TodayLines(today: today, freshIds: freshIds),
                 const SizedBox(height: Gap.x4),
+                const _UnmarkedLine(),
                 Center(child: _CloseDay(name: _name)),
                 const SizedBox(height: Gap.x6),
               ],
@@ -538,39 +582,21 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   }
 }
 
-class _CoachingCard extends ConsumerStatefulWidget {
-  const _CoachingCard({required this.insight});
+class _CoachingCard extends StatelessWidget {
+  const _CoachingCard({
+    super.key,
+    required this.insight,
+    required this.onDismiss,
+  });
 
   final CoachingInsight insight;
-
-  @override
-  ConsumerState<_CoachingCard> createState() => _CoachingCardState();
-}
-
-class _CoachingCardState extends ConsumerState<_CoachingCard> {
-  bool _closing = false;
-
-  Future<void> _dismiss() async {
-    if (_closing) return;
-    setState(() => _closing = true);
-    final config = await ref.read(settingsRepoProvider).serverConfig();
-    if (!config.wired) return;
-    final client = BbxClient(config);
-    try {
-      await CoachingApi(client).dismiss(widget.insight.id);
-      ref.invalidate(coachingFeedProvider);
-    } catch (_) {
-      if (mounted) setState(() => _closing = false);
-    } finally {
-      client.close();
-    }
-  }
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    final evidence = widget.insight.evidence;
-    final source = switch (widget.insight.kind) {
+    final evidence = insight.evidence;
+    final source = switch (insight.kind) {
       CoachingKind.merchantSurge =>
         '${evidence.comparisonMonths.length} comparable months · ${evidence.transactionIds.length} entries',
       CoachingKind.repeatedDiscretionary =>
@@ -578,45 +604,41 @@ class _CoachingCardState extends ConsumerState<_CoachingCard> {
       CoachingKind.budgetRisk =>
         'current pace against ${evidence.budgetName ?? 'your budget'}',
     };
-    return AnimatedOpacity(
-      opacity: _closing ? 0.35 : 1,
-      duration: const Duration(milliseconds: 180),
-      child: LedgerCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const RuleHeader('worth noticing'),
-            const SizedBox(height: Gap.x2),
-            Text(
-              widget.insight.title,
-              style: LedgerType.title.copyWith(fontSize: 19, color: c.ink),
+    return LedgerCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const RuleHeader('worth noticing'),
+          const SizedBox(height: Gap.x2),
+          Text(
+            insight.title,
+            style: LedgerType.title.copyWith(fontSize: 19, color: c.ink),
+          ),
+          const SizedBox(height: Gap.x2),
+          Text(
+            insight.message,
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              height: 1.45,
+              color: c.ink,
             ),
-            const SizedBox(height: Gap.x2),
-            Text(
-              widget.insight.message,
-              style: LedgerType.bodyText.copyWith(
-                fontSize: 13,
-                height: 1.45,
-                color: c.ink,
-              ),
+          ),
+          const SizedBox(height: Gap.x2),
+          Text(
+            'why: $source',
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 10,
+              color: c.inkFaint,
             ),
-            const SizedBox(height: Gap.x2),
-            Text(
-              'why: $source',
-              style: LedgerType.bodyText.copyWith(
-                fontSize: 10,
-                color: c.inkFaint,
-              ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onDismiss,
+              child: const Text('not useful'),
             ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: _closing ? null : _dismiss,
-                child: Text(_closing ? 'putting it away…' : 'not useful'),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -903,47 +925,88 @@ class _Upcoming extends ConsumerWidget {
 
   Future<void> _paySheet(BuildContext context, WidgetRef ref, DueItem d) async {
     final recurring = ref.read(recurringRepoProvider);
+    // The pockets, read before the sheet stands — paying always says from
+    // where, and one tap moves it.
+    final db = ref.read(dbProvider);
+    final pockets =
+        (await (db.select(
+              db.accounts,
+            )..where((a) => a.archived.equals(false))).get())
+            .where((a) => !a.keptAside)
+            .toList();
+    if (!context.mounted) return;
+    var fromId = pockets.any((a) => a.id == d.recurring.accountId)
+        ? d.recurring.accountId
+        : (pockets.isEmpty ? d.recurring.accountId : pockets.first.id);
     final paid = await showLedgerSheet<bool>(
       context,
       builder: (context) {
         final c = LedgerColors.of(context);
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SheetHandle(),
-              const SizedBox(height: Gap.x2),
-              Text(
-                d.recurring.title,
-                style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'lands ${LedgerDates.ddMmm(d.due)} · ${Inr.format(d.recurring.amountPaise)}',
-                style: LedgerType.bodyText.copyWith(
-                  fontSize: 13,
-                  color: c.inkFaint,
+        return StatefulBuilder(
+          builder: (context, setSheet) => Padding(
+            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SheetHandle(),
+                const SizedBox(height: Gap.x2),
+                Text(
+                  d.recurring.title,
+                  style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
                 ),
-              ),
-              const SizedBox(height: Gap.x4),
-              Pressable(
-                onTap: () => Navigator.of(context).pop(true),
-                child: AbsorbPointer(
-                  child: FilledButton(
-                    onPressed: () {},
-                    child: Text(
-                      'Paid — stamp ${Inr.format(d.recurring.amountPaise)}',
+                const SizedBox(height: 4),
+                Text(
+                  'lands ${LedgerDates.ddMmm(d.due)} · ${Inr.format(d.recurring.amountPaise)}',
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 13,
+                    color: c.inkFaint,
+                  ),
+                ),
+                if (pockets.isNotEmpty) ...[
+                  const SizedBox(height: Gap.x3),
+                  Text(
+                    'paid from',
+                    style: LedgerType.label.copyWith(color: c.inkFaint),
+                  ),
+                  const SizedBox(height: Gap.x2),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final a in pockets) ...[
+                          LedgerChip(
+                            a.name,
+                            selected: fromId == a.id,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              setSheet(() => fromId = a.id);
+                            },
+                          ),
+                          const SizedBox(width: Gap.x2),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: Gap.x4),
+                Pressable(
+                  onTap: () => Navigator.of(context).pop(true),
+                  child: AbsorbPointer(
+                    child: FilledButton(
+                      onPressed: () {},
+                      child: Text(
+                        'Paid — stamp ${Inr.format(d.recurring.amountPaise)}',
+                      ),
                     ),
                   ),
                 ),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Not yet'),
-              ),
-            ],
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Not yet'),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -952,7 +1015,7 @@ class _Upcoming extends ConsumerWidget {
       HapticFeedback.lightImpact();
       // The written line inks itself onto today's page; the upcoming row
       // steps aside as the stream moves on.
-      await recurring.markPaid(d.recurring);
+      await recurring.markPaid(d.recurring, accountId: fromId);
     }
   }
 }
@@ -1479,6 +1542,67 @@ class _CloseDayState extends ConsumerState<_CloseDay> {
             ),
             ?whisper,
           ],
+        );
+      },
+    );
+  }
+}
+
+/// One quiet line in the evening when the day carries no felt-mark yet.
+/// Never a module, never a picker — the field lives in the Daily book; this
+/// line only points there, and only after six, and only until it's done.
+class _UnmarkedLine extends ConsumerWidget {
+  const _UnmarkedLine();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = DateTime.now();
+    if (now.hour < 18) return const SizedBox.shrink();
+    return StreamBuilder<JournalEntry?>(
+      stream: ref.watch(journalRepoProvider).watch(LedgerDates.dayKey(now)),
+      builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.active ||
+            snap.data?.mood != null) {
+          return const SizedBox.shrink();
+        }
+        final c = LedgerColors.of(context);
+        final key = LedgerDates.dayKey(now);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: Gap.x4),
+          child: Pressable(
+            haptic: false,
+            // Straight into the picker — the offer and the act, one tap
+            // apart.
+            onTap: () => showFeelPicker(
+              context,
+              onCommit: (p, e, w) => ref
+                  .read(journalRepoProvider)
+                  .upsert(key, mood: p, energy: e, feelWord: w),
+              onDetail: (why, tags) => ref
+                  .read(journalRepoProvider)
+                  .upsert(key, feelWhy: why, feelTags: tags),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  "the day's not marked yet",
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 13,
+                    color: c.inkFaint,
+                  ),
+                ),
+                const SizedBox(width: Gap.x2),
+                Text(
+                  'mark it',
+                  style: LedgerType.bodyStrong.copyWith(
+                    fontSize: 13,
+                    color: c.quill,
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );

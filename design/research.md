@@ -3,6 +3,10 @@
 > 2026-07-31. Distilled from three sweeps: [onboarding](research/onboarding.md),
 > [core screens](research/core-screens.md), [India + indie](research/india-indie.md).
 > This file is the brief; the three research files are the evidence.
+>
+> Later sweep, outside this synthesis: [mood & motion](research/mood-and-motion.md)
+> (2026-08-15) — the two-axis check-in mechanic and gesture-driven motion craft, for the
+> Daily "how it felt" card.
 
 ## The ten conclusions that drive BudgetBox's design
 

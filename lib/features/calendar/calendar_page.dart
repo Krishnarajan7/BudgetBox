@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
+import '../../core/holidays.dart';
 import '../../core/occasions.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
@@ -13,6 +14,7 @@ import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
@@ -102,22 +104,20 @@ List<({Event event, DateTime on, int daysAway})> countingDown(
   return out.length <= limit ? out : out.sublist(0, limit);
 }
 
-/// "3 things this week · next: Rent, Monday" — or null when the week is
-/// clear. The week runs Monday through Sunday around [selected]; "next" is
-/// the first plan on or after the selected day, else the week's first.
-String? weekSummary(List<Event> events, DateTime selected) {
-  final day = DateTime(selected.year, selected.month, selected.day);
-  final monday = day.subtract(Duration(days: day.weekday - 1));
-  final occ = EventRepo.upcoming(events, monday, days: 7, limit: 1000);
-  if (occ.isEmpty) return null;
-  final next = occ.firstWhere(
-    (o) => !o.on.isBefore(day),
-    orElse: () => occ.first,
-  );
-  final n = occ.length;
-  return '$n thing${n == 1 ? '' : 's'} this week · '
-      'next: ${next.event.title}, '
-      '${LedgerDates.weekdaysFull[next.on.weekday - 1]}';
+/// "2 plans · 1 holiday · ₹1,500 due" — what the month on show still holds,
+/// or null when it holds nothing. The page is framed by the month, so its
+/// one summary line counts the month, not a week that spills out of it.
+String? monthSummary({
+  required int plans,
+  required int holidays,
+  required int duePaise,
+}) {
+  final parts = [
+    if (plans > 0) '$plans plan${plans == 1 ? '' : 's'}',
+    if (holidays > 0) '$holidays holiday${holidays == 1 ? '' : 's'}',
+    if (duePaise > 0) '${Inr.format(duePaise)} due',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }
 
 /// The one write the repo doesn't offer: rewriting an event in place.
@@ -161,7 +161,6 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
   bool _eventsPrimed = false;
 
   static const _spineWidth = 60.0;
-  static const _horizon = 60;
 
   /// The day the agenda starts from — the week strip's business.
   late DateTime _selected;
@@ -208,6 +207,22 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     _flipDx = month.isAfter(_gridMonth) ? 1 : -1;
     _gridMonth = month;
     _flipSeq++;
+  }
+
+  /// Turns the page to another month. The chosen day becomes to-day when
+  /// the month is the running one, and the 1st otherwise — so "next month"
+  /// always lands somewhere that makes sense to read from.
+  void _stepMonth(int dir) {
+    HapticFeedback.selectionClick();
+    final now = DateTime.now();
+    final target = DateTime(_selected.year, _selected.month + dir);
+    final landing = target.year == now.year && target.month == now.month
+        ? DateTime(now.year, now.month, now.day)
+        : target;
+    setState(() {
+      _selected = landing;
+      _aimGrid(target);
+    });
   }
 
   void _flipGridMonth(int dir) {
@@ -341,18 +356,22 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     final c = LedgerColors.of(context);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final occ = EventRepo.upcoming(
-      events,
-      _selected,
-      days: _horizon,
-      limit: 400,
-    );
-    final horizonEnd = DateTime(
-      _selected.year,
-      _selected.month,
-      _selected.day + _horizon,
-    );
-    final charges = chargesBetween(recurrings, _selected, horizonEnd);
+    // The month is the window. August is running, so August is what the
+    // page holds: nothing from September leaks in above it, and the way to
+    // September is to turn to September.
+    final monthEnd = LedgerDates.monthEnd(_selected);
+    final daysLeft = monthEnd.difference(_selected).inDays;
+    final occ = [
+      for (final o in EventRepo.upcoming(
+        events,
+        _selected,
+        days: daysLeft,
+        limit: 400,
+      ))
+        if (o.on.isBefore(monthEnd)) o,
+    ];
+    final horizonEnd = monthEnd;
+    final charges = chargesBetween(recurrings, _selected, monthEnd);
     final money = moneyByDay(txns);
 
     // Group plans and charges by day; the chosen day always gets a page.
@@ -366,21 +385,61 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
       billsByDay.putIfAbsent(key, () => []).add(ch);
       byDay.putIfAbsent(key, () => []);
     }
-    final days = byDay.keys.map(DateTime.parse).toList()..sort();
-    final blank = occ.isEmpty && charges.isEmpty;
+    // A day the country names earns a page of its own, exactly like a plan
+    // does: "to-morrow is Independence Day" is the calendar's business, and
+    // it was the one thing the agenda couldn't tell him.
+    final holidays = ref.watch(holidayBookProvider).value;
+    final namedDays = <String, List<Holiday>>{};
+    if (holidays != null) {
+      for (var d = _selected; d.isBefore(horizonEnd); d = d.add(
+        const Duration(days: 1),
+      )) {
+        final day = DateTime(d.year, d.month, d.day);
+        final named = holidays.on(day);
+        if (named.isEmpty) continue;
+        final key = LedgerDates.dayKey(day);
+        namedDays[key] = named;
+        byDay.putIfAbsent(key, () => []);
+      }
+    }
 
-    final countdown = countingDown(events, _selected);
-    final summary = weekSummary(events, _selected);
+    final days = byDay.keys.map(DateTime.parse).toList()..sort();
+    final blank = occ.isEmpty && charges.isEmpty && namedDays.isEmpty;
+
+    // Countdowns stay inside the month too — a birthday in November is
+    // November's business, and this page is August's.
+    final countdown = countingDown(events, _selected, days: daysLeft);
+    // The bar heads whatever month is actually on screen: the grid can be
+    // flipped ahead of the chosen day, and a header that disagrees with the
+    // page under it is the whole reason this screen read as a puzzle.
+    final monthStart = _monthView
+        ? _gridMonth
+        : LedgerDates.monthStart(_selected);
+    var monthHolidays = 0;
+    if (holidays != null) {
+      final shownEnd = DateTime(monthStart.year, monthStart.month + 1);
+      for (var d = monthStart; d.isBefore(shownEnd); d = DateTime(
+        d.year,
+        d.month,
+        d.day + 1,
+      )) {
+        monthHolidays += holidays.on(d).length;
+      }
+    }
+    final summary = monthSummary(
+      plans: EventRepo.occurrencesInMonth(events, monthStart).length,
+      holidays: monthHolidays,
+      duePaise: chargesBetween(
+        recurrings,
+        monthStart,
+        DateTime(monthStart.year, monthStart.month + 1),
+      ).fold(0, (sum, ch) => sum + ch.recurring.amountPaise),
+    );
 
     final rows = <Widget>[];
-    int? shownMonth;
     var zebra = false;
     var dayIndex = 0;
     for (final day in days) {
-      if (day.month != shownMonth) {
-        shownMonth = day.month;
-        rows.add(_MonthMarker(day: day));
-      }
       final key = LedgerDates.dayKey(day);
       rows.add(
         _DayGroup(
@@ -390,6 +449,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
           occurrences: byDay[key]!,
           bills: billsByDay[key] ?? const <Charge>[],
           money: money[key],
+          named: namedDays[key] ?? const <Holiday>[],
           // When the whole horizon is blank the page below speaks for it;
           // the day itself doesn't need to say "nothing" twice.
           sayEmpty: !blank,
@@ -409,11 +469,25 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     rows.add(
       _SpineTail(
         child: blank
-            ? const EmptyPage(
-                line: 'The next $_horizon days are blank.',
+            ? EmptyPage(
+                line: 'The rest of ${_monthWord(_selected)} is blank.',
                 sub: 'The plus below is how a day stops being blank.',
               )
-            : const SizedBox(height: Gap.x12),
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.x4,
+                  Gap.x4,
+                  Gap.page,
+                  Gap.x12,
+                ),
+                child: Text(
+                  'that is all of ${_monthWord(_selected)}.',
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
+                ),
+              ),
       ),
     );
 
@@ -422,25 +496,20 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     return Column(
       children: [
         _WeekStrip(
+          holidays: ref.watch(holidayBookProvider).value,
           selected: _selected,
           today: today,
           monthView: _monthView,
           onSelect: _select,
           onToggleView: _toggleView,
         ),
-        if (summary != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x2),
-            child: Text(
-              summary,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: LedgerType.bodyText.copyWith(
-                fontSize: 12,
-                color: c.inkFaint,
-              ),
-            ),
-          ),
+        _MonthBar(
+          month: monthStart,
+          summary: summary,
+          // One control, always meaning "the month you are looking at":
+          // it turns the grid in grid view and the agenda in agenda view.
+          onStep: _monthView ? _flipGridMonth : _stepMonth,
+        ),
         Expanded(
           // The whole month and the running agenda are two readings of the
           // same book — they cross-fade into each other.
@@ -482,6 +551,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                           month: _gridMonth,
                           selected: _selected,
                           today: today,
+                          holidays: ref.watch(holidayBookProvider).value,
                           events: events,
                           recurrings: recurrings,
                           money: money,
@@ -533,10 +603,12 @@ class _WeekStrip extends StatefulWidget {
     required this.monthView,
     required this.onSelect,
     required this.onToggleView,
+    this.holidays,
   });
 
   final DateTime selected;
   final DateTime today;
+  final HolidayBook? holidays;
   final bool monthView;
   final ValueChanged<DateTime> onSelect;
   final VoidCallback onToggleView;
@@ -675,6 +747,11 @@ class _WeekStripState extends State<_WeekStrip> {
                                     day: day,
                                     selected: day == widget.selected,
                                     isToday: day == widget.today,
+                                    dayOff:
+                                        widget.holidays
+                                            ?.on(day)
+                                            .any((h) => h.isDayOff) ??
+                                        false,
                                     onTap: () => widget.onSelect(day),
                                   ),
                                 );
@@ -730,11 +807,16 @@ class _WeekDay extends StatelessWidget {
     required this.selected,
     required this.isToday,
     required this.onTap,
+    this.dayOff = false,
   });
 
   final DateTime day;
   final bool selected;
   final bool isToday;
+
+  /// A day the country takes off — printed in vermilion, like a wall
+  /// calendar prints its holidays.
+  final bool dayOff;
   final VoidCallback onTap;
 
   @override
@@ -775,6 +857,8 @@ class _WeekDay extends StatelessWidget {
                       ? c.paper
                       : isToday
                       ? c.quill
+                      : dayOff
+                      ? c.seal
                       : c.ink,
                 ),
               ),
@@ -786,42 +870,79 @@ class _WeekDay extends StatelessWidget {
   }
 }
 
-/// The month written up the spine, the way it sits on a real ledger's edge.
-class _MonthMarker extends StatelessWidget {
-  const _MonthMarker({required this.day});
 
-  final DateTime day;
+/// The frame the whole page hangs on: which month you are reading, what it
+/// still holds, and the two ways out of it. Without this the agenda was a
+/// list of days with no edges — you could not tell where August ended or
+/// why the list stopped.
+class _MonthBar extends StatelessWidget {
+  const _MonthBar({
+    required this.month,
+    required this.summary,
+    required this.onStep,
+  });
+
+  final DateTime month;
+  final String? summary;
+  final ValueChanged<int> onStep;
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    return SizedBox(
-      height: 92,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x3),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: _CalendarPageState._spineWidth,
-            color: c.ink,
-            alignment: Alignment.center,
-            // The month writes itself up the spine as it first appears.
-            child: InkIn(
-              key: ValueKey('month-${day.year}-${day.month}'),
-              child: RotatedBox(
-                quarterTurns: 3,
-                child: Text(
-                  '${_monthWord(day)} ${day.year}',
-                  style: LedgerType.label.copyWith(
-                    fontSize: 11,
-                    letterSpacing: 2.5,
-                    color: c.paper.withValues(alpha: 0.75),
-                  ),
+          _Step(onTap: () => onStep(-1), forward: false),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  '${_monthWord(month)} ${month.year}',
+                  style: LedgerType.label.copyWith(fontSize: 11, color: c.ink),
                 ),
-              ),
+                if (summary != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    summary!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          const Expanded(child: SizedBox()),
+          _Step(onTap: () => onStep(1), forward: true),
         ],
+      ),
+    );
+  }
+}
+
+/// One month's worth of travel, drawn rather than typed.
+class _Step extends StatelessWidget {
+  const _Step({required this.onTap, required this.forward});
+
+  final VoidCallback onTap;
+  final bool forward;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Pressable(
+      scale: 0.86,
+      haptic: false,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(Gap.x2),
+        child: RotatedBox(
+          quarterTurns: forward ? 0 : 2,
+          child: PenChevron(size: 12, color: c.inkFaint),
+        ),
       ),
     );
   }
@@ -842,6 +963,7 @@ class _DayGroup extends StatelessWidget {
     required this.fresh,
     required this.onArchive,
     required this.onEdit,
+    this.named = const [],
   });
 
   final DateTime day;
@@ -856,8 +978,11 @@ class _DayGroup extends StatelessWidget {
   /// What the ledger already recorded here, if anything.
   final DayMoney? money;
 
-  /// False when the page below already says the horizon is blank.
+  /// False when the page below already says the month is blank.
   final bool sayEmpty;
+
+  /// What the country calls this day — Independence Day, Pongal, Deepavali.
+  final List<Holiday> named;
 
   final Set<int> leaving;
 
@@ -873,7 +998,7 @@ class _DayGroup extends StatelessWidget {
     final m = money;
     final spent = m?.spent ?? 0;
     final earned = m?.earned ?? 0;
-    final empty = occurrences.isEmpty && bills.isEmpty;
+    final empty = occurrences.isEmpty && bills.isEmpty && named.isEmpty;
 
     return IntrinsicHeight(
       child: Row(
@@ -911,6 +1036,37 @@ class _DayGroup extends StatelessWidget {
                           fontSize: 11,
                           color: spent > 0 ? c.inkFaint : c.jama,
                         ),
+                      ),
+                    ),
+                  // The day's name comes before the day's plans: it is the
+                  // reason the office is shut, not another appointment.
+                  for (final holiday in named)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: holiday.isDayOff ? c.seal : null,
+                              border: holiday.isDayOff
+                                  ? null
+                                  : Border.all(color: c.seal, width: 1.2),
+                              borderRadius: BorderRadius.circular(1),
+                            ),
+                          ),
+                          const SizedBox(width: Gap.x2),
+                          Expanded(
+                            child: Text(
+                              '${holiday.name} — ${holiday.phrase}',
+                              style: LedgerType.bodyText.copyWith(
+                                fontSize: 13,
+                                color: c.ink,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   if (empty && sayEmpty)
@@ -1138,7 +1294,7 @@ extension on Recurring {
   bool get isBillLike => kind == RecurringKind.bill;
 }
 
-/// Lets the spine run past the last day instead of stopping dead.
+
 class _SpineTail extends StatelessWidget {
   const _SpineTail({required this.child});
 
@@ -1252,11 +1408,16 @@ class _MonthGrid extends StatelessWidget {
     required this.money,
     required this.onPick,
     required this.onAdd,
+    this.holidays,
   });
 
   final DateTime month;
   final DateTime selected;
   final DateTime today;
+
+  /// The days the country names. Null until the table has loaded — the grid
+  /// draws itself the same, just without the red digits.
+  final HolidayBook? holidays;
   final List<Event> events;
   final List<Recurring> recurrings;
   final Map<String, DayMoney> money;
@@ -1284,11 +1445,9 @@ class _MonthGrid extends StatelessWidget {
             o.event.repeat == EventRepeat.yearly ? _Mark.yearly : _Mark.plan,
           );
     }
-    var billTotal = 0;
     for (final b in bills) {
       billsByDay.putIfAbsent(b.on.day, () => []).add(b);
       marks.putIfAbsent(b.on.day, () => []).add(_Mark.bill);
-      billTotal += b.recurring.amountPaise;
     }
 
     final lead = DateTime(month.year, month.month).weekday - 1;
@@ -1305,26 +1464,6 @@ class _MonthGrid extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(Gap.page, Gap.x3, Gap.page, Gap.x6),
       child: Column(
         children: [
-          // The month says its own name here — the spine is off duty while
-          // the grid is open — and what it owes before it is over.
-          Row(
-            children: [
-              Text(
-                '${_monthWord(month)} ${month.year}',
-                style: LedgerType.label.copyWith(fontSize: 11, color: c.ink),
-              ),
-              const Spacer(),
-              if (billTotal > 0)
-                Text(
-                  '${Inr.format(billTotal)} due',
-                  style: LedgerType.amount.copyWith(
-                    fontSize: 11,
-                    color: c.inkFaint,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: Gap.x3),
           Row(
             children: [
               for (final d in LedgerDates.weekdays)
@@ -1383,6 +1522,7 @@ class _MonthGrid extends StatelessWidget {
     final isToday = date == today;
     final isSelected = date == selected;
     final dayMarks = (marks[d] ?? const <_Mark>[]).take(3).toList();
+    final named = holidays?.on(date) ?? const <Holiday>[];
 
     BoxDecoration? ring;
     if (isToday) {
@@ -1406,6 +1546,7 @@ class _MonthGrid extends StatelessWidget {
         date,
         plansByDay[d] ?? const <Occurrence>[],
         billsByDay[d] ?? const <Charge>[],
+        named,
       ),
       child: SizedBox(
         height: 44,
@@ -1421,7 +1562,11 @@ class _MonthGrid extends StatelessWidget {
                 '$d',
                 style: LedgerType.amount.copyWith(
                   fontSize: 13,
-                  color: isToday ? c.quill : c.ink,
+                  // A holiday's digit is written in the binding's vermilion,
+                  // the way a wall calendar prints it.
+                  color: isToday
+                      ? c.quill
+                      : (named.any((h) => h.isDayOff) ? c.seal : c.ink),
                 ),
               ),
             ),
@@ -1462,6 +1607,7 @@ class _MonthGrid extends StatelessWidget {
     DateTime day,
     List<Occurrence> plans,
     List<Charge> bills,
+    List<Holiday> named,
   ) async {
     HapticFeedback.selectionClick();
     final write = await showLedgerSheet<bool>(
@@ -1472,6 +1618,7 @@ class _MonthGrid extends StatelessWidget {
         plans: plans,
         bills: bills,
         money: money[LedgerDates.dayKey(day)],
+        named: named,
       ),
     );
     if (write == true) onAdd(day);
@@ -1486,12 +1633,16 @@ class _DayPeek extends StatelessWidget {
     required this.plans,
     required this.bills,
     required this.money,
+    this.named = const [],
   });
 
   final DateTime day;
   final List<Occurrence> plans;
   final List<Charge> bills;
   final DayMoney? money;
+
+  /// What the country calls this day, if anything.
+  final List<Holiday> named;
 
   static String _time(Event e) {
     final t = e.timeMinutes;
@@ -1534,6 +1685,36 @@ class _DayPeek extends StatelessWidget {
             _moneyLine,
             style: LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint),
           ),
+          // What the country calls it — the reason the office is shut, said
+          // before the day's own plans.
+          for (final holiday in named) ...[
+            const SizedBox(height: Gap.x2),
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: holiday.isDayOff ? c.seal : null,
+                    border: holiday.isDayOff
+                        ? null
+                        : Border.all(color: c.seal, width: 1.2),
+                    borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+                const SizedBox(width: Gap.x2),
+                Expanded(
+                  child: Text(
+                    '${holiday.name} — ${holiday.phrase}',
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 13,
+                      color: c.ink,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: Gap.x4),
           if (empty)
             Text(

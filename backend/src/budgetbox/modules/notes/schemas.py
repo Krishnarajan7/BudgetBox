@@ -2,19 +2,23 @@ from datetime import datetime
 
 from pydantic import Field
 
-from budgetbox.api.schemas import APIModel
+from budgetbox.api.schemas import APIModel, Instant
 
 
 class NoteIn(APIModel):
     title: str = Field(default="", max_length=200)
     body: str = ""
     pinned: bool = False
+    remind_at: Instant | None = None
+    completed: bool = False
 
 
 class NotePatch(APIModel):
     title: str | None = Field(default=None, max_length=200)
     body: str | None = None
     pinned: bool | None = None
+    remind_at: Instant | None = None
+    completed: bool | None = None
     archived: bool | None = None
 
 
@@ -23,6 +27,8 @@ class NoteOut(APIModel):
     title: str
     body: str
     pinned: bool
+    remind_at: datetime | None
+    completed: bool
     archived: bool
     created_at: datetime
     updated_at: datetime

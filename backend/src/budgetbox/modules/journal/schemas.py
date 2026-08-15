@@ -9,13 +9,23 @@ class JournalIn(APIModel):
     """The day itself is the path param, never the payload — one entry per IST day."""
 
     body: str = Field(default="", max_length=20_000)
-    mood: int | None = Field(default=None, ge=1, le=5)  # 1 rough … 5 great
+    # The felt field: mood is pleasantness (1 rough … 9 good), energy is
+    # 1 still … 9 wired, and the word is the one he chose for the day.
+    mood: int | None = Field(default=None, ge=1, le=9)
+    energy: int | None = Field(default=None, ge=1, le=9)
+    feel_word: str | None = Field(default=None, max_length=40)
+    feel_why: str | None = Field(default=None, max_length=2_000)
+    feel_tags: str | None = Field(default=None, max_length=400)
 
 
 class JournalOut(APIModel):
     date: date
     body: str
     mood: int | None
+    energy: int | None
+    feel_word: str | None
+    feel_why: str | None
+    feel_tags: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -11,9 +11,7 @@ import 'notifications.dart';
 /// fact in either place writes it in both — and every calendar event earns
 /// its morning notification.
 class Occasions {
-  Occasions(this._db)
-      : _events = EventRepo(_db),
-        _settings = SettingsRepo(_db);
+  Occasions(this._db) : _events = EventRepo(_db), _settings = SettingsRepo(_db);
 
   final LedgerDb _db;
   final EventRepo _events;
@@ -24,7 +22,10 @@ class Occasions {
   /// event — guessing whose day it is would be worse than asking.
   static const ownBirthdayTitle = 'my birthday';
   static const _ownPhrases = [
-    'my birthday', 'my bday', 'என் பிறந்தநாள்', 'en birthday',
+    'my birthday',
+    'my bday',
+    'என் பிறந்தநாள்',
+    'en birthday',
   ];
 
   static bool looksLikeOwnBirthday(String title) {
@@ -36,12 +37,12 @@ class Occasions {
   /// Idempotent — one "my birthday" event, moved rather than duplicated.
   Future<void> birthdaySetInSettings(int day, int month) async {
     final anchor = DateTime(DateTime.now().year, month, day);
-    final active = await (_db.select(_db.events)
-          ..where((e) => e.archived.equals(false)))
-        .get();
+    final active = await (_db.select(
+      _db.events,
+    )..where((e) => e.archived.equals(false))).get();
     final existing = [
       for (final e in active)
-        if (e.title.trim().toLowerCase() == ownBirthdayTitle) e,
+        if (looksLikeOwnBirthday(e.title)) e,
     ];
     if (existing.isEmpty) {
       await _events.create(
@@ -52,9 +53,14 @@ class Occasions {
     } else {
       await _events.update(
         existing.first.id,
+        title: ownBirthdayTitle,
         date: anchor,
         repeat: EventRepeat.yearly,
       );
+      for (final duplicate in existing.skip(1)) {
+        await _events.archive(duplicate.id);
+        await LedgerReminders.cancelEvent(duplicate.id);
+      }
     }
     await resyncNotifications();
   }
@@ -64,6 +70,8 @@ class Occasions {
   Future<void> eventWritten(String title, DateTime date) async {
     if (looksLikeOwnBirthday(title)) {
       await _settings.setBirthday(date.day, date.month);
+      await birthdaySetInSettings(date.day, date.month);
+      return;
     }
     await resyncNotifications();
   }
@@ -74,9 +82,21 @@ class Occasions {
   Future<void> resyncNotifications() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final events = await (_db.select(_db.events)
-          ..where((e) => e.archived.equals(false)))
-        .get();
+    var events = await (_db.select(
+      _db.events,
+    )..where((e) => e.archived.equals(false))).get();
+    final own = events.where((e) => looksLikeOwnBirthday(e.title)).toList();
+    if (own.length > 1) {
+      final stored = await _settings.birthday();
+      final anchor =
+          stored ??
+          (
+            DateTime.parse(own.first.date).day,
+            DateTime.parse(own.first.date).month,
+          );
+      await birthdaySetInSettings(anchor.$1, anchor.$2);
+      return;
+    }
     for (final e in events) {
       final on = nextOccurrence(e, today);
       if (on == null) {
@@ -101,7 +121,9 @@ class Occasions {
         return d.isBefore(from) ? null : d;
       case EventRepeat.yearly:
         var d = DateTime(from.year, anchor.month, anchor.day);
-        if (d.isBefore(from)) d = DateTime(from.year + 1, anchor.month, anchor.day);
+        if (d.isBefore(from)) {
+          d = DateTime(from.year + 1, anchor.month, anchor.day);
+        }
         return d;
     }
   }

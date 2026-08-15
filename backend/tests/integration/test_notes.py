@@ -27,6 +27,7 @@ def test_upsert_creates_then_replaces_in_place(client: TestClient) -> None:
     created = client.put(f"/v1/notes/{note_id}", json={"title": "Draft"}).json()
     assert (created["id"], created["title"]) == (note_id, "Draft")
     assert (created["body"], created["pinned"], created["archived"]) == ("", False, False)
+    assert (created["remind_at"], created["completed"]) == (None, False)
 
     replaced = client.put(
         f"/v1/notes/{note_id}", json={"title": "Packing list", "body": "socks", "pinned": True}
@@ -90,6 +91,21 @@ def test_patch_touches_only_the_fields_sent(client: TestClient) -> None:
     assert (note["title"], note["body"]) == ("Recipe", "dal, rice, ghee")
     assert (note["pinned"], note["archived"]) == (True, False)
     assert note["updated_at"] >= note["created_at"]
+
+
+def test_note_can_become_a_completable_reminder(client: TestClient) -> None:
+    note_id = make_note(
+        client,
+        title="Book movie tickets",
+        remind_at="2026-08-15T04:30:00Z",
+    )
+    note = client.get("/v1/notes").json()[0]
+    assert note["remind_at"] == "2026-08-15T04:30:00Z"
+    assert note["completed"] is False
+
+    done = client.patch(f"/v1/notes/{note_id}", json={"completed": True})
+    assert done.status_code == 200
+    assert done.json()["completed"] is True
 
 
 def test_patch_unknown_note_is_a_not_found_problem(client: TestClient) -> None:

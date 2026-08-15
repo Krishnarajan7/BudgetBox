@@ -47,6 +47,10 @@ def upsert(session: Session, day: date, data: JournalIn) -> JournalEntry:
         session.add(row)
     row.body = data.body
     row.mood = data.mood
+    row.energy = data.energy
+    row.feel_word = data.feel_word
+    row.feel_why = data.feel_why
+    row.feel_tags = data.feel_tags
     session.commit()
     return row
 

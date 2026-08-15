@@ -1,3 +1,4 @@
+import 'package:budgetbox/core/holidays.dart';
 import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/core/widgets/motion.dart';
 import 'package:budgetbox/data/db.dart';
@@ -286,6 +287,61 @@ void main() {
   });
 
   group('CalendarPage', () {
+    testWidgets('the month is the window — next month stays next month',
+        (tester) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      final repo = EventRepo(db);
+      final now = DateTime.now();
+      final monthEnd = DateTime(now.year, now.month + 1);
+      // One plan later this month, one a fortnight into the next.
+      final thisMonth = now.day < 28
+          ? DateTime(now.year, now.month, now.day + 1)
+          : DateTime(now.year, now.month, now.day);
+      await repo.create(title: 'Dentist, this month', date: thisMonth);
+      await repo.create(
+        title: 'Dentist, next month',
+        date: DateTime(monthEnd.year, monthEnd.month, 14),
+      );
+
+      await _pumpCalendar(tester, db);
+
+      expect(find.text('Dentist, this month'), findsOneWidget);
+      expect(
+        find.text('Dentist, next month'),
+        findsNothing,
+        reason: 'a 60-day horizon used to drag next month onto this page',
+      );
+      // The month says its own name, and where the list ends.
+      expect(find.text('${_months[now.month - 1]} ${now.year}'), findsOneWidget);
+      expect(
+        find.textContaining('that is all of ${_months[now.month - 1]}'),
+        findsOneWidget,
+      );
+
+      await _drain(tester, db);
+    });
+
+
+    testWidgets('the agenda names the day the country names', (tester) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      final book = await HolidayBook.load();
+      // Whatever the next named day happens to be from wherever "now" lands
+      // — Independence Day, Deepavali, Pongal — the agenda has to say it,
+      // with no plan of his own on that date to carry it.
+      final next = book.next(DateTime.now(), within: days60);
+
+      await _pumpCalendar(tester, db);
+
+      if (next == null) {
+        await _drain(tester, db);
+        return;
+      }
+      expect(find.textContaining(next.holiday.name), findsWidgets);
+      expect(find.textContaining(next.holiday.phrase), findsWidgets);
+
+      await _drain(tester, db);
+    });
+
     testWidgets('renders the month and shows the written day', (tester) async {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
       final repo = EventRepo(db);
@@ -493,6 +549,9 @@ const _months = [
   'january', 'february', 'march', 'april', 'may', 'june', //
   'july', 'august', 'september', 'october', 'november', 'december',
 ];
+
+/// The agenda's horizon, in the argument shape `next` wants.
+const days60 = 60;
 
 Future<void> _pumpCalendar(WidgetTester tester, LedgerDb db) async {
   await tester.pumpWidget(

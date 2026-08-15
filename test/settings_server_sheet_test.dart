@@ -26,6 +26,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Server'));
     await tester.pumpAndSettle();
+    // The row opens the server's own page; the sheet is its address door.
+    await tester.tap(find.text('change the address or token'));
+    await tester.pumpAndSettle();
   }
 
   testWidgets('opening the server sheet builds a sound semantics tree',

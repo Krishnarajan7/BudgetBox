@@ -965,7 +965,7 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
             // How the money went: the pocket every stamp below draws from.
             // Days before a balance reading won't re-drain it — the anchor
             // rule keeps the past out of the present.
-            if (_pockets.length > 1) ...[
+            if (_pockets.isNotEmpty) ...[
               const SizedBox(height: Gap.x3),
               Text(
                 'paid from',

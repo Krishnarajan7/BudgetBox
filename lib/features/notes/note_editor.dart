@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/notifications.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../data/db.dart';
@@ -41,6 +42,90 @@ int wordCount(String text) {
   return RegExp(r'\S+').allMatches(t).length;
 }
 
+DateTime suggestedNoteReminder([DateTime? clock]) {
+  final now = clock ?? DateTime.now();
+  final tonight = DateTime(now.year, now.month, now.day, 19);
+  return tonight.isAfter(now)
+      ? tonight
+      : DateTime(now.year, now.month, now.day + 1, 9);
+}
+
+String noteReminderLabel(DateTime at, {DateTime? clock}) {
+  final now = clock ?? DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(at.year, at.month, at.day);
+  final distance = day.difference(today).inDays;
+  final date = switch (distance) {
+    0 => 'to-day',
+    1 => 'to-morrow',
+    _ => relativeDayLabel(at),
+  };
+  final hour = at.hour % 12 == 0 ? 12 : at.hour % 12;
+  final minute = at.minute.toString().padLeft(2, '0');
+  final period = at.hour < 12 ? 'am' : 'pm';
+  final time = '$hour:$minute $period';
+  if (at.isBefore(now)) {
+    return distance == 0 ? 'overdue · $time' : 'overdue · $date · $time';
+  }
+  return '$date · $time';
+}
+
+Future<DateTime?> pickNoteReminder(
+  BuildContext context, {
+  DateTime? initial,
+}) async {
+  final now = DateTime.now();
+  final seed = initial ?? suggestedNoteReminder(now);
+  final date = await showDatePicker(
+    context: context,
+    initialDate: seed.isBefore(now) ? suggestedNoteReminder(now) : seed,
+    firstDate: DateTime(now.year, now.month, now.day),
+    lastDate: DateTime(now.year + 5, 12, 31),
+  );
+  if (date == null || !context.mounted) return null;
+  final time = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.fromDateTime(seed),
+  );
+  if (time == null) return null;
+  final result = DateTime(
+    date.year,
+    date.month,
+    date.day,
+    time.hour,
+    time.minute,
+  );
+  if (!result.isAfter(DateTime.now()) && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Choose a time that is still ahead.')),
+    );
+    return null;
+  }
+  final allowed = await LedgerReminders.requestPermission();
+  if (!allowed && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Reminder saved, but notifications are off for Krish Space.',
+        ),
+      ),
+    );
+  }
+  if (allowed) {
+    final precise = await LedgerReminders.requestPreciseAlarmPermission();
+    if (!precise && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reminder saved. Android may deliver it a little late without precise alarms.',
+          ),
+        ),
+      );
+    }
+  }
+  return result;
+}
+
 /// One note, full page. No save button — the ink dries on its own: writes
 /// are debounced ~500ms and flushed when the page is left.
 class NoteEditorPage extends ConsumerStatefulWidget {
@@ -60,6 +145,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   late String _savedTitle;
   late String _savedBody;
   late bool _pinned;
+  late DateTime? _remindAt;
+  late bool _completed;
   late DateTime _updatedAt;
 
   /// True for the 800ms after a copy — the icon wears a check, then
@@ -76,6 +163,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _savedTitle = widget.note.title;
     _savedBody = widget.note.body;
     _pinned = widget.note.pinned;
+    _remindAt = widget.note.remindAt;
+    _completed = widget.note.completed;
     _updatedAt = widget.note.updatedAt;
   }
 
@@ -141,6 +230,38 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     Navigator.of(context).pop();
   }
 
+  Future<void> _pickReminder() async {
+    final picked = await pickNoteReminder(context, initial: _remindAt);
+    if (picked == null || !mounted) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _remindAt = picked;
+      _completed = false;
+      _updatedAt = DateTime.now();
+    });
+    await _repo.setReminder(widget.note.id, picked);
+  }
+
+  Future<void> _clearReminder() async {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _remindAt = null;
+      _completed = false;
+      _updatedAt = DateTime.now();
+    });
+    await _repo.setReminder(widget.note.id, null);
+  }
+
+  Future<void> _toggleCompleted() async {
+    HapticFeedback.mediumImpact();
+    final next = !_completed;
+    setState(() {
+      _completed = next;
+      _updatedAt = DateTime.now();
+    });
+    await _repo.setCompleted(widget.note.id, next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
@@ -152,8 +273,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding:
-                    const EdgeInsets.fromLTRB(Gap.page, Gap.x2, Gap.page, 0),
+                padding: const EdgeInsets.fromLTRB(
+                  Gap.page,
+                  Gap.x2,
+                  Gap.page,
+                  0,
+                ),
                 child: Row(
                   children: [
                     InkWell(
@@ -161,14 +286,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                         _flush();
                         Navigator.of(context).pop();
                       },
-                      child: Icon(Icons.arrow_back, size: 18, color: c.inkFaint),
+                      child: Icon(
+                        Icons.arrow_back,
+                        size: 18,
+                        color: c.inkFaint,
+                      ),
                     ),
                     Expanded(
                       child: Center(
                         child: Text(
                           'edited ${relativeDayLabel(_updatedAt)}',
-                          style: LedgerType.bodyText
-                              .copyWith(fontSize: 12, color: c.inkFaint),
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 12,
+                            color: c.inkFaint,
+                          ),
                         ),
                       ),
                     ),
@@ -205,8 +336,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     const SizedBox(width: Gap.x4),
                     InkWell(
                       onTap: _archive,
-                      child: Icon(Icons.archive_outlined,
-                          size: 18, color: c.inkFaint),
+                      child: Icon(
+                        Icons.archive_outlined,
+                        size: 18,
+                        color: c.inkFaint,
+                      ),
                     ),
                   ],
                 ),
@@ -239,12 +373,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     expands: true,
                     textAlignVertical: TextAlignVertical.top,
                     keyboardType: TextInputType.multiline,
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 15, height: 1.5, color: c.ink),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 15,
+                      height: 1.5,
+                      color: c.ink,
+                    ),
                     decoration: InputDecoration(
                       hintText: '…',
                       hintStyle: LedgerType.bodyText.copyWith(
-                          fontSize: 15, height: 1.5, color: c.inkFaint),
+                        fontSize: 15,
+                        height: 1.5,
+                        color: c.inkFaint,
+                      ),
                       border: InputBorder.none,
                       isDense: true,
                       contentPadding: EdgeInsets.zero,
@@ -252,10 +392,66 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   ),
                 ),
               ),
+              _reminderLine(c),
               _metaLine(c),
               const SizedBox(height: Gap.x4),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _reminderLine(LedgerColors c) {
+    final at = _remindAt;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.page, Gap.x2, Gap.page, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: c.rule)),
+        ),
+        padding: const EdgeInsets.only(top: Gap.x3),
+        child: Row(
+          children: [
+            Icon(
+              at == null
+                  ? Icons.notifications_none
+                  : Icons.notifications_active_outlined,
+              size: 17,
+              color: at == null ? c.inkFaint : c.quill,
+            ),
+            const SizedBox(width: Gap.x2),
+            Expanded(
+              child: InkWell(
+                onTap: _pickReminder,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x1),
+                  child: Text(
+                    at == null ? 'add a reminder' : noteReminderLabel(at),
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 13,
+                      color: at == null ? c.inkFaint : c.ink,
+                      decoration: _completed
+                          ? TextDecoration.lineThrough
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (at != null) ...[
+              TextButton(
+                onPressed: _toggleCompleted,
+                child: Text(_completed ? 'undo' : 'mark done'),
+              ),
+              IconButton(
+                tooltip: 'Remove reminder',
+                visualDensity: VisualDensity.compact,
+                onPressed: _clearReminder,
+                icon: Icon(Icons.close, size: 16, color: c.inkFaint),
+              ),
+            ],
+          ],
         ),
       ),
     );

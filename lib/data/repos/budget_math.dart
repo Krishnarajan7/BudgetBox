@@ -3,6 +3,19 @@
 /// `pending` for an expected bill that hasn't landed (the outlined bar).
 enum BudgetStatus { onPace, projectedOver, over, pending }
 
+/// The headline number shared by Today and Plans. A negative remainder is
+/// not “₹0 left”; it is a positive overrun with a different label.
+({int amountPaise, bool over}) budgetBalance({
+  required int limitPaise,
+  required int spentPaise,
+}) {
+  final difference = limitPaise - spentPaise;
+  return (
+    amountPaise: difference < 0 ? -difference : difference,
+    over: difference < 0,
+  );
+}
+
 class BudgetPace {
   const BudgetPace({
     required this.spentPaise,
@@ -22,8 +35,7 @@ class BudgetPace {
 
   int get remainingPaise => limitPaise - spentPaise;
 
-  double get fractionSpent =>
-      limitPaise <= 0 ? 1 : spentPaise / limitPaise;
+  double get fractionSpent => limitPaise <= 0 ? 1 : spentPaise / limitPaise;
 
   double get fractionElapsed =>
       totalDays <= 0 ? 1 : (elapsedDays / totalDays).clamp(0, 1);

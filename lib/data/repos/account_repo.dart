@@ -33,7 +33,9 @@ class AccountRepo {
     int openingBalancePaise = 0,
   }) {
     return _db.transaction(() async {
-      final id = await _db.into(_db.accounts).insert(
+      final id = await _db
+          .into(_db.accounts)
+          .insert(
             AccountsCompanion.insert(
               name: name,
               kind: kind,
@@ -55,11 +57,11 @@ class AccountRepo {
   Future<void> setBalance(int accountId, int balancePaise) async {
     final at = DateTime.now();
     await _db.transaction(() async {
-      await (_db.update(_db.accounts)..where((a) => a.id.equals(accountId)))
-          .write(AccountsCompanion(
-        balancePaise: Value(balancePaise),
-        asOf: Value(at),
-      ));
+      await (_db.update(
+        _db.accounts,
+      )..where((a) => a.id.equals(accountId))).write(
+        AccountsCompanion(balancePaise: Value(balancePaise), asOf: Value(at)),
+      );
       await TxnRepo.snapshotToday(_db, accountId);
       await bbxSync.anchor(accountId, balancePaise, at);
     });
@@ -68,37 +70,53 @@ class AccountRepo {
   /// The last [points] daily readings for an account, oldest first — the
   /// sparkline's memory. Falls back to a flat line when history is short.
   Future<List<double>> spark(int accountId, {int points = 8}) async {
-    final rows = await (_db.select(_db.balanceSnapshots)
-          ..where((s) => s.accountId.equals(accountId))
-          ..orderBy([(s) => OrderingTerm.desc(s.date)])
-          ..limit(points))
-        .get();
+    final rows =
+        await (_db.select(_db.balanceSnapshots)
+              ..where((s) => s.accountId.equals(accountId))
+              ..orderBy([(s) => OrderingTerm.desc(s.date)])
+              ..limit(points))
+            .get();
     if (rows.length < 2) {
-      final acct = await (_db.select(_db.accounts)
-            ..where((a) => a.id.equals(accountId)))
-          .getSingle();
+      final acct = await (_db.select(
+        _db.accounts,
+      )..where((a) => a.id.equals(accountId))).getSingle();
       return [acct.balancePaise.toDouble(), acct.balancePaise.toDouble()];
     }
     return [for (final r in rows.reversed) r.balancePaise.toDouble()];
   }
 
+  /// Actual persisted readings, without inventing a second point for a
+  /// drawable row sparkline. The history sheet uses this so one reading is
+  /// never reported as two identical readings.
+  Future<List<double>> balanceReadings(int accountId, {int points = 30}) async {
+    final rows =
+        await (_db.select(_db.balanceSnapshots)
+              ..where((s) => s.accountId.equals(accountId))
+              ..orderBy([(s) => OrderingTerm.desc(s.date)])
+              ..limit(points))
+            .get();
+    return [for (final row in rows.reversed) row.balancePaise.toDouble()];
+  }
+
   /// Daily net worth over the trailing [days], forward-filling gaps —
   /// assets minus liabilities, ending at today's true figure.
   Future<List<int>> netWorthHistory({int days = 180}) async {
-    final accounts = await (_db.select(_db.accounts)
-          ..where((a) => a.archived.equals(false)))
-        .get();
+    final accounts = await (_db.select(
+      _db.accounts,
+    )..where((a) => a.archived.equals(false))).get();
     if (accounts.isEmpty) return const [];
     final sign = {
-      for (final a in accounts)
-        a.id: a.kind == AccountKind.liability ? -1 : 1,
+      for (final a in accounts) a.id: a.kind == AccountKind.liability ? -1 : 1,
     };
 
     final from = DateTime.now().subtract(Duration(days: days));
-    final snaps = await (_db.select(_db.balanceSnapshots)
-          ..where((s) => s.date.isBiggerOrEqualValue(LedgerDates.dayKey(from)))
-          ..orderBy([(s) => OrderingTerm.asc(s.date)]))
-        .get();
+    final snaps =
+        await (_db.select(_db.balanceSnapshots)
+              ..where(
+                (s) => s.date.isBiggerOrEqualValue(LedgerDates.dayKey(from)),
+              )
+              ..orderBy([(s) => OrderingTerm.asc(s.date)]))
+            .get();
     if (snaps.isEmpty) return [await netWorthPaise()];
 
     // Walk day by day, carrying each account's last known reading forward.
@@ -109,9 +127,11 @@ class AccountRepo {
     final carried = <int, int>{};
     final series = <int>[];
     final today = DateTime.now();
-    for (var d = DateTime.parse(snaps.first.date);
-        !d.isAfter(today);
-        d = d.add(const Duration(days: 1))) {
+    for (
+      var d = DateTime.parse(snaps.first.date);
+      !d.isAfter(today);
+      d = d.add(const Duration(days: 1))
+    ) {
       final readings = byDay[LedgerDates.dayKey(d)];
       if (readings != null) carried.addAll(readings);
       if (carried.isEmpty) continue;
@@ -124,12 +144,14 @@ class AccountRepo {
 
   /// Net worth right now: assets minus liabilities.
   Future<int> netWorthPaise() async {
-    final rows = await (_db.select(_db.accounts)
-          ..where((a) => a.archived.equals(false)))
-        .get();
+    final rows = await (_db.select(
+      _db.accounts,
+    )..where((a) => a.archived.equals(false))).get();
     var total = 0;
     for (final a in rows) {
-      total += a.kind == AccountKind.liability ? -a.balancePaise : a.balancePaise;
+      total += a.kind == AccountKind.liability
+          ? -a.balancePaise
+          : a.balancePaise;
     }
     return total;
   }

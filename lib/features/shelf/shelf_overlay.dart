@@ -8,7 +8,10 @@ import '../../core/typography.dart';
 import '../../core/widgets/motion.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
+import '../../data/repos/alarm_repo.dart';
+import '../../data/repos/habit_repo.dart';
 import '../../data/repos/marks_repo.dart';
+import '../alarm/alarm_page.dart';
 import '../calendar/calendar_page.dart';
 import '../daily/daily_page.dart';
 import '../focus/focus_page.dart';
@@ -16,7 +19,7 @@ import '../journal/journal_page.dart';
 import '../notes/notes_page.dart';
 import '../vault/vault_page.dart';
 
-/// Tap the wordmark: the box opens. Six books on one shelf, each spine
+/// Tap the wordmark: the box opens. Every book on one shelf, each spine
 /// telling the truth about what's inside it right now.
 Future<void> showShelf(BuildContext context) {
   final scrim = LedgerColors.of(context).ink.withValues(alpha: 0.32);
@@ -127,25 +130,41 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
       for (final m in marks)
         if (m.kind == 'slip') m.date,
     };
-    final ticked = marks
-        .where(
-          (m) =>
-              m.date == todayKey &&
-              m.kind != 'slip' &&
-              m.kind != 'meal' &&
-              m.kind != 'pledge',
-        )
+    final live = [
+      for (final h in await HabitRepo(db).load())
+        if (!h.archived) h,
+    ];
+    final kept = live
+        .where((h) => countOn(marks, todayKey, h.kind) >= h.target)
         .length;
     final clean = cleanStreak(slipDates, sinceRow.value, now);
     daily =
-        'day $clean clean${ticked > 0 ? ' · $ticked of ${habitKinds.length} ticked' : ''}';
+        'day $clean clean${kept > 0 ? ' · $kept of ${live.length} kept' : ''}';
   }
 
   // Vault: sealed, and how much it guards.
   final vaultCount = (await db.select(db.vaultItems).get()).length;
   final vault = vaultCount == 0 ? 'sealed' : 'sealed · $vaultCount inside';
 
+  // Alarms: the next one to ring, or silence.
+  final alarmRows = await db.select(db.alarms).get();
+  DateTime? nextAlarm;
+  Alarm? nextRow;
+  for (final a in alarmRows) {
+    final at = nextRing(a, now);
+    if (at == null) continue;
+    if (nextAlarm == null || at.isBefore(nextAlarm)) {
+      nextAlarm = at;
+      nextRow = a;
+    }
+  }
+  final alarms = nextRow == null
+      ? (alarmRows.isEmpty ? 'none set' : 'all switched off')
+      : '${clockLabel(nextRow.minuteOfDay)} · '
+            '${untilPhrase(nextAlarm!.difference(now))}';
+
   return {
+    'Alarms': alarms,
     'Calendar': calendar,
     'Notes': notesLine,
     'Focus': focus,
@@ -173,6 +192,7 @@ class _Shelf extends ConsumerWidget {
 
   static final _spines = <_Spine>[
     const _Spine('Money', thickness: 38),
+    _Spine('Alarms', builder: (_) => const AlarmPage(), thickness: 26),
     _Spine('Calendar', builder: (_) => const CalendarPage()),
     _Spine('Notes', builder: (_) => const NotesPage()),
     _Spine('Focus', builder: (_) => const FocusPage()),

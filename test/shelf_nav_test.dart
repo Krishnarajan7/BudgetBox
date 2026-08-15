@@ -24,11 +24,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    await tester.tap(find.text('Tap to open the book'));
-    await tester.pump();
-    // Three beats now: the wink, the press, the pause — then the shell.
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pump(const Duration(milliseconds: 400));
+    // No PIN, no cover: the book opens itself straight onto the shell.
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }

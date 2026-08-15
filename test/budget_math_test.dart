@@ -2,6 +2,17 @@ import 'package:budgetbox/data/repos/budget_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('budget balance turns a negative remainder into an honest overrun', () {
+    expect(budgetBalance(limitPaise: 350000, spentPaise: 578300), (
+      amountPaise: 228300,
+      over: true,
+    ));
+    expect(budgetBalance(limitPaise: 350000, spentPaise: 115700), (
+      amountPaise: 234300,
+      over: false,
+    ));
+  });
+
   test('on pace: run rate lands under the limit', () {
     const p = BudgetPace(
       spentPaise: 612000, // ₹6,120 of ₹9,000

@@ -36,7 +36,17 @@ abstract final class LedgerIcons {
     'people': Icons.group_outlined,
     'school': Icons.school_outlined,
     'tools': Icons.build_outlined,
+    // his own shelf — clothes, grooming, gear, the weekend
     'shirt': Icons.checkroom_outlined,
+    'groom': Icons.content_cut,
+    'care': Icons.spa_outlined,
+    'wash': Icons.local_laundry_service_outlined,
+    'watch': Icons.watch_outlined,
+    'gadget': Icons.devices_other_outlined,
+    'game': Icons.sports_esports_outlined,
+    'bike': Icons.two_wheeler_outlined,
+    'sport': Icons.sports_cricket_outlined,
+    'shake': Icons.local_drink_outlined,
     // money
     'work': Icons.work_outline,
     'up': Icons.trending_up,

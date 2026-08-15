@@ -19,9 +19,20 @@ class JournalRepo {
   final LedgerDb _db;
 
   /// Writes only what was passed: `upsert(d, mood: 4)` never touches the
-  /// body, and `upsert(d, body: '…')` never touches the mood. Creates the
-  /// page if it doesn't exist yet; always bumps [JournalEntry.updatedAt].
-  Future<void> upsert(String date, {String? body, int? mood}) async {
+  /// body, and `upsert(d, body: '…')` never touches the mood. A mood write
+  /// is a *felt* write — it carries energy and the chosen word with it
+  /// (nulls included), because the field always commits the three together.
+  /// Creates the page if it doesn't exist yet; always bumps
+  /// [JournalEntry.updatedAt].
+  Future<void> upsert(
+    String date, {
+    String? body,
+    int? mood,
+    int? energy,
+    String? feelWord,
+    String? feelWhy,
+    String? feelTags,
+  }) async {
     final now = DateTime.now();
     await _db.transaction(() async {
       await _db
@@ -31,12 +42,28 @@ class JournalRepo {
               date: date,
               body: Value(body ?? ''),
               mood: Value(mood),
+              energy: Value(energy),
+              feelWord: Value(feelWord),
+              feelWhy: Value(feelWhy),
+              feelTags: Value(feelTags),
               updatedAt: Value(now),
             ),
             onConflict: DoUpdate(
               (old) => JournalEntriesCompanion(
                 body: body == null ? const Value.absent() : Value(body),
                 mood: mood == null ? const Value.absent() : Value(mood),
+                energy: mood == null ? const Value.absent() : Value(energy),
+                feelWord: mood == null
+                    ? const Value.absent()
+                    : Value(feelWord),
+                // The second breath writes on its own: passed → written,
+                // empty string → cleared, null → left alone.
+                feelWhy: feelWhy == null
+                    ? const Value.absent()
+                    : Value(feelWhy),
+                feelTags: feelTags == null
+                    ? const Value.absent()
+                    : Value(feelTags),
                 updatedAt: Value(now),
               ),
             ),

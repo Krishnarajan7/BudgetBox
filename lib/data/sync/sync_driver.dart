@@ -4,13 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/notifications.dart';
+import '../../core/note_reminders.dart';
 import '../../core/occasions.dart';
+import '../db.dart';
 import '../providers.dart';
+import '../repos/alarm_repo.dart';
 import 'sync_engine.dart';
 
 /// Decides *when* the book talks to the server. It draws nothing: it wraps
-/// the app, hands its child straight back, and syncs on the two moments that
-/// matter — the app opening, and the app coming back to the front.
+/// the app, hands its child straight back, and syncs when the app opens,
+/// returns to the front, or receives a new local write.
 ///
 /// There is no sync button and no spinner anywhere, by design. The screens
 /// were finished before the server existed and they are not going to start
@@ -31,6 +34,9 @@ class SyncDriver extends ConsumerStatefulWidget {
 class _SyncDriverState extends ConsumerState<SyncDriver>
     with WidgetsBindingObserver {
   SyncEngine? _engine;
+  StreamSubscription<List<OutboxData>>? _outboxSubscription;
+  Timer? _outboxDebounce;
+  bool _runInFlight = false;
 
   /// Coming back to the app half a minute after leaving it is not news.
   static const _resumeQuietPeriod = Duration(seconds: 30);
@@ -44,7 +50,22 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // before any screen can write.
     final engine = ref.read(syncEngineProvider);
     _engine = engine;
+    _watchOutbox();
     unawaited(_bootstrap());
+  }
+
+  void _watchOutbox() {
+    _outboxSubscription = ref
+        .read(dbProvider)
+        .select(ref.read(dbProvider).outbox)
+        .watch()
+        .listen((rows) {
+          if (rows.isEmpty || _runInFlight) return;
+          _outboxDebounce?.cancel();
+          _outboxDebounce = Timer(const Duration(milliseconds: 650), () {
+            if (mounted) unawaited(_run());
+          });
+        });
   }
 
   /// The address may have been typed into Settings rather than compiled in,
@@ -71,6 +92,10 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // Every calendar day's notification stands again after reboots and
     // app updates.
     unawaited(Occasions(ref.read(dbProvider)).resyncNotifications());
+    unawaited(NoteReminders(ref.read(dbProvider)).resync());
+    // Alarms last: an alarm that stopped ringing after an update is the one
+    // failure in this app that costs a morning.
+    unawaited(AlarmRepo(ref.read(dbProvider)).resync());
     final stored = await settings.serverConfig();
     if (!mounted) return;
     _engine?.reconfigure(stored);
@@ -99,19 +124,29 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
 
   Future<void> _run() async {
     final engine = _engine;
-    if (engine == null || !engine.wired) return;
+    if (engine == null || !engine.wired || _runInFlight) return;
+    _runInFlight = true;
     _lastRun = DateTime.now();
     // A failed sync is not the user's problem to solve mid-gesture: the queue
     // keeps what is owed and the next resume tries again.
     try {
       await engine.syncNow();
+      await NoteReminders(ref.read(dbProvider)).resync();
+      // Coaching is calculated from server-side evidence. Once current local
+      // writes have landed, ask for a fresh set without requiring an app
+      // restart or a trip through the background.
+      if (mounted) ref.invalidate(coachingFeedProvider);
     } on Object {
       // Deliberately swallowed — engine.status carries the detail.
+    } finally {
+      _runInFlight = false;
     }
   }
 
   @override
   void dispose() {
+    _outboxDebounce?.cancel();
+    unawaited(_outboxSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

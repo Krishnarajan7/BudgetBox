@@ -4412,6 +4412,32 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _remindAtMeta = const VerificationMeta(
+    'remindAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> remindAt = GeneratedColumn<DateTime>(
+    'remind_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _completedMeta = const VerificationMeta(
+    'completed',
+  );
+  @override
+  late final GeneratedColumn<bool> completed = GeneratedColumn<bool>(
+    'completed',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("completed" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -4457,6 +4483,8 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
     title,
     body,
     pinned,
+    remindAt,
+    completed,
     createdAt,
     updatedAt,
     archived,
@@ -4492,6 +4520,18 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
       context.handle(
         _pinnedMeta,
         pinned.isAcceptableOrUnknown(data['pinned']!, _pinnedMeta),
+      );
+    }
+    if (data.containsKey('remind_at')) {
+      context.handle(
+        _remindAtMeta,
+        remindAt.isAcceptableOrUnknown(data['remind_at']!, _remindAtMeta),
+      );
+    }
+    if (data.containsKey('completed')) {
+      context.handle(
+        _completedMeta,
+        completed.isAcceptableOrUnknown(data['completed']!, _completedMeta),
       );
     }
     if (data.containsKey('created_at')) {
@@ -4537,6 +4577,14 @@ class $NotesTable extends Notes with TableInfo<$NotesTable, Note> {
         DriftSqlType.bool,
         data['${effectivePrefix}pinned'],
       )!,
+      remindAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}remind_at'],
+      ),
+      completed: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}completed'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4563,6 +4611,12 @@ class Note extends DataClass implements Insertable<Note> {
   final String title;
   final String body;
   final bool pinned;
+
+  /// When present, this note is also an action the phone should speak at the
+  /// chosen local time. It stays a note—client context, lists and details are
+  /// not flattened into a calendar title just because they have a deadline.
+  final DateTime? remindAt;
+  final bool completed;
   final DateTime createdAt;
   final DateTime updatedAt;
   final bool archived;
@@ -4571,6 +4625,8 @@ class Note extends DataClass implements Insertable<Note> {
     required this.title,
     required this.body,
     required this.pinned,
+    this.remindAt,
+    required this.completed,
     required this.createdAt,
     required this.updatedAt,
     required this.archived,
@@ -4582,6 +4638,10 @@ class Note extends DataClass implements Insertable<Note> {
     map['title'] = Variable<String>(title);
     map['body'] = Variable<String>(body);
     map['pinned'] = Variable<bool>(pinned);
+    if (!nullToAbsent || remindAt != null) {
+      map['remind_at'] = Variable<DateTime>(remindAt);
+    }
+    map['completed'] = Variable<bool>(completed);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['archived'] = Variable<bool>(archived);
@@ -4594,6 +4654,10 @@ class Note extends DataClass implements Insertable<Note> {
       title: Value(title),
       body: Value(body),
       pinned: Value(pinned),
+      remindAt: remindAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remindAt),
+      completed: Value(completed),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       archived: Value(archived),
@@ -4610,6 +4674,8 @@ class Note extends DataClass implements Insertable<Note> {
       title: serializer.fromJson<String>(json['title']),
       body: serializer.fromJson<String>(json['body']),
       pinned: serializer.fromJson<bool>(json['pinned']),
+      remindAt: serializer.fromJson<DateTime?>(json['remindAt']),
+      completed: serializer.fromJson<bool>(json['completed']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       archived: serializer.fromJson<bool>(json['archived']),
@@ -4623,6 +4689,8 @@ class Note extends DataClass implements Insertable<Note> {
       'title': serializer.toJson<String>(title),
       'body': serializer.toJson<String>(body),
       'pinned': serializer.toJson<bool>(pinned),
+      'remindAt': serializer.toJson<DateTime?>(remindAt),
+      'completed': serializer.toJson<bool>(completed),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'archived': serializer.toJson<bool>(archived),
@@ -4634,6 +4702,8 @@ class Note extends DataClass implements Insertable<Note> {
     String? title,
     String? body,
     bool? pinned,
+    Value<DateTime?> remindAt = const Value.absent(),
+    bool? completed,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? archived,
@@ -4642,6 +4712,8 @@ class Note extends DataClass implements Insertable<Note> {
     title: title ?? this.title,
     body: body ?? this.body,
     pinned: pinned ?? this.pinned,
+    remindAt: remindAt.present ? remindAt.value : this.remindAt,
+    completed: completed ?? this.completed,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     archived: archived ?? this.archived,
@@ -4652,6 +4724,8 @@ class Note extends DataClass implements Insertable<Note> {
       title: data.title.present ? data.title.value : this.title,
       body: data.body.present ? data.body.value : this.body,
       pinned: data.pinned.present ? data.pinned.value : this.pinned,
+      remindAt: data.remindAt.present ? data.remindAt.value : this.remindAt,
+      completed: data.completed.present ? data.completed.value : this.completed,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       archived: data.archived.present ? data.archived.value : this.archived,
@@ -4665,6 +4739,8 @@ class Note extends DataClass implements Insertable<Note> {
           ..write('title: $title, ')
           ..write('body: $body, ')
           ..write('pinned: $pinned, ')
+          ..write('remindAt: $remindAt, ')
+          ..write('completed: $completed, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('archived: $archived')
@@ -4673,8 +4749,17 @@ class Note extends DataClass implements Insertable<Note> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, title, body, pinned, createdAt, updatedAt, archived);
+  int get hashCode => Object.hash(
+    id,
+    title,
+    body,
+    pinned,
+    remindAt,
+    completed,
+    createdAt,
+    updatedAt,
+    archived,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -4683,6 +4768,8 @@ class Note extends DataClass implements Insertable<Note> {
           other.title == this.title &&
           other.body == this.body &&
           other.pinned == this.pinned &&
+          other.remindAt == this.remindAt &&
+          other.completed == this.completed &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.archived == this.archived);
@@ -4693,6 +4780,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
   final Value<String> title;
   final Value<String> body;
   final Value<bool> pinned;
+  final Value<DateTime?> remindAt;
+  final Value<bool> completed;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<bool> archived;
@@ -4701,6 +4790,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
     this.title = const Value.absent(),
     this.body = const Value.absent(),
     this.pinned = const Value.absent(),
+    this.remindAt = const Value.absent(),
+    this.completed = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.archived = const Value.absent(),
@@ -4710,6 +4801,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
     this.title = const Value.absent(),
     this.body = const Value.absent(),
     this.pinned = const Value.absent(),
+    this.remindAt = const Value.absent(),
+    this.completed = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.archived = const Value.absent(),
@@ -4719,6 +4812,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
     Expression<String>? title,
     Expression<String>? body,
     Expression<bool>? pinned,
+    Expression<DateTime>? remindAt,
+    Expression<bool>? completed,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<bool>? archived,
@@ -4728,6 +4823,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
       if (title != null) 'title': title,
       if (body != null) 'body': body,
       if (pinned != null) 'pinned': pinned,
+      if (remindAt != null) 'remind_at': remindAt,
+      if (completed != null) 'completed': completed,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (archived != null) 'archived': archived,
@@ -4739,6 +4836,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
     Value<String>? title,
     Value<String>? body,
     Value<bool>? pinned,
+    Value<DateTime?>? remindAt,
+    Value<bool>? completed,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<bool>? archived,
@@ -4748,6 +4847,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
       title: title ?? this.title,
       body: body ?? this.body,
       pinned: pinned ?? this.pinned,
+      remindAt: remindAt ?? this.remindAt,
+      completed: completed ?? this.completed,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       archived: archived ?? this.archived,
@@ -4769,6 +4870,12 @@ class NotesCompanion extends UpdateCompanion<Note> {
     if (pinned.present) {
       map['pinned'] = Variable<bool>(pinned.value);
     }
+    if (remindAt.present) {
+      map['remind_at'] = Variable<DateTime>(remindAt.value);
+    }
+    if (completed.present) {
+      map['completed'] = Variable<bool>(completed.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -4788,6 +4895,8 @@ class NotesCompanion extends UpdateCompanion<Note> {
           ..write('title: $title, ')
           ..write('body: $body, ')
           ..write('pinned: $pinned, ')
+          ..write('remindAt: $remindAt, ')
+          ..write('completed: $completed, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('archived: $archived')
@@ -5235,6 +5344,48 @@ class $JournalEntriesTable extends JournalEntries
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _energyMeta = const VerificationMeta('energy');
+  @override
+  late final GeneratedColumn<int> energy = GeneratedColumn<int>(
+    'energy',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _feelWordMeta = const VerificationMeta(
+    'feelWord',
+  );
+  @override
+  late final GeneratedColumn<String> feelWord = GeneratedColumn<String>(
+    'feel_word',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _feelWhyMeta = const VerificationMeta(
+    'feelWhy',
+  );
+  @override
+  late final GeneratedColumn<String> feelWhy = GeneratedColumn<String>(
+    'feel_why',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _feelTagsMeta = const VerificationMeta(
+    'feelTags',
+  );
+  @override
+  late final GeneratedColumn<String> feelTags = GeneratedColumn<String>(
+    'feel_tags',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _updatedAtMeta = const VerificationMeta(
     'updatedAt',
   );
@@ -5248,7 +5399,16 @@ class $JournalEntriesTable extends JournalEntries
     defaultValue: currentDateAndTime,
   );
   @override
-  List<GeneratedColumn> get $columns => [date, body, mood, updatedAt];
+  List<GeneratedColumn> get $columns => [
+    date,
+    body,
+    mood,
+    energy,
+    feelWord,
+    feelWhy,
+    feelTags,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -5281,6 +5441,30 @@ class $JournalEntriesTable extends JournalEntries
         mood.isAcceptableOrUnknown(data['mood']!, _moodMeta),
       );
     }
+    if (data.containsKey('energy')) {
+      context.handle(
+        _energyMeta,
+        energy.isAcceptableOrUnknown(data['energy']!, _energyMeta),
+      );
+    }
+    if (data.containsKey('feel_word')) {
+      context.handle(
+        _feelWordMeta,
+        feelWord.isAcceptableOrUnknown(data['feel_word']!, _feelWordMeta),
+      );
+    }
+    if (data.containsKey('feel_why')) {
+      context.handle(
+        _feelWhyMeta,
+        feelWhy.isAcceptableOrUnknown(data['feel_why']!, _feelWhyMeta),
+      );
+    }
+    if (data.containsKey('feel_tags')) {
+      context.handle(
+        _feelTagsMeta,
+        feelTags.isAcceptableOrUnknown(data['feel_tags']!, _feelTagsMeta),
+      );
+    }
     if (data.containsKey('updated_at')) {
       context.handle(
         _updatedAtMeta,
@@ -5308,6 +5492,22 @@ class $JournalEntriesTable extends JournalEntries
         DriftSqlType.int,
         data['${effectivePrefix}mood'],
       ),
+      energy: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}energy'],
+      ),
+      feelWord: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feel_word'],
+      ),
+      feelWhy: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feel_why'],
+      ),
+      feelTags: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}feel_tags'],
+      ),
       updatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
@@ -5326,13 +5526,34 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
   final String date;
   final String body;
 
-  /// 1 (rough) … 5 (great); null when unrecorded.
+  /// Pleasantness, 1 (rough) … 9 (good); null when unrecorded. The felt
+  /// field's x. Rows written before v11 held 1…5 and were re-ruled onto the
+  /// wider scale ((m-1)*2+1), so an old 3 is to-day's 5.
   final int? mood;
+
+  /// Energy, 1 (still) … 9 (wired); the felt field's y. Null on pages marked
+  /// before the field existed — they render as the flat neutral dash.
+  final int? energy;
+
+  /// The word he chose for the day — 'frayed', 'settled' — or null when the
+  /// point was placed without naming it. The word is the record; the
+  /// coordinates are how it was found.
+  final String? feelWord;
+
+  /// The check-in's second breath: why the day sat that way, in his words.
+  final String? feelWhy;
+
+  /// Context chips, comma-joined — what he was doing, who with, where.
+  final String? feelTags;
   final DateTime updatedAt;
   const JournalEntry({
     required this.date,
     required this.body,
     this.mood,
+    this.energy,
+    this.feelWord,
+    this.feelWhy,
+    this.feelTags,
     required this.updatedAt,
   });
   @override
@@ -5343,6 +5564,18 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
     if (!nullToAbsent || mood != null) {
       map['mood'] = Variable<int>(mood);
     }
+    if (!nullToAbsent || energy != null) {
+      map['energy'] = Variable<int>(energy);
+    }
+    if (!nullToAbsent || feelWord != null) {
+      map['feel_word'] = Variable<String>(feelWord);
+    }
+    if (!nullToAbsent || feelWhy != null) {
+      map['feel_why'] = Variable<String>(feelWhy);
+    }
+    if (!nullToAbsent || feelTags != null) {
+      map['feel_tags'] = Variable<String>(feelTags);
+    }
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
   }
@@ -5352,6 +5585,18 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
       date: Value(date),
       body: Value(body),
       mood: mood == null && nullToAbsent ? const Value.absent() : Value(mood),
+      energy: energy == null && nullToAbsent
+          ? const Value.absent()
+          : Value(energy),
+      feelWord: feelWord == null && nullToAbsent
+          ? const Value.absent()
+          : Value(feelWord),
+      feelWhy: feelWhy == null && nullToAbsent
+          ? const Value.absent()
+          : Value(feelWhy),
+      feelTags: feelTags == null && nullToAbsent
+          ? const Value.absent()
+          : Value(feelTags),
       updatedAt: Value(updatedAt),
     );
   }
@@ -5365,6 +5610,10 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
       date: serializer.fromJson<String>(json['date']),
       body: serializer.fromJson<String>(json['body']),
       mood: serializer.fromJson<int?>(json['mood']),
+      energy: serializer.fromJson<int?>(json['energy']),
+      feelWord: serializer.fromJson<String?>(json['feelWord']),
+      feelWhy: serializer.fromJson<String?>(json['feelWhy']),
+      feelTags: serializer.fromJson<String?>(json['feelTags']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
     );
   }
@@ -5375,6 +5624,10 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
       'date': serializer.toJson<String>(date),
       'body': serializer.toJson<String>(body),
       'mood': serializer.toJson<int?>(mood),
+      'energy': serializer.toJson<int?>(energy),
+      'feelWord': serializer.toJson<String?>(feelWord),
+      'feelWhy': serializer.toJson<String?>(feelWhy),
+      'feelTags': serializer.toJson<String?>(feelTags),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
   }
@@ -5383,11 +5636,19 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
     String? date,
     String? body,
     Value<int?> mood = const Value.absent(),
+    Value<int?> energy = const Value.absent(),
+    Value<String?> feelWord = const Value.absent(),
+    Value<String?> feelWhy = const Value.absent(),
+    Value<String?> feelTags = const Value.absent(),
     DateTime? updatedAt,
   }) => JournalEntry(
     date: date ?? this.date,
     body: body ?? this.body,
     mood: mood.present ? mood.value : this.mood,
+    energy: energy.present ? energy.value : this.energy,
+    feelWord: feelWord.present ? feelWord.value : this.feelWord,
+    feelWhy: feelWhy.present ? feelWhy.value : this.feelWhy,
+    feelTags: feelTags.present ? feelTags.value : this.feelTags,
     updatedAt: updatedAt ?? this.updatedAt,
   );
   JournalEntry copyWithCompanion(JournalEntriesCompanion data) {
@@ -5395,6 +5656,10 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
       date: data.date.present ? data.date.value : this.date,
       body: data.body.present ? data.body.value : this.body,
       mood: data.mood.present ? data.mood.value : this.mood,
+      energy: data.energy.present ? data.energy.value : this.energy,
+      feelWord: data.feelWord.present ? data.feelWord.value : this.feelWord,
+      feelWhy: data.feelWhy.present ? data.feelWhy.value : this.feelWhy,
+      feelTags: data.feelTags.present ? data.feelTags.value : this.feelTags,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
@@ -5405,13 +5670,26 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
           ..write('date: $date, ')
           ..write('body: $body, ')
           ..write('mood: $mood, ')
+          ..write('energy: $energy, ')
+          ..write('feelWord: $feelWord, ')
+          ..write('feelWhy: $feelWhy, ')
+          ..write('feelTags: $feelTags, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(date, body, mood, updatedAt);
+  int get hashCode => Object.hash(
+    date,
+    body,
+    mood,
+    energy,
+    feelWord,
+    feelWhy,
+    feelTags,
+    updatedAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -5419,6 +5697,10 @@ class JournalEntry extends DataClass implements Insertable<JournalEntry> {
           other.date == this.date &&
           other.body == this.body &&
           other.mood == this.mood &&
+          other.energy == this.energy &&
+          other.feelWord == this.feelWord &&
+          other.feelWhy == this.feelWhy &&
+          other.feelTags == this.feelTags &&
           other.updatedAt == this.updatedAt);
 }
 
@@ -5426,12 +5708,20 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
   final Value<String> date;
   final Value<String> body;
   final Value<int?> mood;
+  final Value<int?> energy;
+  final Value<String?> feelWord;
+  final Value<String?> feelWhy;
+  final Value<String?> feelTags;
   final Value<DateTime> updatedAt;
   final Value<int> rowid;
   const JournalEntriesCompanion({
     this.date = const Value.absent(),
     this.body = const Value.absent(),
     this.mood = const Value.absent(),
+    this.energy = const Value.absent(),
+    this.feelWord = const Value.absent(),
+    this.feelWhy = const Value.absent(),
+    this.feelTags = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -5439,6 +5729,10 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
     required String date,
     this.body = const Value.absent(),
     this.mood = const Value.absent(),
+    this.energy = const Value.absent(),
+    this.feelWord = const Value.absent(),
+    this.feelWhy = const Value.absent(),
+    this.feelTags = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : date = Value(date);
@@ -5446,6 +5740,10 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
     Expression<String>? date,
     Expression<String>? body,
     Expression<int>? mood,
+    Expression<int>? energy,
+    Expression<String>? feelWord,
+    Expression<String>? feelWhy,
+    Expression<String>? feelTags,
     Expression<DateTime>? updatedAt,
     Expression<int>? rowid,
   }) {
@@ -5453,6 +5751,10 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
       if (date != null) 'date': date,
       if (body != null) 'body': body,
       if (mood != null) 'mood': mood,
+      if (energy != null) 'energy': energy,
+      if (feelWord != null) 'feel_word': feelWord,
+      if (feelWhy != null) 'feel_why': feelWhy,
+      if (feelTags != null) 'feel_tags': feelTags,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -5462,6 +5764,10 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
     Value<String>? date,
     Value<String>? body,
     Value<int?>? mood,
+    Value<int?>? energy,
+    Value<String?>? feelWord,
+    Value<String?>? feelWhy,
+    Value<String?>? feelTags,
     Value<DateTime>? updatedAt,
     Value<int>? rowid,
   }) {
@@ -5469,6 +5775,10 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
       date: date ?? this.date,
       body: body ?? this.body,
       mood: mood ?? this.mood,
+      energy: energy ?? this.energy,
+      feelWord: feelWord ?? this.feelWord,
+      feelWhy: feelWhy ?? this.feelWhy,
+      feelTags: feelTags ?? this.feelTags,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
     );
@@ -5486,6 +5796,18 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
     if (mood.present) {
       map['mood'] = Variable<int>(mood.value);
     }
+    if (energy.present) {
+      map['energy'] = Variable<int>(energy.value);
+    }
+    if (feelWord.present) {
+      map['feel_word'] = Variable<String>(feelWord.value);
+    }
+    if (feelWhy.present) {
+      map['feel_why'] = Variable<String>(feelWhy.value);
+    }
+    if (feelTags.present) {
+      map['feel_tags'] = Variable<String>(feelTags.value);
+    }
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
@@ -5501,6 +5823,10 @@ class JournalEntriesCompanion extends UpdateCompanion<JournalEntry> {
           ..write('date: $date, ')
           ..write('body: $body, ')
           ..write('mood: $mood, ')
+          ..write('energy: $energy, ')
+          ..write('feelWord: $feelWord, ')
+          ..write('feelWhy: $feelWhy, ')
+          ..write('feelTags: $feelTags, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -7840,6 +8166,518 @@ class DayMarksCompanion extends UpdateCompanion<DayMark> {
   }
 }
 
+class $AlarmsTable extends Alarms with TableInfo<$AlarmsTable, Alarm> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AlarmsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _labelMeta = const VerificationMeta('label');
+  @override
+  late final GeneratedColumn<String> label = GeneratedColumn<String>(
+    'label',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _minuteOfDayMeta = const VerificationMeta(
+    'minuteOfDay',
+  );
+  @override
+  late final GeneratedColumn<int> minuteOfDay = GeneratedColumn<int>(
+    'minute_of_day',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _daysMeta = const VerificationMeta('days');
+  @override
+  late final GeneratedColumn<int> days = GeneratedColumn<int>(
+    'days',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _snoozeMinutesMeta = const VerificationMeta(
+    'snoozeMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> snoozeMinutes = GeneratedColumn<int>(
+    'snooze_minutes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(9),
+  );
+  static const VerificationMeta _vibrateMeta = const VerificationMeta(
+    'vibrate',
+  );
+  @override
+  late final GeneratedColumn<bool> vibrate = GeneratedColumn<bool>(
+    'vibrate',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("vibrate" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    label,
+    minuteOfDay,
+    days,
+    enabled,
+    snoozeMinutes,
+    vibrate,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'alarms';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<Alarm> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('label')) {
+      context.handle(
+        _labelMeta,
+        label.isAcceptableOrUnknown(data['label']!, _labelMeta),
+      );
+    }
+    if (data.containsKey('minute_of_day')) {
+      context.handle(
+        _minuteOfDayMeta,
+        minuteOfDay.isAcceptableOrUnknown(
+          data['minute_of_day']!,
+          _minuteOfDayMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_minuteOfDayMeta);
+    }
+    if (data.containsKey('days')) {
+      context.handle(
+        _daysMeta,
+        days.isAcceptableOrUnknown(data['days']!, _daysMeta),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('snooze_minutes')) {
+      context.handle(
+        _snoozeMinutesMeta,
+        snoozeMinutes.isAcceptableOrUnknown(
+          data['snooze_minutes']!,
+          _snoozeMinutesMeta,
+        ),
+      );
+    }
+    if (data.containsKey('vibrate')) {
+      context.handle(
+        _vibrateMeta,
+        vibrate.isAcceptableOrUnknown(data['vibrate']!, _vibrateMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  Alarm map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return Alarm(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}label'],
+      )!,
+      minuteOfDay: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}minute_of_day'],
+      )!,
+      days: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}days'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      snoozeMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}snooze_minutes'],
+      )!,
+      vibrate: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}vibrate'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $AlarmsTable createAlias(String alias) {
+    return $AlarmsTable(attachedDatabase, alias);
+  }
+}
+
+class Alarm extends DataClass implements Insertable<Alarm> {
+  final int id;
+
+  /// What it's for — 'gym', 'call amma'. Blank is allowed; the time is the
+  /// point, the label is the courtesy.
+  final String label;
+
+  /// Minutes past local midnight, 0–1439.
+  final int minuteOfDay;
+
+  /// Which days it repeats on, as a bitmask: Monday is bit 0 … Sunday is
+  /// bit 6. Zero means it rings once, on the next occurrence of the time,
+  /// and then switches itself off.
+  final int days;
+  final bool enabled;
+
+  /// How long a snooze buys, in minutes.
+  final int snoozeMinutes;
+  final bool vibrate;
+  final DateTime createdAt;
+  const Alarm({
+    required this.id,
+    required this.label,
+    required this.minuteOfDay,
+    required this.days,
+    required this.enabled,
+    required this.snoozeMinutes,
+    required this.vibrate,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['label'] = Variable<String>(label);
+    map['minute_of_day'] = Variable<int>(minuteOfDay);
+    map['days'] = Variable<int>(days);
+    map['enabled'] = Variable<bool>(enabled);
+    map['snooze_minutes'] = Variable<int>(snoozeMinutes);
+    map['vibrate'] = Variable<bool>(vibrate);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  AlarmsCompanion toCompanion(bool nullToAbsent) {
+    return AlarmsCompanion(
+      id: Value(id),
+      label: Value(label),
+      minuteOfDay: Value(minuteOfDay),
+      days: Value(days),
+      enabled: Value(enabled),
+      snoozeMinutes: Value(snoozeMinutes),
+      vibrate: Value(vibrate),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory Alarm.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return Alarm(
+      id: serializer.fromJson<int>(json['id']),
+      label: serializer.fromJson<String>(json['label']),
+      minuteOfDay: serializer.fromJson<int>(json['minuteOfDay']),
+      days: serializer.fromJson<int>(json['days']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      snoozeMinutes: serializer.fromJson<int>(json['snoozeMinutes']),
+      vibrate: serializer.fromJson<bool>(json['vibrate']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'label': serializer.toJson<String>(label),
+      'minuteOfDay': serializer.toJson<int>(minuteOfDay),
+      'days': serializer.toJson<int>(days),
+      'enabled': serializer.toJson<bool>(enabled),
+      'snoozeMinutes': serializer.toJson<int>(snoozeMinutes),
+      'vibrate': serializer.toJson<bool>(vibrate),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  Alarm copyWith({
+    int? id,
+    String? label,
+    int? minuteOfDay,
+    int? days,
+    bool? enabled,
+    int? snoozeMinutes,
+    bool? vibrate,
+    DateTime? createdAt,
+  }) => Alarm(
+    id: id ?? this.id,
+    label: label ?? this.label,
+    minuteOfDay: minuteOfDay ?? this.minuteOfDay,
+    days: days ?? this.days,
+    enabled: enabled ?? this.enabled,
+    snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
+    vibrate: vibrate ?? this.vibrate,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  Alarm copyWithCompanion(AlarmsCompanion data) {
+    return Alarm(
+      id: data.id.present ? data.id.value : this.id,
+      label: data.label.present ? data.label.value : this.label,
+      minuteOfDay: data.minuteOfDay.present
+          ? data.minuteOfDay.value
+          : this.minuteOfDay,
+      days: data.days.present ? data.days.value : this.days,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      snoozeMinutes: data.snoozeMinutes.present
+          ? data.snoozeMinutes.value
+          : this.snoozeMinutes,
+      vibrate: data.vibrate.present ? data.vibrate.value : this.vibrate,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('Alarm(')
+          ..write('id: $id, ')
+          ..write('label: $label, ')
+          ..write('minuteOfDay: $minuteOfDay, ')
+          ..write('days: $days, ')
+          ..write('enabled: $enabled, ')
+          ..write('snoozeMinutes: $snoozeMinutes, ')
+          ..write('vibrate: $vibrate, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    label,
+    minuteOfDay,
+    days,
+    enabled,
+    snoozeMinutes,
+    vibrate,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Alarm &&
+          other.id == this.id &&
+          other.label == this.label &&
+          other.minuteOfDay == this.minuteOfDay &&
+          other.days == this.days &&
+          other.enabled == this.enabled &&
+          other.snoozeMinutes == this.snoozeMinutes &&
+          other.vibrate == this.vibrate &&
+          other.createdAt == this.createdAt);
+}
+
+class AlarmsCompanion extends UpdateCompanion<Alarm> {
+  final Value<int> id;
+  final Value<String> label;
+  final Value<int> minuteOfDay;
+  final Value<int> days;
+  final Value<bool> enabled;
+  final Value<int> snoozeMinutes;
+  final Value<bool> vibrate;
+  final Value<DateTime> createdAt;
+  const AlarmsCompanion({
+    this.id = const Value.absent(),
+    this.label = const Value.absent(),
+    this.minuteOfDay = const Value.absent(),
+    this.days = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.snoozeMinutes = const Value.absent(),
+    this.vibrate = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  AlarmsCompanion.insert({
+    this.id = const Value.absent(),
+    this.label = const Value.absent(),
+    required int minuteOfDay,
+    this.days = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.snoozeMinutes = const Value.absent(),
+    this.vibrate = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  }) : minuteOfDay = Value(minuteOfDay);
+  static Insertable<Alarm> custom({
+    Expression<int>? id,
+    Expression<String>? label,
+    Expression<int>? minuteOfDay,
+    Expression<int>? days,
+    Expression<bool>? enabled,
+    Expression<int>? snoozeMinutes,
+    Expression<bool>? vibrate,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (label != null) 'label': label,
+      if (minuteOfDay != null) 'minute_of_day': minuteOfDay,
+      if (days != null) 'days': days,
+      if (enabled != null) 'enabled': enabled,
+      if (snoozeMinutes != null) 'snooze_minutes': snoozeMinutes,
+      if (vibrate != null) 'vibrate': vibrate,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  AlarmsCompanion copyWith({
+    Value<int>? id,
+    Value<String>? label,
+    Value<int>? minuteOfDay,
+    Value<int>? days,
+    Value<bool>? enabled,
+    Value<int>? snoozeMinutes,
+    Value<bool>? vibrate,
+    Value<DateTime>? createdAt,
+  }) {
+    return AlarmsCompanion(
+      id: id ?? this.id,
+      label: label ?? this.label,
+      minuteOfDay: minuteOfDay ?? this.minuteOfDay,
+      days: days ?? this.days,
+      enabled: enabled ?? this.enabled,
+      snoozeMinutes: snoozeMinutes ?? this.snoozeMinutes,
+      vibrate: vibrate ?? this.vibrate,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<String>(label.value);
+    }
+    if (minuteOfDay.present) {
+      map['minute_of_day'] = Variable<int>(minuteOfDay.value);
+    }
+    if (days.present) {
+      map['days'] = Variable<int>(days.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (snoozeMinutes.present) {
+      map['snooze_minutes'] = Variable<int>(snoozeMinutes.value);
+    }
+    if (vibrate.present) {
+      map['vibrate'] = Variable<bool>(vibrate.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AlarmsCompanion(')
+          ..write('id: $id, ')
+          ..write('label: $label, ')
+          ..write('minuteOfDay: $minuteOfDay, ')
+          ..write('days: $days, ')
+          ..write('enabled: $enabled, ')
+          ..write('snoozeMinutes: $snoozeMinutes, ')
+          ..write('vibrate: $vibrate, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$LedgerDb extends GeneratedDatabase {
   _$LedgerDb(QueryExecutor e) : super(e);
   $LedgerDbManager get managers => $LedgerDbManager(this);
@@ -7864,6 +8702,7 @@ abstract class _$LedgerDb extends GeneratedDatabase {
   late final $RemoteIdsTable remoteIds = $RemoteIdsTable(this);
   late final $OutboxTable outbox = $OutboxTable(this);
   late final $DayMarksTable dayMarks = $DayMarksTable(this);
+  late final $AlarmsTable alarms = $AlarmsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7888,6 +8727,7 @@ abstract class _$LedgerDb extends GeneratedDatabase {
     remoteIds,
     outbox,
     dayMarks,
+    alarms,
   ];
 }
 
@@ -12019,6 +12859,8 @@ typedef $$NotesTableCreateCompanionBuilder =
       Value<String> title,
       Value<String> body,
       Value<bool> pinned,
+      Value<DateTime?> remindAt,
+      Value<bool> completed,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<bool> archived,
@@ -12029,6 +12871,8 @@ typedef $$NotesTableUpdateCompanionBuilder =
       Value<String> title,
       Value<String> body,
       Value<bool> pinned,
+      Value<DateTime?> remindAt,
+      Value<bool> completed,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<bool> archived,
@@ -12059,6 +12903,16 @@ class $$NotesTableFilterComposer extends Composer<_$LedgerDb, $NotesTable> {
 
   ColumnFilters<bool> get pinned => $composableBuilder(
     column: $table.pinned,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get remindAt => $composableBuilder(
+    column: $table.remindAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get completed => $composableBuilder(
+    column: $table.completed,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12106,6 +12960,16 @@ class $$NotesTableOrderingComposer extends Composer<_$LedgerDb, $NotesTable> {
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<DateTime> get remindAt => $composableBuilder(
+    column: $table.remindAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get completed => $composableBuilder(
+    column: $table.completed,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -12141,6 +13005,12 @@ class $$NotesTableAnnotationComposer extends Composer<_$LedgerDb, $NotesTable> {
 
   GeneratedColumn<bool> get pinned =>
       $composableBuilder(column: $table.pinned, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get remindAt =>
+      $composableBuilder(column: $table.remindAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get completed =>
+      $composableBuilder(column: $table.completed, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -12184,6 +13054,8 @@ class $$NotesTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String> body = const Value.absent(),
                 Value<bool> pinned = const Value.absent(),
+                Value<DateTime?> remindAt = const Value.absent(),
+                Value<bool> completed = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<bool> archived = const Value.absent(),
@@ -12192,6 +13064,8 @@ class $$NotesTableTableManager
                 title: title,
                 body: body,
                 pinned: pinned,
+                remindAt: remindAt,
+                completed: completed,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 archived: archived,
@@ -12202,6 +13076,8 @@ class $$NotesTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String> body = const Value.absent(),
                 Value<bool> pinned = const Value.absent(),
+                Value<DateTime?> remindAt = const Value.absent(),
+                Value<bool> completed = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<bool> archived = const Value.absent(),
@@ -12210,6 +13086,8 @@ class $$NotesTableTableManager
                 title: title,
                 body: body,
                 pinned: pinned,
+                remindAt: remindAt,
+                completed: completed,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 archived: archived,
@@ -12455,6 +13333,10 @@ typedef $$JournalEntriesTableCreateCompanionBuilder =
       required String date,
       Value<String> body,
       Value<int?> mood,
+      Value<int?> energy,
+      Value<String?> feelWord,
+      Value<String?> feelWhy,
+      Value<String?> feelTags,
       Value<DateTime> updatedAt,
       Value<int> rowid,
     });
@@ -12463,6 +13345,10 @@ typedef $$JournalEntriesTableUpdateCompanionBuilder =
       Value<String> date,
       Value<String> body,
       Value<int?> mood,
+      Value<int?> energy,
+      Value<String?> feelWord,
+      Value<String?> feelWhy,
+      Value<String?> feelTags,
       Value<DateTime> updatedAt,
       Value<int> rowid,
     });
@@ -12488,6 +13374,26 @@ class $$JournalEntriesTableFilterComposer
 
   ColumnFilters<int> get mood => $composableBuilder(
     column: $table.mood,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get energy => $composableBuilder(
+    column: $table.energy,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get feelWord => $composableBuilder(
+    column: $table.feelWord,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get feelWhy => $composableBuilder(
+    column: $table.feelWhy,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get feelTags => $composableBuilder(
+    column: $table.feelTags,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12521,6 +13427,26 @@ class $$JournalEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get energy => $composableBuilder(
+    column: $table.energy,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get feelWord => $composableBuilder(
+    column: $table.feelWord,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get feelWhy => $composableBuilder(
+    column: $table.feelWhy,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get feelTags => $composableBuilder(
+    column: $table.feelTags,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
@@ -12544,6 +13470,18 @@ class $$JournalEntriesTableAnnotationComposer
 
   GeneratedColumn<int> get mood =>
       $composableBuilder(column: $table.mood, builder: (column) => column);
+
+  GeneratedColumn<int> get energy =>
+      $composableBuilder(column: $table.energy, builder: (column) => column);
+
+  GeneratedColumn<String> get feelWord =>
+      $composableBuilder(column: $table.feelWord, builder: (column) => column);
+
+  GeneratedColumn<String> get feelWhy =>
+      $composableBuilder(column: $table.feelWhy, builder: (column) => column);
+
+  GeneratedColumn<String> get feelTags =>
+      $composableBuilder(column: $table.feelTags, builder: (column) => column);
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
@@ -12583,12 +13521,20 @@ class $$JournalEntriesTableTableManager
                 Value<String> date = const Value.absent(),
                 Value<String> body = const Value.absent(),
                 Value<int?> mood = const Value.absent(),
+                Value<int?> energy = const Value.absent(),
+                Value<String?> feelWord = const Value.absent(),
+                Value<String?> feelWhy = const Value.absent(),
+                Value<String?> feelTags = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => JournalEntriesCompanion(
                 date: date,
                 body: body,
                 mood: mood,
+                energy: energy,
+                feelWord: feelWord,
+                feelWhy: feelWhy,
+                feelTags: feelTags,
                 updatedAt: updatedAt,
                 rowid: rowid,
               ),
@@ -12597,12 +13543,20 @@ class $$JournalEntriesTableTableManager
                 required String date,
                 Value<String> body = const Value.absent(),
                 Value<int?> mood = const Value.absent(),
+                Value<int?> energy = const Value.absent(),
+                Value<String?> feelWord = const Value.absent(),
+                Value<String?> feelWhy = const Value.absent(),
+                Value<String?> feelTags = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => JournalEntriesCompanion.insert(
                 date: date,
                 body: body,
                 mood: mood,
+                energy: energy,
+                feelWord: feelWord,
+                feelWhy: feelWhy,
+                feelTags: feelTags,
                 updatedAt: updatedAt,
                 rowid: rowid,
               ),
@@ -13981,6 +14935,253 @@ typedef $$DayMarksTableProcessedTableManager =
       DayMark,
       PrefetchHooks Function()
     >;
+typedef $$AlarmsTableCreateCompanionBuilder =
+    AlarmsCompanion Function({
+      Value<int> id,
+      Value<String> label,
+      required int minuteOfDay,
+      Value<int> days,
+      Value<bool> enabled,
+      Value<int> snoozeMinutes,
+      Value<bool> vibrate,
+      Value<DateTime> createdAt,
+    });
+typedef $$AlarmsTableUpdateCompanionBuilder =
+    AlarmsCompanion Function({
+      Value<int> id,
+      Value<String> label,
+      Value<int> minuteOfDay,
+      Value<int> days,
+      Value<bool> enabled,
+      Value<int> snoozeMinutes,
+      Value<bool> vibrate,
+      Value<DateTime> createdAt,
+    });
+
+class $$AlarmsTableFilterComposer extends Composer<_$LedgerDb, $AlarmsTable> {
+  $$AlarmsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get minuteOfDay => $composableBuilder(
+    column: $table.minuteOfDay,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get days => $composableBuilder(
+    column: $table.days,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get snoozeMinutes => $composableBuilder(
+    column: $table.snoozeMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get vibrate => $composableBuilder(
+    column: $table.vibrate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AlarmsTableOrderingComposer extends Composer<_$LedgerDb, $AlarmsTable> {
+  $$AlarmsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get minuteOfDay => $composableBuilder(
+    column: $table.minuteOfDay,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get days => $composableBuilder(
+    column: $table.days,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get snoozeMinutes => $composableBuilder(
+    column: $table.snoozeMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get vibrate => $composableBuilder(
+    column: $table.vibrate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AlarmsTableAnnotationComposer
+    extends Composer<_$LedgerDb, $AlarmsTable> {
+  $$AlarmsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
+
+  GeneratedColumn<int> get minuteOfDay => $composableBuilder(
+    column: $table.minuteOfDay,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get days =>
+      $composableBuilder(column: $table.days, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get snoozeMinutes => $composableBuilder(
+    column: $table.snoozeMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get vibrate =>
+      $composableBuilder(column: $table.vibrate, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$AlarmsTableTableManager
+    extends
+        RootTableManager<
+          _$LedgerDb,
+          $AlarmsTable,
+          Alarm,
+          $$AlarmsTableFilterComposer,
+          $$AlarmsTableOrderingComposer,
+          $$AlarmsTableAnnotationComposer,
+          $$AlarmsTableCreateCompanionBuilder,
+          $$AlarmsTableUpdateCompanionBuilder,
+          (Alarm, BaseReferences<_$LedgerDb, $AlarmsTable, Alarm>),
+          Alarm,
+          PrefetchHooks Function()
+        > {
+  $$AlarmsTableTableManager(_$LedgerDb db, $AlarmsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AlarmsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AlarmsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AlarmsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> label = const Value.absent(),
+                Value<int> minuteOfDay = const Value.absent(),
+                Value<int> days = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> snoozeMinutes = const Value.absent(),
+                Value<bool> vibrate = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => AlarmsCompanion(
+                id: id,
+                label: label,
+                minuteOfDay: minuteOfDay,
+                days: days,
+                enabled: enabled,
+                snoozeMinutes: snoozeMinutes,
+                vibrate: vibrate,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> label = const Value.absent(),
+                required int minuteOfDay,
+                Value<int> days = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> snoozeMinutes = const Value.absent(),
+                Value<bool> vibrate = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => AlarmsCompanion.insert(
+                id: id,
+                label: label,
+                minuteOfDay: minuteOfDay,
+                days: days,
+                enabled: enabled,
+                snoozeMinutes: snoozeMinutes,
+                vibrate: vibrate,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AlarmsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$LedgerDb,
+      $AlarmsTable,
+      Alarm,
+      $$AlarmsTableFilterComposer,
+      $$AlarmsTableOrderingComposer,
+      $$AlarmsTableAnnotationComposer,
+      $$AlarmsTableCreateCompanionBuilder,
+      $$AlarmsTableUpdateCompanionBuilder,
+      (Alarm, BaseReferences<_$LedgerDb, $AlarmsTable, Alarm>),
+      Alarm,
+      PrefetchHooks Function()
+    >;
 
 class $LedgerDbManager {
   final _$LedgerDb _db;
@@ -14022,4 +15223,6 @@ class $LedgerDbManager {
       $$OutboxTableTableManager(_db, _db.outbox);
   $$DayMarksTableTableManager get dayMarks =>
       $$DayMarksTableTableManager(_db, _db.dayMarks);
+  $$AlarmsTableTableManager get alarms =>
+      $$AlarmsTableTableManager(_db, _db.alarms);
 }

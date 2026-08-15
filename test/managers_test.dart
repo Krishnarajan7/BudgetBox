@@ -224,11 +224,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('spending'), findsOneWidget);
-      expect(find.text('income'), findsOneWidget);
       for (final name in ['Food & chai', 'Getting around', 'Kirana & home']) {
         expect(find.text(name), findsOneWidget);
       }
-      // The seeded income lines live under their own header.
+      // The seeded income lines live under their own header — past the fold
+      // now that the spending list carries his whole shelf.
+      await tester.scrollUntilVisible(
+        find.text('income'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('income'), findsOneWidget);
       expect(find.text('Salary'), findsOneWidget);
 
       // Unmount and drain drift's timers so the binding ends clean.

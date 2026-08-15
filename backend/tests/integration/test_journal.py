@@ -9,18 +9,33 @@ from tests.integration.helpers import make_account, make_txn
 
 
 def test_put_creates_then_updates_same_day(client: TestClient) -> None:
-    resp = client.put("/v1/journal/2026-07-15", json={"body": "long day", "mood": 3})
+    resp = client.put(
+        "/v1/journal/2026-07-15",
+        json={"body": "long day", "mood": 3, "energy": 7, "feel_word": "frayed"},
+    )
     assert resp.status_code == 200, resp.text
     created = resp.json()
     assert created["date"] == "2026-07-15"
     assert created["body"] == "long day"
-    assert created["mood"] == 3
+    assert (created["mood"], created["energy"], created["feel_word"]) == (3, 7, "frayed")
 
-    resp = client.put("/v1/journal/2026-07-15", json={"body": "better by evening", "mood": 5})
+    resp = client.put(
+        "/v1/journal/2026-07-15",
+        json={
+            "body": "better by evening",
+            "mood": 8,
+            "energy": 3,
+            "feel_word": "settled",
+            "feel_why": "shipped the thing, finally",
+            "feel_tags": "building,alone,home",
+        },
+    )
     assert resp.status_code == 200, resp.text
     updated = resp.json()
     assert updated["body"] == "better by evening"
-    assert updated["mood"] == 5
+    assert (updated["mood"], updated["energy"], updated["feel_word"]) == (8, 3, "settled")
+    assert updated["feel_why"] == "shipped the thing, finally"
+    assert updated["feel_tags"] == "building,alone,home"
     assert updated["created_at"] == created["created_at"]  # same row, not a second one
     assert updated["updated_at"] > created["updated_at"]
 
@@ -42,7 +57,9 @@ def test_put_defaults_body_and_allows_null_mood(client: TestClient) -> None:
 
 def test_mood_out_of_range_rejected(client: TestClient) -> None:
     assert client.put("/v1/journal/2026-07-15", json={"mood": 0}).status_code == 422
-    assert client.put("/v1/journal/2026-07-15", json={"mood": 6}).status_code == 422
+    assert client.put("/v1/journal/2026-07-15", json={"mood": 10}).status_code == 422
+    assert client.put("/v1/journal/2026-07-15", json={"energy": 0}).status_code == 422
+    assert client.put("/v1/journal/2026-07-15", json={"energy": 10}).status_code == 422
     assert client.get("/v1/journal/2026-07-15").status_code == 404  # nothing was written
 
 
@@ -105,8 +122,8 @@ def test_month_view_draws_the_mood_grid_and_the_streak(client: TestClient) -> No
 @time_machine.travel("2026-07-20T10:00:00+05:30")
 def test_month_view_weighs_mood_against_money(client: TestClient) -> None:
     account_id = make_account(client)
-    rough = {"2026-07-02": 2, "2026-07-03": 1, "2026-07-04": 2}
-    bright = {"2026-07-06": 5, "2026-07-07": 4, "2026-07-08": 4}
+    rough = {"2026-07-02": 3, "2026-07-03": 1, "2026-07-04": 2}
+    bright = {"2026-07-06": 9, "2026-07-07": 7, "2026-07-08": 8}
     for day, mood in (rough | bright).items():
         client.put(f"/v1/journal/{day}", json={"body": "a day", "mood": mood})
         amount = 600_00 if day in rough else 100_00
@@ -120,7 +137,7 @@ def test_month_view_weighs_mood_against_money(client: TestClient) -> None:
 
 @time_machine.travel("2026-07-20T10:00:00+05:30")
 def test_month_view_stays_quiet_without_enough_evidence(client: TestClient) -> None:
-    for day, mood in (("2026-07-02", 1), ("2026-07-06", 5)):
+    for day, mood in (("2026-07-02", 1), ("2026-07-06", 9)):
         client.put(f"/v1/journal/{day}", json={"body": "a day", "mood": mood})
     assert client.get("/v1/journal/month").json()["mood_money"] is None
 

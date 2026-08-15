@@ -3,13 +3,15 @@ import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
+import '../../core/feel.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/widgets/feel_glyph.dart';
+import '../../core/widgets/feel_picker.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
@@ -50,15 +52,6 @@ String _longDate(DateTime d) =>
 /// "12 Jul" — the earlier-pages column.
 String _shortDate(DateTime d) =>
     '${d.day} ${_months[d.month - 1].substring(0, 3)}';
-
-/// Mood 1 (rough) … 5 (great), drawn as line icons only.
-const _moodIcons = [
-  Icons.sentiment_very_dissatisfied_outlined,
-  Icons.sentiment_dissatisfied_outlined,
-  Icons.sentiment_neutral_outlined,
-  Icons.sentiment_satisfied_outlined,
-  Icons.sentiment_very_satisfied_outlined,
-];
 
 // ————— pure arithmetic (testable, no widgets) —————
 
@@ -103,16 +96,23 @@ int journalPagesInMonth(Iterable<String> writtenDates, DateTime month) {
   return writtenDates.where((d) => d.startsWith(prefix)).toSet().length;
 }
 
-/// One slot per day of [month]'s calendar month: the recorded mood, or null.
-List<int?> monthMoodDots(Iterable<(String, int?)> entries, DateTime month) {
+/// One slot per day of [month]'s calendar month: the recorded mark as
+/// (pleasant, energy), or null. Energy stays null on pages marked before the
+/// field existed.
+List<(int, int?)?> monthMoodDots(
+  Iterable<(String, int?, int?)> entries,
+  DateTime month,
+) {
   final prefix = LedgerDates.dayKey(
     DateTime(month.year, month.month),
   ).substring(0, 8);
-  final dots = List<int?>.filled(LedgerDates.daysInMonth(month), null);
-  for (final (date, mood) in entries) {
+  final dots = List<(int, int?)?>.filled(LedgerDates.daysInMonth(month), null);
+  for (final (date, mood, energy) in entries) {
     if (mood == null || !date.startsWith(prefix)) continue;
     final day = int.tryParse(date.substring(8));
-    if (day != null && day >= 1 && day <= dots.length) dots[day - 1] = mood;
+    if (day != null && day >= 1 && day <= dots.length) {
+      dots[day - 1] = (mood, energy);
+    }
   }
   return dots;
 }
@@ -126,10 +126,12 @@ List<int?> monthMoodDots(Iterable<(String, int?)> entries, DateTime month) {
 String? moodMoneyWhisper(Iterable<(int, int)> days) {
   final rough = <int>[];
   final bright = <int>[];
+  // Pleasantness runs 1…9 since v11; the outer thirds are the days with an
+  // opinion, and the middle keeps its own counsel.
   for (final (mood, paise) in days) {
-    if (mood <= 2) {
+    if (mood <= 3) {
       rough.add(paise);
-    } else if (mood >= 4) {
+    } else if (mood >= 7) {
       bright.add(paise);
     }
   }
@@ -373,6 +375,10 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
   late final JournalRepo _repo;
   Timer? _debounce;
   int? _mood;
+  int? _energy;
+  String? _feelWord;
+  String? _feelWhy;
+  String? _feelTags;
   bool _dirty = false;
 
   /// Autosave is silent by design, but silence reads as "did that land?".
@@ -381,10 +387,6 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
   Timer? _dry;
   bool _dried = false;
   bool _leaving = false;
-
-  /// Bumped on every deliberate pick so the chosen mood gets its one soft
-  /// ripple; zero means "seeded from the page", which stays still.
-  int _moodPulse = 0;
 
   @override
   void initState() {
@@ -396,6 +398,10 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
         if (!mounted || e == null) return;
         setState(() {
           _mood ??= e.mood;
+          _energy ??= e.energy;
+          _feelWord ??= e.feelWord;
+          _feelWhy ??= e.feelWhy;
+          _feelTags ??= e.feelTags;
           if (!_dirty && _controller.text.isEmpty) _controller.text = e.body;
         });
       }),
@@ -443,13 +449,29 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
     _markDried();
   }
 
-  void _pickMood(int mood) {
-    HapticFeedback.selectionClick();
+  void _commitFelt(int pleasant, int energy, String word) {
     setState(() {
-      _mood = mood;
-      _moodPulse++;
+      _mood = pleasant;
+      _energy = energy;
+      _feelWord = word;
     });
-    unawaited(_repo.upsert(widget.dateKey, mood: mood));
+    unawaited(
+      _repo.upsert(
+        widget.dateKey,
+        mood: pleasant,
+        energy: energy,
+        feelWord: word,
+      ),
+    );
+    _markDried();
+  }
+
+  void _detailFelt(String why, String tags) {
+    setState(() {
+      _feelWhy = why;
+      _feelTags = tags;
+    });
+    unawaited(_repo.upsert(widget.dateKey, feelWhy: why, feelTags: tags));
     _markDried();
   }
 
@@ -493,18 +515,51 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
                 ),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: Gap.x3),
-        Row(
-          children: [
-            for (var m = 1; m <= 5; m++) ...[
-              GestureDetector(
-                onTap: () => _pickMood(m),
-                child: _moodCell(c, m, still),
+            const Spacer(),
+            // The day's word sits on the dateline beside its own shape; a
+            // tap opens the picker to re-mark. An unmarked page just offers.
+            Pressable(
+              haptic: false,
+              onTap: () => showFeelPicker(
+                context,
+                mood: _mood,
+                energy: _energy,
+                feelWord: _feelWord,
+                feelWhy: _feelWhy,
+                feelTags: _feelTags,
+                onCommit: _commitFelt,
+                onDetail: _detailFelt,
               ),
-              if (m < 5) const SizedBox(width: Gap.x2),
-            ],
+              child: _feelWord != null && _mood != null
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FeelBlob(
+                          word: _feelWord!,
+                          color: feelBubbleColor(
+                            from9(_mood!),
+                            from9(_energy ?? 5),
+                          ),
+                          size: 18,
+                        ),
+                        const SizedBox(width: Gap.x2),
+                        Text(
+                          _feelWord!,
+                          style: LedgerType.title.copyWith(
+                            fontSize: 16,
+                            color: c.ink,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      _mood != null ? 'marked' : 'mark the day',
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 12,
+                        color: c.quill,
+                      ),
+                    ),
+            ),
           ],
         ),
         const SizedBox(height: Gap.x2),
@@ -569,38 +624,6 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
     );
   }
 
-  /// One mood in the row; the picked one wears the wash and ripples once —
-  /// a 1.15 swell and back, 200ms, only on a deliberate tap.
-  Widget _moodCell(LedgerColors c, int m, bool still) {
-    Widget cell = AnimatedContainer(
-      duration: still ? Duration.zero : const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      padding: const EdgeInsets.all(Gap.x2),
-      decoration: BoxDecoration(
-        color: _mood == m ? c.quillSoft : null,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(
-        _moodIcons[m - 1],
-        size: 22,
-        color: _mood == m ? c.quill : c.inkFaint,
-      ),
-    );
-    if (_mood == m && _moodPulse > 0 && !still) {
-      cell = TweenAnimationBuilder<double>(
-        key: ValueKey('mood-pop-$m-$_moodPulse'),
-        tween: Tween(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        child: cell,
-        builder: (context, t, child) => Transform.scale(
-          scale: 1 + 0.15 * math.sin(math.pi * t),
-          child: child,
-        ),
-      );
-    }
-    return cell;
-  }
 }
 
 /// What the box already wrote on today's page — only the lines that happened.
@@ -830,14 +853,10 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
     return byDay;
   }
 
-  /// Mood 1 leans seal, 3 sits at faint ink, 5 leans jama — the same status
-  /// hues the rest of the book already speaks.
-  Color _moodTint(LedgerColors c, int mood) {
-    final t = ((mood - 1) / 4).clamp(0.0, 1.0);
-    return t < 0.5
-        ? Color.lerp(c.seal, c.inkFaint, t * 2)!
-        : Color.lerp(c.inkFaint, c.jama, (t - 0.5) * 2)!;
-  }
+  /// Each day wears its own weather — the same colour the field showed when
+  /// the mark was placed. Old marks without an energy sit on the mid line.
+  Color _moodTint(int mood, int? energy) =>
+      feelAtmosphere(from9(mood), from9(energy ?? 5));
 
   void _openDay(int day) {
     _openEditor(
@@ -854,7 +873,7 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
       builder: (context, snapshot) {
         final entries = snapshot.data ?? const <JournalEntry>[];
         final dots = monthMoodDots(
-          entries.map((e) => (e.date, e.mood)),
+          entries.map((e) => (e.date, e.mood, e.energy)),
           widget.today,
         );
         final written = [
@@ -881,12 +900,12 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
               crossAxisSpacing: 4,
               childAspectRatio: 1.5,
               children: [
-                for (final (i, mood) in dots.indexed)
+                for (final (i, mark) in dots.indexed)
                   InkIn(
                     key: ValueKey('mood-dot-$i'),
                     play: play,
                     delay: Duration(milliseconds: 10 * i),
-                    child: _dayDot(c, i + 1, mood),
+                    child: _dayDot(c, i + 1, mark),
                   ),
               ],
             ),
@@ -901,15 +920,16 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
 
   /// One factual sentence when the mood column and the money column actually
   /// disagree this month — and nothing at all when they don't.
-  Widget _moodMoneyLine(LedgerColors c, List<int?> dots) {
+  Widget _moodMoneyLine(LedgerColors c, List<(int, int?)?> dots) {
     return FutureBuilder<Map<int, int>>(
       future: _spentByDay,
       builder: (context, snapshot) {
         final spent = snapshot.data;
         if (spent == null) return const SizedBox.shrink();
         final line = moodMoneyWhisper([
-          for (final (i, mood) in dots.indexed)
-            if (mood != null && i < widget.today.day) (mood, spent[i + 1] ?? 0),
+          for (final (i, mark) in dots.indexed)
+            if (mark != null && i < widget.today.day)
+              (mark.$1, spent[i + 1] ?? 0),
         ]);
         if (line == null) return const SizedBox.shrink();
         return Padding(
@@ -928,7 +948,7 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
     );
   }
 
-  Widget _dayDot(LedgerColors c, int day, int? mood) {
+  Widget _dayDot(LedgerColors c, int day, (int, int?)? mark) {
     final isToday = day == widget.today.day;
     final isFuture = day > widget.today.day;
     Widget dot = Container(
@@ -936,8 +956,8 @@ class _MonthMoodsState extends ConsumerState<_MonthMoods> {
       height: 14,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: mood == null ? null : _moodTint(c, mood),
-        border: mood == null
+        color: mark == null ? null : _moodTint(mark.$1, mark.$2),
+        border: mark == null
             ? Border.all(
                 color: isFuture ? c.rule.withValues(alpha: 0.55) : c.rule,
                 width: 1.2,
@@ -1119,7 +1139,18 @@ class _EarlierRow extends StatelessWidget {
             ),
             if (entry.mood != null) ...[
               const SizedBox(width: Gap.x2),
-              Icon(_moodIcons[entry.mood! - 1], size: 14, color: c.inkFaint),
+              // The day's weather, small — same colour its month dot wears.
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: feelAtmosphere(
+                    from9(entry.mood!),
+                    from9(entry.energy ?? 5),
+                  ),
+                ),
+              ),
             ],
           ],
         ),

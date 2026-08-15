@@ -10,9 +10,9 @@ import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/cat_mark.dart';
+import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
-import '../../core/widgets/pickers.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
@@ -53,6 +53,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
   List<Category> _categories = const [];
   List<Account> _accounts = const [];
   List<int> _chipOrder = const [];
+  List<int> _topExpenseCategoryIds = const [];
   TitleSuggestion? _suggestion;
   Timer? _debounce;
 
@@ -110,15 +111,35 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       _categories = cats;
       _accounts = offered;
       _accountId = offered.isEmpty ? null : offered.first.id;
-      final expenseCats = cats
-          .where((c) => c.kind == CategoryKind.expense)
-          .map((c) => c.id)
-          .toList();
-      _chipOrder = [
-        ...top.where(expenseCats.contains),
-        ...expenseCats.where((id) => !top.contains(id)),
-      ].take(4).toList();
+      _topExpenseCategoryIds = top;
+      _chipOrder = _categoryOrder(moneyIn: _moneyIn);
     });
+  }
+
+  List<int> _categoryOrder({required bool moneyIn}) {
+    final kind = moneyIn ? CategoryKind.income : CategoryKind.expense;
+    final ids = _categories
+        .where((c) => c.kind == kind)
+        .map((c) => c.id)
+        .toList();
+    if (moneyIn) return ids.take(4).toList();
+    return [
+      ..._topExpenseCategoryIds.where(ids.contains),
+      ...ids.where((id) => !_topExpenseCategoryIds.contains(id)),
+    ].take(4).toList();
+  }
+
+  void _setMoneyIn(bool value) {
+    if (_moneyIn == value) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _moneyIn = value;
+      _categoryId = null;
+      _suggestion = null;
+      _flashCategoryId = null;
+      _chipOrder = _categoryOrder(moneyIn: value);
+    });
+    unawaited(_loadRecents(null));
   }
 
   /// The category's habitual figures, most-written first — read-only history
@@ -134,12 +155,13 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       return;
     }
     final db = ref.read(dbProvider);
+    final expectedType = _moneyIn ? TxnType.income : TxnType.expense;
     final rows =
         await (db.select(db.txns)
               ..where(
                 (t) =>
                     t.categoryId.equals(categoryId) &
-                    t.type.equalsValue(TxnType.expense),
+                    t.type.equalsValue(expectedType),
               )
               ..orderBy([(t) => OrderingTerm.desc(t.at)])
               ..limit(60))
@@ -155,7 +177,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         final byCount = tally[b]!.compareTo(tally[a]!);
         return byCount != 0 ? byCount : firstSeen[a]!.compareTo(firstSeen[b]!);
       });
-    if (!mounted) return;
+    if (!mounted ||
+        expectedType != (_moneyIn ? TxnType.income : TxnType.expense)) {
+      return;
+    }
     setState(() {
       _recentsFor = categoryId;
       _recentAmounts = ranked.take(3).toList();
@@ -180,7 +205,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       final s = await ref.read(txnRepoProvider).suggestTitles(text, limit: 1);
       if (!mounted || _title.text != text) return;
       setState(() {
-        final match = s.isEmpty ? null : s.first;
+        final candidate = s.isEmpty ? null : s.first;
+        final match = candidate != null && _suggestionFits(candidate)
+            ? candidate
+            : null;
         _suggestion =
             (match == null || match.title.toLowerCase() == text.toLowerCase())
             ? null
@@ -197,6 +225,14 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       });
       unawaited(_loadRecents(_categoryId));
     });
+  }
+
+  bool _suggestionFits(TitleSuggestion suggestion) {
+    final categoryId = suggestion.categoryId;
+    if (categoryId == null) return true;
+    final category = _categories.where((c) => c.id == categoryId).firstOrNull;
+    final wanted = _moneyIn ? CategoryKind.income : CategoryKind.expense;
+    return category?.kind == wanted;
   }
 
   void _acceptSuggestion() {
@@ -310,6 +346,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 key: ValueKey('suggestion-${_suggestion!.title}'),
                 child: _suggestionRow(c),
               ),
+            // From where — every stamp answers it, in the open, every time.
+            // A faint "Cash ›" tucked in a corner was the app deciding for
+            // Krish; a chip row is the app asking him.
+            _leavesThePen(child: _accountChips(c)),
             _defaultsRow(c),
             if (_noteOpen) _leavesThePen(child: _noteField(c)),
             const SizedBox(height: Gap.x3),
@@ -383,7 +423,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
             Padding(
               padding: const EdgeInsets.only(bottom: 6, right: Gap.x2),
               child: Pressable(
-                onTap: () => setState(() => _moneyIn = !_moneyIn),
+                onTap: () => _setMoneyIn(!_moneyIn),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: Gap.x2,
@@ -489,13 +529,25 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         ),
       ),
     ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final w in chips) ...[w, const SizedBox(width: Gap.x2)],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_moneyIn) ...[
+          Text(
+            'what kind of income?',
+            style: LedgerType.label.copyWith(color: c.inkFaint),
+          ),
+          const SizedBox(height: Gap.x1),
         ],
-      ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final w in chips) ...[w, const SizedBox(width: Gap.x2)],
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -554,9 +606,8 @@ class _AddSheetState extends ConsumerState<AddSheet> {
   }
 
   Future<void> _pickCategory() async {
-    final cats = _categories
-        .where((x) => x.kind == CategoryKind.expense)
-        .toList();
+    final kind = _moneyIn ? CategoryKind.income : CategoryKind.expense;
+    final cats = _categories.where((x) => x.kind == kind).toList();
     final picked = await showLedgerSheet<int>(
       context,
       builder: (context) {
@@ -572,7 +623,9 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.x2, bottom: Gap.x3),
                   child: Text(
-                    'which shelf does this go on?',
+                    _moneyIn
+                        ? 'what kind of income is this?'
+                        : 'which shelf does this go on?',
                     style: LedgerType.title.copyWith(
                       fontSize: 18,
                       color: c.ink,
@@ -640,7 +693,9 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         controller: _title,
         style: LedgerType.bodyText.copyWith(color: c.ink),
         decoration: InputDecoration(
-          hintText: 'what was it? (optional)',
+          hintText: _moneyIn
+              ? 'where did it come from? (optional)'
+              : 'what was it? (optional)',
           hintStyle: LedgerType.bodyText.copyWith(color: c.inkFaint),
           border: InputBorder.none,
           isDense: true,
@@ -683,9 +738,39 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     );
   }
 
+  /// The pockets, laid out flat: the selected one is lit, one tap moves the
+  /// money's source. Always on the core path — never behind a chevron.
+  Widget _accountChips(LedgerColors c) {
+    if (_accounts.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.x2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            Text(
+              _moneyIn ? 'into' : 'from',
+              style: LedgerType.label.copyWith(fontSize: 10, color: c.inkFaint),
+            ),
+            const SizedBox(width: Gap.x2),
+            for (final a in _accounts) ...[
+              LedgerChip(
+                a.name,
+                selected: _accountId == a.id,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _accountId = a.id);
+                },
+              ),
+              const SizedBox(width: Gap.x2),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _defaultsRow(LedgerColors c) {
-    final acct =
-        _accounts.where((a) => a.id == _accountId).firstOrNull?.name ?? '—';
     final today = DateTime.now();
     final sameDay =
         _at.year == today.year &&
@@ -696,8 +781,6 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       padding: const EdgeInsets.only(top: Gap.x2),
       child: Row(
         children: [
-          _defaultTap(c, acct, _pickAccount),
-          const SizedBox(width: Gap.x4),
           _defaultTap(c, dateLabel, _pickDate),
           const Spacer(),
           // Optional by construction: the note only exists once asked for,
@@ -770,15 +853,6 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         ],
       ),
     );
-  }
-
-  Future<void> _pickAccount() async {
-    final picked = await pickLedgerAccount(
-      context,
-      accounts: _accounts,
-      selectedId: _accountId,
-    );
-    if (picked != null && mounted) setState(() => _accountId = picked.id);
   }
 
   Future<void> _pickDate() async {

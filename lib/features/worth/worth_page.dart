@@ -11,13 +11,13 @@ import '../../core/typography.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
+import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/goal_repo.dart';
-import '../settings/account_manager.dart';
 import '../story/story_page.dart';
 
 /// How far back the net-worth line is drawn. The chip is what's tapped; the
@@ -119,11 +119,11 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   action: Pressable(
                     onTap: () => Navigator.of(context).push(
                       LedgerRoute<void>(
-                        builder: (_) => const AccountManagerPage(),
+                        builder: (_) => const _WorthSetupPage(existing: []),
                       ),
                     ),
                     child: Text(
-                      'open the box ›',
+                      'set up what you have ›',
                       style: LedgerType.bodyStrong.copyWith(
                         fontSize: 13,
                         color: c.quill,
@@ -264,9 +264,10 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                     ),
                     const SizedBox(height: Gap.x3),
                     Pressable(
-                      onTap: () => showLedgerSheet<void>(
-                        context,
-                        builder: (_) => _WorthSetupSheet(existing: all),
+                      onTap: () => Navigator.of(context).push(
+                        LedgerRoute<void>(
+                          builder: (_) => _WorthSetupPage(existing: all),
+                        ),
                       ),
                       child: Text(
                         'set up what you have ›',
@@ -718,7 +719,9 @@ class _AccountRow extends ConsumerWidget {
 
   /// Long-press: the readings behind the whisper, at a size worth reading.
   Future<void> _historySheet(BuildContext context, WidgetRef ref, String asOf) {
-    final points = ref.read(accountRepoProvider).spark(account.id, points: 30);
+    final points = ref
+        .read(accountRepoProvider)
+        .balanceReadings(account.id, points: 30);
     return showLedgerSheet<void>(
       context,
       scrollControlled: false,
@@ -750,28 +753,40 @@ class _AccountRow extends ConsumerWidget {
                 builder: (context, snap) {
                   final data = snap.data ?? const <double>[];
                   final readings = data.length;
+                  final moved = readings > 1 && data.toSet().length > 1;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      LayoutBuilder(
-                        builder: (context, box) => DrawIn(
-                          builder: (context, t) => ClipRect(
-                            clipper: _RevealClipper(t),
-                            child: Sparkline(
-                              data.length < 2 ? const [1, 1] : data,
-                              width: box.maxWidth,
-                              height: 96,
+                      if (moved) ...[
+                        LayoutBuilder(
+                          builder: (context, box) => DrawIn(
+                            builder: (context, t) => ClipRect(
+                              clipper: _RevealClipper(t),
+                              child: Sparkline(
+                                data,
+                                width: box.maxWidth,
+                                height: 96,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: Gap.x3),
-                      Container(height: 1, color: c.rule),
-                      const SizedBox(height: Gap.x3),
+                        const SizedBox(height: Gap.x3),
+                        Container(height: 1, color: c.rule),
+                        const SizedBox(height: Gap.x3),
+                      ],
                       if (readings < 2)
                         Text(
-                          'Only one reading so far. Correct the balance a '
-                          'few times and a shape shows up here.',
+                          'One reading so far — ${Inr.format(account.balancePaise)}. '
+                          'The line begins after the balance changes.',
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 13,
+                            color: c.inkFaint,
+                          ),
+                        )
+                      else if (!moved)
+                        Text(
+                          'No movement across $readings readings — '
+                          '${Inr.format(data.first.round())} each time.',
                           style: LedgerType.bodyText.copyWith(
                             fontSize: 13,
                             color: c.inkFaint,
@@ -855,14 +870,17 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
     super.dispose();
   }
 
-  int? get _rupees => int.tryParse(_field.text.trim().replaceAll(',', ''));
+  /// The typed figure in paise — paise included. A balance is the one
+  /// number in this book that is copied off a bank screen digit for digit,
+  /// so ₹1,58,097.45 has to survive being typed.
+  int? get _typedPaise => Inr.parsePaise(_field.text);
 
   /// What the account will actually read, in paise, under the chosen
   /// meaning of the typed figure.
   int? get _resultPaise {
-    final r = _rupees;
-    if (r == null) return null;
-    return _beforeSpending ? r * 100 + widget.account.balancePaise : r * 100;
+    final typed = _typedPaise;
+    if (typed == null) return null;
+    return _beforeSpending ? typed + widget.account.balancePaise : typed;
   }
 
   void _stamp() {
@@ -904,7 +922,18 @@ class _CorrectBalanceSheetState extends State<_CorrectBalanceSheet> {
             controller: _field,
             autofocus: true,
             enabled: !_stamping,
-            keyboardType: TextInputType.number,
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: true,
+            ),
+            // The point has to be typeable — and only one of it.
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,-]')),
+              TextInputFormatter.withFunction((old, fresh) {
+                final dots = '.'.allMatches(fresh.text).length;
+                return dots > 1 ? old : fresh;
+              }),
+            ],
             onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _stamp(),
             style: LedgerType.heroAmount.copyWith(fontSize: 32, color: c.ink),
@@ -1161,20 +1190,20 @@ class _AreaPainter extends CustomPainter {
       old.peakIndex != peakIndex;
 }
 
-/// The Worth setup: one sheet, plain questions — how much, and where it
+/// The Worth setup: one full screen, plain questions — how much, and where it
 /// sits. Each filled line becomes (or re-reads) an account anchored to
 /// to-day, so the anchor rule in the ledger keeps every already-written
 /// past day from draining what was just counted.
-class _WorthSetupSheet extends ConsumerStatefulWidget {
-  const _WorthSetupSheet({required this.existing});
+class _WorthSetupPage extends ConsumerStatefulWidget {
+  const _WorthSetupPage({required this.existing});
 
   final List<Account> existing;
 
   @override
-  ConsumerState<_WorthSetupSheet> createState() => _WorthSetupSheetState();
+  ConsumerState<_WorthSetupPage> createState() => _WorthSetupPageState();
 }
 
-class _WorthSetupSheetState extends ConsumerState<_WorthSetupSheet> {
+class _WorthSetupPageState extends ConsumerState<_WorthSetupPage> {
   final _cash = TextEditingController();
   final _upi = TextEditingController();
   final _sip = TextEditingController();
@@ -1314,126 +1343,131 @@ class _WorthSetupSheetState extends ConsumerState<_WorthSetupSheet> {
                 _paiseOf(_bankAmounts[i]) != null)
               true,
         ].isNotEmpty;
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SheetHandle(),
-            const SizedBox(height: Gap.x2),
-            Text(
-              'What do you have right now?',
-              style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+    return ModuleScaffold(
+      title: 'What I have',
+      child: ListView(
+        padding: EdgeInsets.fromLTRB(
+          Gap.page,
+          0,
+          Gap.page,
+          MediaQuery.of(context).viewInsets.bottom + Gap.x8,
+        ),
+        children: [
+          const SizedBox(height: Gap.x3),
+          Text(
+            'What do you have right now?',
+            style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Count it as it stands to-day. To-day becomes the reading '
+            'everything counts from — spending already written for older '
+            'days won\'t touch these numbers. Leave blank whatever you '
+            'don\'t have; blank writes nothing.',
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Count it as it stands to-day. Leave blank whatever you '
-              'don\'t have — blank writes nothing.',
-              style: LedgerType.bodyText.copyWith(
-                fontSize: 13,
-                color: c.inkFaint,
-              ),
-            ),
-            const SizedBox(height: Gap.x4),
-            _moneyRow(c, 'Cash in hand', _cash),
-            _moneyRow(c, 'GPay / PhonePe', _upi),
-            for (var i = 0; i < _bankNames.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Gap.x3),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _bankNames[i],
-                        onChanged: (_) => setState(() {}),
-                        style: LedgerType.bodyText.copyWith(color: c.ink),
-                        cursorColor: c.quill,
-                        decoration: InputDecoration(
-                          hintText: 'bank name (SBI, HDFC…)',
-                          hintStyle: LedgerType.bodyText.copyWith(
-                            fontSize: 13,
-                            color: c.inkFaint.withValues(alpha: 0.6),
-                          ),
-                          border: InputBorder.none,
-                          isDense: true,
+          ),
+          const RuleHeader('in hand'),
+          const SizedBox(height: Gap.x2),
+          _moneyRow(c, 'Cash in hand', _cash),
+          _moneyRow(c, 'GPay / PhonePe', _upi),
+          const RuleHeader('banks'),
+          const SizedBox(height: Gap.x2),
+          for (var i = 0; i < _bankNames.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Gap.x3),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _bankNames[i],
+                      onChanged: (_) => setState(() {}),
+                      style: LedgerType.bodyText.copyWith(color: c.ink),
+                      cursorColor: c.quill,
+                      decoration: InputDecoration(
+                        hintText: 'bank name (SBI, HDFC…)',
+                        hintStyle: LedgerType.bodyText.copyWith(
+                          fontSize: 13,
+                          color: c.inkFaint.withValues(alpha: 0.6),
                         ),
+                        border: InputBorder.none,
+                        isDense: true,
                       ),
                     ),
-                    SizedBox(
-                      width: 120,
-                      child: TextField(
-                        controller: _bankAmounts[i],
-                        keyboardType: TextInputType.number,
-                        textAlign: TextAlign.right,
-                        onChanged: (_) => setState(() {}),
-                        style: LedgerType.amount.copyWith(
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextField(
+                      controller: _bankAmounts[i],
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.right,
+                      onChanged: (_) => setState(() {}),
+                      style: LedgerType.amount.copyWith(
+                        fontSize: 16,
+                        color: c.ink,
+                      ),
+                      cursorColor: c.quill,
+                      decoration: InputDecoration(
+                        prefixText: '₹',
+                        prefixStyle: LedgerType.amount.copyWith(
                           fontSize: 16,
-                          color: c.ink,
+                          color: c.inkFaint,
                         ),
-                        cursorColor: c.quill,
-                        decoration: InputDecoration(
-                          prefixText: '₹',
-                          prefixStyle: LedgerType.amount.copyWith(
-                            fontSize: 16,
-                            color: c.inkFaint,
-                          ),
-                          hintText: '0',
-                          hintStyle: LedgerType.amount.copyWith(
-                            fontSize: 16,
-                            color: c.inkFaint.withValues(alpha: 0.45),
-                          ),
-                          border: InputBorder.none,
-                          isDense: true,
+                        hintText: '0',
+                        hintStyle: LedgerType.amount.copyWith(
+                          fontSize: 16,
+                          color: c.inkFaint.withValues(alpha: 0.45),
                         ),
+                        border: InputBorder.none,
+                        isDense: true,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            if (_bankNames.length < 4)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Pressable(
-                  onTap: () => setState(() {
-                    _bankNames.add(TextEditingController());
-                    _bankAmounts.add(TextEditingController());
-                  }),
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: Gap.x3),
-                    child: Text(
-                      '+ another bank',
-                      style: LedgerType.bodyStrong.copyWith(
-                        fontSize: 12,
-                        color: c.quill,
-                      ),
+            ),
+          if (_bankNames.length < 4)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Pressable(
+                onTap: () => setState(() {
+                  _bankNames.add(TextEditingController());
+                  _bankAmounts.add(TextEditingController());
+                }),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: Gap.x3),
+                  child: Text(
+                    '+ another bank',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 12,
+                      color: c.quill,
                     ),
                   ),
                 ),
               ),
-            _moneyRow(
-              c,
-              'SIP / mutual funds',
-              _sip,
-              sub: 'kept aside — daily spending never touches it',
             ),
-            _moneyRow(
-              c,
-              'Emergency fund',
-              _emergency,
-              sub: 'kept aside — daily spending never touches it',
-            ),
-            const SizedBox(height: Gap.x2),
-            FilledButton(
-              onPressed: anything && !_saving ? _save : null,
-              child: const Text('That\'s what I have'),
-            ),
-          ],
-        ),
+          const RuleHeader('kept aside'),
+          const SizedBox(height: Gap.x2),
+          _moneyRow(
+            c,
+            'SIP / mutual funds',
+            _sip,
+            sub: 'kept aside — daily spending never touches it',
+          ),
+          _moneyRow(
+            c,
+            'Emergency fund',
+            _emergency,
+            sub: 'kept aside — daily spending never touches it',
+          ),
+          const SizedBox(height: Gap.x2),
+          FilledButton(
+            onPressed: anything && !_saving ? _save : null,
+            child: const Text('That\'s what I have'),
+          ),
+        ],
       ),
     );
   }

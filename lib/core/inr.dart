@@ -33,6 +33,45 @@ abstract final class Inr {
     return '$sign$_rupee$body';
   }
 
+  /// Text a person typed → paise. The mirror of [format], and the only
+  /// place typed money is read.
+  ///
+  /// Accepts what a hand actually types: `1500`, `1,500`, `₹1500`,
+  /// `1500.5` (fifty paise, not five), `1500.50`, a trailing point while
+  /// still typing (`1500.` reads as ₹1,500 so the button doesn't go dead
+  /// mid-keystroke), and spaces anywhere. Returns null for anything that
+  /// isn't a number — never a silent zero, which would stamp the wrong
+  /// balance. More than two decimals are rounded, because paise are the
+  /// smallest thing this book counts.
+  static int? parsePaise(String text) {
+    final cleaned = text
+        .replaceAll(_rupee, '')
+        .replaceAll(',', '')
+        .replaceAll(' ', '')
+        .replaceAll(' ', '')
+        .replaceAll(_minus, '-')
+        .trim();
+    if (cleaned.isEmpty || cleaned == '.' || cleaned == '-') return null;
+    if (!RegExp(r'^-?\d*\.?\d*$').hasMatch(cleaned)) return null;
+    final negative = cleaned.startsWith('-');
+    final body = negative ? cleaned.substring(1) : cleaned;
+    final dot = body.indexOf('.');
+    final rupeePart = dot < 0 ? body : body.substring(0, dot);
+    final paisePart = dot < 0 ? '' : body.substring(dot + 1);
+    if (rupeePart.isEmpty && paisePart.isEmpty) return null;
+    final rupees = rupeePart.isEmpty ? 0 : int.tryParse(rupeePart);
+    if (rupees == null) return null;
+    var paise = 0;
+    if (paisePart.isNotEmpty) {
+      // '5' is fifty paise; '456' rounds to 46.
+      final fraction = double.tryParse('0.$paisePart');
+      if (fraction == null) return null;
+      paise = (fraction * paisePerRupee).round();
+    }
+    final total = rupees * paisePerRupee + paise;
+    return negative ? -total : total;
+  }
+
   /// Compact form for lakh+ magnitudes: ₹5.2L, ₹1.4Cr. Below a lakh it
   /// falls back to [format] — people read ₹87,450 fine.
   static String compact(int paise) {

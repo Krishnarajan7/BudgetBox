@@ -25,8 +25,7 @@ Future<Map<String, dynamic>> txnBody(Txn r, RemoteRefs refs) async {
     'amount_paise': r.amountPaise,
     'type': r.type.name,
     'account_id': await refs.remote(SyncKinds.account, r.accountId),
-    'to_account_id':
-        await refs.remoteOrNull(SyncKinds.account, r.toAccountId),
+    'to_account_id': await refs.remoteOrNull(SyncKinds.account, r.toAccountId),
     'category_id': await refs.remoteOrNull(SyncKinds.category, r.categoryId),
     'title': r.title,
     'note': r.note,
@@ -41,22 +40,22 @@ Future<Map<String, dynamic>> txnBody(Txn r, RemoteRefs refs) async {
 /// latest anchor plus signed txn deltas. A confirmed reading travels
 /// separately, as [anchorBody].
 Map<String, dynamic> accountBody(Account r) => {
-      'name': r.name,
-      'kind': r.kind.name,
-      'sort_order': r.sortOrder,
-    };
+  'name': r.name,
+  'kind': r.kind.name,
+  'sort_order': r.sortOrder,
+};
 
 Map<String, dynamic> anchorBody(int balancePaise, DateTime at) => {
-      'balance_paise': balancePaise,
-      'at': isoInstant(at),
-    };
+  'balance_paise': balancePaise,
+  'at': isoInstant(at),
+};
 
 Map<String, dynamic> categoryBody(Category r) => {
-      'name': r.name,
-      'icon': r.icon,
-      'kind': r.kind.name,
-      'sort_order': r.sortOrder,
-    };
+  'name': r.name,
+  'icon': r.icon,
+  'kind': r.kind.name,
+  'sort_order': r.sortOrder,
+};
 
 Future<Map<String, dynamic>> budgetBody(Budget r, RemoteRefs refs) async {
   return {
@@ -69,8 +68,7 @@ Future<Map<String, dynamic>> budgetBody(Budget r, RemoteRefs refs) async {
   };
 }
 
-Future<Map<String, dynamic>> recurringBody(
-    Recurring r, RemoteRefs refs) async {
+Future<Map<String, dynamic>> recurringBody(Recurring r, RemoteRefs refs) async {
   return {
     'title': r.title,
     'amount_paise': r.amountPaise,
@@ -85,12 +83,12 @@ Future<Map<String, dynamic>> recurringBody(
 }
 
 Map<String, dynamic> goalBody(Goal r) => {
-      'name': r.name,
-      'target_paise': r.targetPaise,
-      'kind': r.kind.name,
-      'target_date': r.targetDate,
-      'monthly_paise': r.monthlyPaise,
-    };
+  'name': r.name,
+  'target_paise': r.targetPaise,
+  'kind': r.kind.name,
+  'target_date': r.targetDate,
+  'monthly_paise': r.monthlyPaise,
+};
 
 Future<Map<String, dynamic>> pinnedBody(Pinned r, RemoteRefs refs) async {
   return {
@@ -103,33 +101,39 @@ Future<Map<String, dynamic>> pinnedBody(Pinned r, RemoteRefs refs) async {
 }
 
 Map<String, dynamic> noteBody(Note r) => {
-      'title': r.title,
-      'body': r.body,
-      'pinned': r.pinned,
-    };
+  'title': r.title,
+  'body': r.body,
+  'pinned': r.pinned,
+  'remind_at': r.remindAt == null ? null : isoInstant(r.remindAt!),
+  'completed': r.completed,
+};
 
 Map<String, dynamic> journalBody(JournalEntry r) => {
-      'body': r.body,
-      'mood': r.mood,
-    };
+  'body': r.body,
+  'mood': r.mood,
+  'energy': r.energy,
+  'feel_word': r.feelWord,
+  'feel_why': r.feelWhy,
+  'feel_tags': r.feelTags,
+};
 
 Map<String, dynamic> focusBody(FocusSession r) => {
-      'started_at': isoInstant(r.startedAt),
-      'minutes': r.minutes,
-      'kind': r.kind.name,
-      'completed': r.completed,
-      'label': r.label,
-    };
+  'started_at': isoInstant(r.startedAt),
+  'minutes': r.minutes,
+  'kind': r.kind.name,
+  'completed': r.completed,
+  'label': r.label,
+};
 
 Map<String, dynamic> eventBody(Event r) => {
-      'title': r.title,
-      'note': r.note,
-      'date': r.date,
-      'time_minutes': r.timeMinutes,
-      'repeat': r.repeat.name,
-    };
+  'title': r.title,
+  'note': r.note,
+  'date': r.date,
+  'time_minutes': r.timeMinutes,
+  'repeat': r.repeat.name,
+};
 
 Map<String, dynamic> vaultBody(VaultItem r) => {
-      'nonce': r.nonce,
-      'cipher': r.cipher,
-    };
+  'nonce': r.nonce,
+  'cipher': r.cipher,
+};

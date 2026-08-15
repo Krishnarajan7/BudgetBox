@@ -99,8 +99,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // ₹180 Food + ₹6,500 Rent is measured against the one ₹6,000 line.
-    expect(find.text('₹0'), findsOneWidget);
-    expect(find.text('₹680 past the month’s lines'), findsOneWidget);
+    expect(find.text('₹680'), findsOneWidget);
+    expect(find.text('over this month’s lines'), findsOneWidget);
+    expect(find.text('₹0'), findsNothing);
 
     await settleAndUnmount(tester);
   });

@@ -17,6 +17,8 @@ import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/sheets.dart';
+import '../../core/widgets/module_scaffold.dart';
+import '../../data/api/api_client.dart';
 import '../../data/api/api_config.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
@@ -614,7 +616,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     'Server',
                     _serverCaption(s),
                     captionColor: _serverTone(c, s),
-                    onTap: _server == null ? null : _setServer,
+                    // The row opens the server's own page now: live status,
+                    // what it holds row by row, and the erase.
+                    onTap: _server == null
+                        ? null
+                        : () => _push(const ServerPage()),
                   ),
                 ),
               ],
@@ -677,38 +683,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       SyncPhase.idle when s.lastSyncedAt != null => c.jama,
       _ => null,
     };
-  }
-
-  /// Where the book syncs — typed once, kept in the book itself.
-  ///
-  /// The address used to be compiled in with `--dart-define`, which meant a
-  /// rebuild to move servers or rotate a token, and a silent offline app if the
-  /// flags were ever forgotten. Typing it here removes both.
-  Future<void> _setServer() async {
-    final current = _server ?? BbxConfig.none;
-    final outcome = await showLedgerSheet<_ServerOutcome>(
-      context,
-      builder: (_) => _ServerSheet(current: current),
-    );
-    if (!mounted || outcome == null) return;
-
-    final settings = ref.read(settingsRepoProvider);
-    final next = switch (outcome) {
-      _ServerCleared() => BbxConfig.none,
-      _ServerChosen(:final config) => config,
-    };
-    if (next.wired) {
-      await settings.setServer(next.baseUrl, next.token);
-    } else {
-      await settings.clearServer();
-    }
-    if (!mounted) return;
-
-    // The engine is long-lived and the app is already running: re-point it in
-    // place rather than making Krish relaunch to be synced.
-    final engine = ref.read(syncEngineProvider)..reconfigure(next);
-    setState(() => _server = next);
-    if (next.wired) unawaited(engine.syncNow());
   }
 
   /// Burn it down and begin again — the reinstall, without the reinstall.
@@ -1391,6 +1365,356 @@ class _BirthdaySheetState extends State<_BirthdaySheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The server, as a place: what it holds, row by row, and the one match
+/// that burns it. Built because a book under test stamps junk upstream —
+/// the owner gets to see the copies and sweep them, permanently.
+class ServerPage extends ConsumerStatefulWidget {
+  const ServerPage({super.key});
+
+  @override
+  ConsumerState<ServerPage> createState() => _ServerPageState();
+}
+
+class _ServerPageState extends ConsumerState<ServerPage> {
+  BbxConfig? _server;
+  Map<String, int>? _counts;
+  String? _countsError;
+  bool _fetching = false;
+  String? _note;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final server = await ref.read(settingsRepoProvider).serverConfig();
+    if (!mounted) return;
+    setState(() => _server = server);
+    if (server.wired) unawaited(_fetchCounts());
+  }
+
+  Future<void> _fetchCounts() async {
+    final server = _server;
+    if (server == null || !server.wired || _fetching) return;
+    setState(() {
+      _fetching = true;
+      _countsError = null;
+    });
+    final client = BbxClient(server);
+    try {
+      final body = await client.get('/v1/book/stats');
+      final map = (body as Map).cast<String, dynamic>();
+      final counts = (map['counts'] as Map).cast<String, int>();
+      if (mounted) setState(() => _counts = counts);
+    } on BbxOffline catch (e) {
+      if (mounted) {
+        setState(() => _countsError = 'could not reach it — ${e.detail}');
+      }
+    } on BbxProblem catch (e) {
+      if (mounted) {
+        setState(() => _countsError = 'the server refused — ${e.detail}');
+      }
+    } finally {
+      client.close();
+      if (mounted) setState(() => _fetching = false);
+    }
+  }
+
+  /// Server table names, said the way the app says them.
+  static String _plain(String table) => switch (table) {
+    'txns' => 'entries',
+    'day_seals' => 'closed days',
+    'focus_sessions' => 'focus sessions',
+    'journal_entries' => 'journal pages',
+    'events' => 'calendar plans',
+    'vault_items' => 'vault items',
+    'balance_anchors' => 'balance readings',
+    'change_events' => 'change log',
+    'recurrings' => 'recurring charges',
+    'pinneds' => 'pinned repeats',
+    _ => table.replaceAll('_', ' '),
+  };
+
+  Future<void> _erase() async {
+    final server = _server;
+    final counts = _counts;
+    if (server == null || !server.wired) return;
+    final total = counts?.values.fold(0, (a, b) => a + b) ?? 0;
+    final sure = await showLedgerSheet<bool>(
+      context,
+      builder: (context) {
+        final c = LedgerColors.of(context);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: Gap.x2),
+              Text(
+                'Erase the server copy?',
+                style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${total > 0 ? '$total rows go' : 'Everything there goes'}, '
+                'permanently — there is no undo on the server. The book on '
+                'this phone is untouched, and the next sync uploads whatever '
+                'the phone holds, fresh.',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
+              const SizedBox(height: Gap.x4),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: c.seal),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Erase it forever'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Keep it'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (sure != true || !mounted) return;
+
+    HapticFeedback.heavyImpact();
+    final client = BbxClient(server);
+    try {
+      await client.post('/v1/book/erase', {});
+      // The phone's sync bookkeeping must forget the server it knew:
+      // queued writes, remote id mappings, the pull cursor, the adoption
+      // flag. The next sync starts from zero and re-uploads the phone.
+      final db = ref.read(dbProvider);
+      await db.delete(db.outbox).go();
+      await db.delete(db.remoteIds).go();
+      await (db.delete(
+        db.settings,
+      )..where((s) => s.key.isIn(['sync.cursor', 'sync.adopted']))).go();
+      ref.read(syncEngineProvider).refresh();
+      if (mounted) {
+        setState(() {
+          _counts = {};
+          _note = 'erased — the server holds nothing now';
+        });
+      }
+    } on BbxOffline catch (e) {
+      if (mounted) setState(() => _note = 'could not reach it — ${e.detail}');
+    } on BbxProblem catch (e) {
+      if (mounted) setState(() => _note = 'the server refused — ${e.detail}');
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<void> _editServer() async {
+    final current = _server ?? BbxConfig.none;
+    final outcome = await showLedgerSheet<_ServerOutcome>(
+      context,
+      builder: (_) => _ServerSheet(current: current),
+    );
+    if (!mounted || outcome == null) return;
+    final settings = ref.read(settingsRepoProvider);
+    final next = switch (outcome) {
+      _ServerCleared() => BbxConfig.none,
+      _ServerChosen(:final config) => config,
+    };
+    if (next.wired) {
+      await settings.setServer(next.baseUrl, next.token);
+    } else {
+      await settings.clearServer();
+    }
+    if (!mounted) return;
+    final engine = ref.read(syncEngineProvider)..reconfigure(next);
+    setState(() {
+      _server = next;
+      _counts = null;
+      _note = null;
+    });
+    if (next.wired) {
+      unawaited(engine.syncNow());
+      unawaited(_fetchCounts());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final server = _server;
+    final counts = _counts;
+    final total = counts?.values.fold(0, (a, b) => a + b) ?? 0;
+    return ModuleScaffold(
+      title: 'Server',
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+        children: [
+          const SizedBox(height: Gap.x3),
+          // The live word from the engine — same truth the settings row tells.
+          ValueListenableBuilder<SyncStatus>(
+            valueListenable: ref.read(syncEngineProvider).status,
+            builder: (context, s, _) {
+              final String line;
+              if (server == null) {
+                line = 'reading the book…';
+              } else if (!server.wired) {
+                line = 'not set — this book syncs with nothing';
+              } else {
+                line = switch (s.phase) {
+                  SyncPhase.syncing => 'talking to ${server.host}…',
+                  SyncPhase.offline =>
+                    'can\'t reach ${server.host} — will retry',
+                  SyncPhase.blocked =>
+                    (s.lastError?.contains('token') ?? false)
+                        ? '${server.host} refused the token'
+                        : '${server.host} answered wrongly',
+                  SyncPhase.idle when s.lastSyncedAt != null =>
+                    'settled with ${server.host} · ${_hhmm(s.lastSyncedAt!)}',
+                  SyncPhase.idle =>
+                    'wired to ${server.host} — first sync pending',
+                };
+              }
+              return Text(
+                line,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              );
+            },
+          ),
+          const RuleHeader('the address'),
+          _Row(
+            server?.wired == true ? server!.host : 'no server set',
+            'change the address or token',
+            onTap: _editServer,
+          ),
+          const RuleHeader('on the server'),
+          if (server != null && !server.wired)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+              child: Text(
+                'Nothing — no server is wired.',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
+            )
+          else if (_countsError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+              child: Text(
+                _countsError!,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.warn,
+                ),
+              ),
+            )
+          else if (counts == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+              child: Text(
+                _fetching ? 'counting…' : 'not counted yet',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
+            )
+          else if (counts.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+              child: Text(
+                'The server holds nothing.',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
+            )
+          else ...[
+            for (final (i, e)
+                in (counts.entries.toList()
+                      ..sort((a, b) => b.value.compareTo(a.value)))
+                    .indexed)
+              LedgerLine(
+                title: _plain(e.key),
+                amount: '${e.value}',
+                last: i == counts.length - 1,
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.x2),
+              child: Text(
+                '$total rows in all',
+                style: LedgerType.amount.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+              ),
+            ),
+          ],
+          if (server?.wired == true) ...[
+            const SizedBox(height: Gap.x2),
+            Pressable(
+              onTap: _fetchCounts,
+              child: Text(
+                _fetching ? 'counting…' : 'count again ›',
+                style: LedgerType.bodyStrong.copyWith(
+                  fontSize: 12,
+                  color: c.quill,
+                ),
+              ),
+            ),
+            const RuleHeader('the fire'),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+              child: Text(
+                'Erasing deletes every row above from the server, forever. '
+                'This phone\'s book is untouched — the next sync uploads it '
+                'fresh.',
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 13,
+                  color: c.inkFaint,
+                ),
+              ),
+            ),
+            Pressable(
+              onTap: _erase,
+              child: Text(
+                'erase the server copy',
+                style: LedgerType.bodyStrong.copyWith(
+                  fontSize: 14,
+                  color: c.seal,
+                ),
+              ),
+            ),
+            if (_note != null) ...[
+              const SizedBox(height: Gap.x2),
+              Text(
+                _note!,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+              ),
+            ],
+          ],
+          const SizedBox(height: Gap.x8),
+        ],
       ),
     );
   }

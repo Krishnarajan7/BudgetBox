@@ -108,8 +108,8 @@ def test_moved_goal_ignores_a_token_contribution_but_never_a_finish() -> None:
 
 
 def test_mood_money_speaks_only_with_evidence_on_both_sides() -> None:
-    rough = [(1, 500_00), (2, 600_00), (1, 700_00)]
-    bright = [(5, 100_00), (4, 100_00), (4, 100_00)]
+    rough = [(1, 500_00), (3, 600_00), (2, 700_00)]
+    bright = [(9, 100_00), (7, 100_00), (8, 100_00)]
     verdict = mood_money(rough + bright)
     assert verdict is not None
     assert verdict.verdict == "rough_costs_more"
@@ -120,7 +120,7 @@ def test_mood_money_speaks_only_with_evidence_on_both_sides() -> None:
     # Two rough days is not a pattern.
     assert mood_money(rough[:2] + bright) is None
     # Middling moods belong to neither bucket.
-    assert mood_money([(3, 500_00)] * 10) is None
+    assert mood_money([(5, 500_00)] * 10) is None
 
 
 def test_mood_money_stays_quiet_when_the_difference_is_small() -> None:

@@ -68,5 +68,7 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Krish Space uses Face ID to open your book.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Krish Space checks the weather where you are, so the day's page can tell you if it will rain. Refuse it and everything else works the same.</string>
 </dict>
 </plist>

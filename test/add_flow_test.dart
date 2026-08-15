@@ -39,8 +39,9 @@ void main() {
 
   tearDown(() => db.close());
 
-  testWidgets('novel entry: amount + category + stamp = a saved transaction',
-      (tester) async {
+  testWidgets('novel entry: amount + category + stamp = a saved transaction', (
+    tester,
+  ) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -73,8 +74,9 @@ void main() {
     expect(find.text('stamp'), findsNothing);
   });
 
-  testWidgets('the running expression: 120 + 60 stamps as ₹180',
-      (tester) async {
+  testWidgets('the running expression: 120 + 60 stamps as ₹180', (
+    tester,
+  ) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -94,8 +96,9 @@ void main() {
     expect(rows.single.amountPaise, 18000);
   });
 
-  testWidgets('stamp is disabled at ₹0 — garbage cannot enter the book',
-      (tester) async {
+  testWidgets('stamp is disabled at ₹0 — garbage cannot enter the book', (
+    tester,
+  ) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -107,8 +110,9 @@ void main() {
     expect(find.text('stamp'), findsOneWidget);
   });
 
-  testWidgets('details opens a note that rides along with the entry',
-      (tester) async {
+  testWidgets('details opens a note that rides along with the entry', (
+    tester,
+  ) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -119,7 +123,9 @@ void main() {
     await tester.tap(find.text('details ›'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.byKey(const ValueKey('add-note-field')), 'split with A');
+      find.byKey(const ValueKey('add-note-field')),
+      'split with A',
+    );
 
     await tester.tap(find.text('4'));
     await tester.tap(find.text('0'));
@@ -131,11 +137,12 @@ void main() {
     expect(rows.single.note, 'split with A');
   });
 
-  testWidgets('the recents whisper writes a habitual amount in one tap',
-      (tester) async {
-    final food = await (db.select(db.categories)
-          ..where((c) => c.name.equals('Food & chai')))
-        .getSingle();
+  testWidgets('the recents whisper writes a habitual amount in one tap', (
+    tester,
+  ) async {
+    final food = await (db.select(
+      db.categories,
+    )..where((c) => c.name.equals('Food & chai'))).getSingle();
     final account = await (db.select(db.accounts)..limit(1)).getSingle();
     for (var i = 0; i < 2; i++) {
       await TxnRepo(db).addExpense(
@@ -162,8 +169,9 @@ void main() {
     expect(find.text('₹120'), findsNWidgets(2));
   });
 
-  testWidgets('long-press stamps and stays open for the next entry',
-      (tester) async {
+  testWidgets('long-press stamps and stays open for the next entry', (
+    tester,
+  ) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -181,8 +189,9 @@ void main() {
     expect(find.text('₹0'), findsOneWidget);
   });
 
-  testWidgets('the money-in flip writes income, and the balance rises',
-      (tester) async {
+  testWidgets('the money-in flip writes income, and the balance rises', (
+    tester,
+  ) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
@@ -192,6 +201,12 @@ void main() {
     await tester.tap(find.text('spent'));
     await tester.pump();
     expect(find.text('money in'), findsOneWidget);
+    expect(find.text('what kind of income?'), findsOneWidget);
+    expect(find.text('Salary'), findsOneWidget);
+    expect(find.text('Extra income'), findsOneWidget);
+    expect(find.text('Food & chai'), findsNothing);
+    expect(find.text('where did it come from? (optional)'), findsOneWidget);
+    expect(find.text('into'), findsOneWidget);
 
     await tester.tap(find.text('6'));
     await tester.tap(find.text('0'));

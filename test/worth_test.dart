@@ -1,12 +1,12 @@
 import 'package:budgetbox/core/dates.dart';
 import 'package:budgetbox/core/theme.dart';
+import 'package:budgetbox/core/widgets/charts.dart';
 import 'package:budgetbox/core/widgets/motion.dart';
 import 'package:budgetbox/core/widgets/seal.dart';
 import 'package:budgetbox/core/widgets/sheets.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
-import 'package:budgetbox/features/settings/account_manager.dart';
 import 'package:budgetbox/features/worth/worth_page.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -17,12 +17,12 @@ void main() {
   late LedgerDb db;
 
   Widget host(Widget child) => ProviderScope(
-        overrides: [dbProvider.overrideWithValue(db)],
-        child: MaterialApp(
-          theme: ledgerDayTheme(),
-          home: Scaffold(body: child),
-        ),
-      );
+    overrides: [dbProvider.overrideWithValue(db)],
+    child: MaterialApp(
+      theme: ledgerDayTheme(),
+      home: Scaffold(body: child),
+    ),
+  );
 
   /// Drift's stream teardown schedules a timer; let it fire before the
   /// binding checks for leaks.
@@ -50,7 +50,10 @@ void main() {
       final now = DateTime(2026, 8, 1);
       expect(WorthRange.month.phrase(now), 'over the past month');
       expect(WorthRange.halfYear.phrase(now), 'over six months');
-      expect(WorthRange.fy.phrase(now), 'so far this ${LedgerDates.fyLabel(now)}');
+      expect(
+        WorthRange.fy.phrase(now),
+        'so far this ${LedgerDates.fyLabel(now)}',
+      );
       expect(WorthRange.fy.phrase(now), contains('FY 26-27'));
       expect(WorthRange.all.phrase(now), 'since the book opened');
     });
@@ -64,7 +67,9 @@ void main() {
       // A reading from yesterday: the line needs two mornings to join
       // before the chart and its range chips appear at all.
       final yesterday = DateTime.now().subtract(const Duration(days: 1));
-      await db.into(db.balanceSnapshots).insert(
+      await db
+          .into(db.balanceSnapshots)
+          .insert(
             BalanceSnapshotsCompanion.insert(
               accountId: id,
               date: LedgerDates.dayKey(yesterday),
@@ -96,20 +101,19 @@ void main() {
     expect(find.text('Nothing on the shelf yet.'), findsOneWidget);
     expect(find.textContaining('Add an account in the box'), findsOneWidget);
 
-    await tester.tap(find.text('open the box ›'));
+    await tester.tap(find.text('set up what you have ›'));
     await tester.pumpAndSettle();
-    expect(find.byType(AccountManagerPage), findsOneWidget);
+    expect(find.text('What do you have right now?'), findsOneWidget);
 
     await settleAndUnmount(tester);
   });
 
-  testWidgets('correcting a balance is stamped, not saved silently',
-      (tester) async {
-    final id = await AccountRepo(db).create(
-      name: 'Cash',
-      kind: AccountKind.cash,
-      openingBalancePaise: 500000,
-    );
+  testWidgets('correcting a balance is stamped, not saved silently', (
+    tester,
+  ) async {
+    final id = await AccountRepo(
+      db,
+    ).create(name: 'Cash', kind: AccountKind.cash, openingBalancePaise: 500000);
     await tester.pumpWidget(host(const WorthPage()));
     await tester.pumpAndSettle();
 
@@ -136,23 +140,21 @@ void main() {
     // The sheet takes itself away once the seal has landed.
     expect(find.byType(SheetHandle), findsNothing);
 
-    final row = await (db.select(db.accounts)..where((a) => a.id.equals(id)))
-        .getSingle();
+    final row = await (db.select(
+      db.accounts,
+    )..where((a) => a.id.equals(id))).getSingle();
     expect(row.balancePaise, 720000);
 
     await settleAndUnmount(tester);
   });
 
-  testWidgets(
-      'a below-zero pocket can absorb the recorded spending: '
+  testWidgets('a below-zero pocket can absorb the recorded spending: '
       '"what I had" minus what was written', (tester) async {
     // ₹500 of spending was recorded before any money was declared — the
     // classic young-book state that reads −₹500.
-    final id = await AccountRepo(db).create(
-      name: 'Cash',
-      kind: AccountKind.cash,
-      openingBalancePaise: -50000,
-    );
+    final id = await AccountRepo(
+      db,
+    ).create(name: 'Cash', kind: AccountKind.cash, openingBalancePaise: -50000);
     await tester.pumpWidget(host(const WorthPage()));
     await tester.pumpAndSettle();
 
@@ -192,20 +194,20 @@ void main() {
     // Let the write behind the pop reach the database.
     await tester.pump(const Duration(milliseconds: 400));
 
-    final row = await (db.select(db.accounts)..where((a) => a.id.equals(id)))
-        .getSingle();
+    final row = await (db.select(
+      db.accounts,
+    )..where((a) => a.id.equals(id))).getSingle();
     expect(row.balancePaise, 50000);
 
     await settleAndUnmount(tester);
   });
 
-  testWidgets('long-pressing an account opens its balance history',
-      (tester) async {
-    await AccountRepo(db).create(
-      name: 'Cash',
-      kind: AccountKind.cash,
-      openingBalancePaise: 500000,
-    );
+  testWidgets('long-pressing an account opens its balance history', (
+    tester,
+  ) async {
+    await AccountRepo(
+      db,
+    ).create(name: 'Cash', kind: AccountKind.cash, openingBalancePaise: 500000);
     await tester.pumpWidget(host(const WorthPage()));
     await tester.pumpAndSettle();
 
@@ -215,7 +217,13 @@ void main() {
     expect(find.byType(SheetHandle), findsOneWidget);
     // The sheet names the account again, above its readings.
     expect(find.text('Cash'), findsNWidgets(2));
-    expect(find.textContaining('readings'), findsOneWidget);
+    expect(find.textContaining('One reading so far'), findsOneWidget);
+    expect(
+      find.byType(Sparkline),
+      findsWidgets,
+      reason:
+          'the account row keeps its compact spark; the sheet adds no blank chart',
+    );
 
     await settleAndUnmount(tester);
   });

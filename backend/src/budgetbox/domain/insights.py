@@ -252,11 +252,11 @@ class MoodMoney:
 def mood_money(
     pairs: list[tuple[int, Paise]], *, min_days: int = 3, ratio: float = 1.2
 ) -> MoodMoney | None:
-    """Whether rough days (mood 1-2) or bright ones (mood 4-5) cost more. Needs at
+    """Whether rough days (pleasantness 1-3) or bright ones (7-9) cost more. Needs at
     least three of each, and a fifth of difference — below that the book stays quiet
-    rather than inventing a pattern. Mood 3 is neither and never counts."""
-    rough = [paise for mood, paise in pairs if mood <= 2]
-    bright = [paise for mood, paise in pairs if mood >= 4]
+    rather than inventing a pattern. The middle third is neither and never counts."""
+    rough = [paise for mood, paise in pairs if mood <= 3]
+    bright = [paise for mood, paise in pairs if mood >= 7]
     if len(rough) < min_days or len(bright) < min_days:
         return None
     rough_avg = sum(rough) // len(rough)

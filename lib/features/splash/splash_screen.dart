@@ -11,8 +11,9 @@ import '../setup/setup_flow.dart';
 
 /// The opening of the book: the character settles onto the lacquer — a
 /// press-down with the stamp's slight overshoot, nothing zooming anywhere —
-/// and one line says whose space this is. ~1.2s, once per cold launch,
-/// tap-to-skip, collapsed to a beat when animations are off.
+/// one line says whose space this is, and then it winks at you, the same
+/// wink the lock page pays off on the right PIN. ~1.6s, once per cold
+/// launch, tap-to-skip, collapsed to a beat when animations are off.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -31,7 +32,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   /// The slogan, inking in underneath once the character has landed.
   late final Animation<double> _line;
 
-  static const _total = Duration(milliseconds: 1250);
+  /// The wink, once everything has settled — shut, hold, open. The face
+  /// runs the envelope; this is just the clock for it.
+  late final Animation<double> _wink;
+
+  static const _total = Duration(milliseconds: 1600);
 
   @override
   void initState() {
@@ -39,11 +44,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     _c = AnimationController(vsync: this, duration: _total);
     _seat = CurvedAnimation(
       parent: _c,
-      curve: const Interval(0.08, 0.42, curve: Cubic(0.2, 1.4, 0.4, 1)),
+      curve: const Interval(0.08, 0.36, curve: Cubic(0.2, 1.4, 0.4, 1)),
     );
     _line = CurvedAnimation(
       parent: _c,
-      curve: const Interval(0.48, 0.72, curve: Curves.easeOut),
+      curve: const Interval(0.34, 0.54, curve: Curves.easeOut),
+    );
+    // 0.60–0.88 of 1600ms: a ~450ms wink, then a beat of stillness before
+    // the hand-off — a wink cut off mid-blink by a page change reads as a
+    // dropped frame, not as charm.
+    _wink = CurvedAnimation(
+      parent: _c,
+      curve: const Interval(0.60, 0.88),
     );
 
     _c.addStatusListener((status) {
@@ -100,19 +112,23 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               AnimatedBuilder(
-                animation: _seat,
-                builder: (context, child) {
+                animation: Listenable.merge([_seat, _wink]),
+                builder: (context, _) {
                   final t = _seat.value;
                   return Opacity(
                     opacity: t.clamp(0.0, 1.0),
                     // Settles DOWN onto the page — pressed, not zoomed.
                     child: Transform.scale(
                       scale: 1.25 - 0.25 * t,
-                      child: child,
+                      child: MarkFace(
+                        width: 132,
+                        body: c.quill,
+                        face: c.paper,
+                        wink: _wink.value,
+                      ),
                     ),
                   );
                 },
-                child: MarkFace(width: 132, body: c.quill, face: c.paper),
               ),
               const SizedBox(height: Gap.x6),
               AnimatedBuilder(

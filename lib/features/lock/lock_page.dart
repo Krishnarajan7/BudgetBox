@@ -105,6 +105,14 @@ class _LockPageState extends ConsumerState<LockPage>
     final settings = ref.read(settingsRepoProvider);
     final hasPin = await settings.hasPin();
     if (!mounted) return;
+    if (!hasPin) {
+      // No lock set — then there is no cover and nothing to ask. The book
+      // opens itself: kural first (the shell raises it), then the day.
+      Navigator.of(
+        context,
+      ).pushReplacement(LedgerRoute(builder: (_) => const LedgerShell()));
+      return;
+    }
     setState(() {
       _hasPin = hasPin;
       _checked = true;
@@ -266,26 +274,13 @@ class _LockPageState extends ConsumerState<LockPage>
               ),
             ],
             const Spacer(flex: 2),
-            if (!_checked)
-              const SizedBox.shrink()
-            else if (!_hasPin)
-              _noPinYet(c)
-            else
-              _pinPad(c),
+            if (_checked && _hasPin) _pinPad(c) else const SizedBox.shrink(),
             const Spacer(flex: 2),
           ],
         ),
       ),
     );
 
-    // With no PIN, the whole cover is the handle.
-    if (_checked && !_hasPin) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _celebrateAndOpen,
-        child: cover,
-      );
-    }
     return cover;
   }
 
@@ -326,35 +321,6 @@ class _LockPageState extends ConsumerState<LockPage>
           ),
         );
       },
-    );
-  }
-
-  /// Until a PIN exists (setup ritual or Settings), the cover just opens —
-  /// through the character itself, which visibly gives under the finger.
-  Widget _noPinYet(LedgerColors c) {
-    return Column(
-      children: [
-        Pressable(
-          scale: 0.94,
-          onTap: _celebrateAndOpen,
-          child: _character(c, width: 128),
-        ),
-        const SizedBox(height: Gap.x8),
-        Text(
-          'Tap to open the book',
-          textAlign: TextAlign.center,
-          style: LedgerType.bodyText.copyWith(fontSize: 14, color: c.ink),
-        ),
-        const SizedBox(height: Gap.x1),
-        Text(
-          'No lock set yet — add one in Settings',
-          textAlign: TextAlign.center,
-          style: LedgerType.bodyText.copyWith(
-            fontSize: 11,
-            color: c.inkFaint.withValues(alpha: 0.7),
-          ),
-        ),
-      ],
     );
   }
 

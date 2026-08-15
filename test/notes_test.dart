@@ -3,6 +3,7 @@ import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/note_repo.dart';
 import 'package:budgetbox/features/notes/notes_page.dart';
+import 'package:budgetbox/features/notes/note_editor.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -25,8 +26,9 @@ void main() {
         (db.select(db.notes)..where((n) => n.id.equals(id))).getSingle();
 
     Future<void> stamp(int id, DateTime at) =>
-        (db.update(db.notes)..where((n) => n.id.equals(id)))
-            .write(NotesCompanion(updatedAt: Value(at)));
+        (db.update(db.notes)..where((n) => n.id.equals(id))).write(
+          NotesCompanion(updatedAt: Value(at)),
+        );
 
     test('create writes a note with defaults in place', () async {
       final id = await repo.create(title: 'chai list');
@@ -34,7 +36,34 @@ void main() {
       expect(note.title, 'chai list');
       expect(note.body, '');
       expect(note.pinned, isFalse);
+      expect(note.remindAt, isNull);
+      expect(note.completed, isFalse);
       expect(note.archived, isFalse);
+    });
+
+    test('a reminder can move, complete, and become active again', () async {
+      final raw = DateTime.now().add(const Duration(days: 1));
+      final first = DateTime(
+        raw.year,
+        raw.month,
+        raw.day,
+        raw.hour,
+        raw.minute,
+      );
+      final second = first.add(const Duration(hours: 2));
+      final id = await repo.create(title: 'Movie tickets', remindAt: first);
+
+      expect((await fetch(id)).remindAt, first);
+      await repo.setCompleted(id, true);
+      expect((await fetch(id)).completed, isTrue);
+
+      await repo.setReminder(id, second);
+      final moved = await fetch(id);
+      expect(moved.remindAt, second);
+      expect(moved.completed, isFalse);
+
+      await repo.setReminder(id, null);
+      expect((await fetch(id)).remindAt, isNull);
     });
 
     test('update rewrites the ink and bumps updatedAt', () async {
@@ -85,28 +114,45 @@ void main() {
   });
 
   group('NotesPage', () {
-    testWidgets('quick capture puts the thought on top of the page',
-        (tester) async {
+    test('reminder labels are deterministic and human', () {
+      final now = DateTime(2026, 8, 14, 14);
+      expect(
+        noteReminderLabel(DateTime(2026, 8, 14, 19), clock: now),
+        'to-day · 7:00 pm',
+      );
+      expect(
+        noteReminderLabel(DateTime(2026, 8, 15, 10, 30), clock: now),
+        'to-morrow · 10:30 am',
+      );
+      expect(
+        noteReminderLabel(DateTime(2026, 8, 14, 10), clock: now),
+        'overdue · 10:00 am',
+      );
+      expect(suggestedNoteReminder(now), DateTime(2026, 8, 14, 19));
+    });
+
+    testWidgets('quick capture puts the thought on top of the page', (
+      tester,
+    ) async {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [dbProvider.overrideWithValue(db)],
-          child: MaterialApp(
-            theme: ledgerDayTheme(),
-            home: const NotesPage(),
-          ),
+          child: MaterialApp(theme: ledgerDayTheme(), home: const NotesPage()),
         ),
       );
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Nothing here yet. First thought goes on top.'),
+        find.text('Keep a thought, a list, a client detail, or a reminder.'),
         findsOneWidget,
       );
 
       await tester.enterText(
-          find.byType(TextField), 'Buy jaggery before Sunday');
+        find.byType(TextField),
+        'Buy jaggery before Sunday',
+      );
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
 
@@ -117,7 +163,7 @@ void main() {
         isEmpty,
       );
       expect(
-        find.text('Nothing here yet. First thought goes on top.'),
+        find.text('Keep a thought, a list, a client detail, or a reminder.'),
         findsNothing,
       );
 

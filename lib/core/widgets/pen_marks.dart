@@ -800,32 +800,51 @@ class _PenFacePainter extends CustomPainter {
 /// The book with a face — the app's character. A monogram is a logo; a face
 /// is someone to be glad to see at 6 a.m. Folder-tab silhouette, two uneven
 /// pen-stroke eyes (one mid-wink), a smile a touch too wide.
+///
+/// [wink] (0..1) finishes that half-wink: the left eye shuts into a contented
+/// arc, holds, and opens again. At rest (0) the face is the one on every
+/// other surface — the lock page's mood face runs the same envelope.
 class MarkFace extends StatelessWidget {
   const MarkFace({
     super.key,
     required this.width,
     required this.body,
     required this.face,
+    this.wink = 0,
   });
 
   final double width;
   final Color body;
   final Color face;
+  final double wink;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
       size: Size(width, width * 0.82),
-      painter: MarkFacePainter(body: body, face: face),
+      painter: MarkFacePainter(body: body, face: face, wink: wink),
     );
   }
 }
 
 class MarkFacePainter extends CustomPainter {
-  const MarkFacePainter({required this.body, required this.face});
+  const MarkFacePainter({
+    required this.body,
+    required this.face,
+    this.wink = 0,
+  });
 
   final Color body;
   final Color face;
+  final double wink;
+
+  /// The wink's envelope: shut quickly, hold shut, open with ease.
+  double get _shut {
+    if (wink <= 0) return 0;
+    if (wink < 0.35) return Curves.easeOutCubic.transform(wink / 0.35);
+    if (wink < 0.65) return 1;
+    return 1 - Curves.easeInOutCubic.transform((wink - 0.65) / 0.35);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -861,31 +880,57 @@ class MarkFacePainter extends CustomPainter {
 
     final eyeTop = h * 0.46;
     final eyeBottom = h * 0.62;
-    // Left eye: a bar with a curled foot — mid-wink.
-    final left = Path()
-      ..moveTo(w * 0.34, eyeTop)
-      ..lineTo(w * 0.34, eyeBottom - h * 0.045)
-      ..arcToPoint(
-        Offset(w * 0.27, eyeBottom - h * 0.045),
-        radius: Radius.circular(w * 0.045),
-        clockwise: true,
-      );
-    canvas.drawPath(left, pen);
-    // Right eye: straight, a touch taller — the one paying attention.
+    final shut = _shut;
+
+    // Left eye: a bar with a curled foot — mid-wink by nature. The wink
+    // finishes the job: the bar sinks into its own curl until only a
+    // contented closed arc is left.
+    if (shut < 0.95) {
+      final top = eyeTop + (eyeBottom - h * 0.075 - eyeTop) * shut;
+      final left = Path()
+        ..moveTo(w * 0.34, top)
+        ..lineTo(w * 0.34, eyeBottom - h * 0.045)
+        ..arcToPoint(
+          Offset(w * 0.27, eyeBottom - h * 0.045),
+          radius: Radius.circular(w * 0.045),
+          clockwise: true,
+        );
+      canvas.drawPath(left, pen);
+    } else {
+      final arc = Path()
+        ..moveTo(w * 0.26, eyeBottom - h * 0.05)
+        ..quadraticBezierTo(
+          w * 0.335,
+          eyeBottom + h * 0.015,
+          w * 0.41,
+          eyeBottom - h * 0.05,
+        );
+      canvas.drawPath(arc, pen);
+    }
+
+    // Right eye: straight, a touch taller — the one paying attention. It
+    // stays open through the wink (that is what makes it a wink).
     canvas.drawLine(
       Offset(w * 0.62, eyeTop - h * 0.03),
       Offset(w * 0.62, eyeBottom),
       pen,
     );
 
-    // The smile, a touch too wide, riding low.
+    // The smile, a touch too wide, riding low — and a touch wider while
+    // the wink holds.
+    final widen = w * 0.015 * shut;
     final smile = Path()
-      ..moveTo(w * 0.30, h * 0.74)
-      ..quadraticBezierTo(w * 0.48, h * 0.92, w * 0.68, h * 0.73);
+      ..moveTo(w * 0.30 - widen, h * 0.74)
+      ..quadraticBezierTo(
+        w * 0.48,
+        h * (0.92 + 0.04 * shut),
+        w * 0.68 + widen,
+        h * 0.73,
+      );
     canvas.drawPath(smile, pen);
   }
 
   @override
   bool shouldRepaint(MarkFacePainter old) =>
-      old.body != body || old.face != face;
+      old.body != body || old.face != face || old.wink != wink;
 }
