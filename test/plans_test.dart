@@ -121,6 +121,41 @@ void main() {
     await settleAndUnmount(tester);
   });
 
+  testWidgets('a template draws a whole month, skipping lines that stand',
+      (tester) async {
+    // One hand-drawn line first: the template must land around it.
+    final cats = await db.select(db.categories).get();
+    final food = cats.firstWhere((c) => c.name == 'Food & chai').id;
+    await BudgetRepo(
+      db,
+    ).create(name: 'Food & chai', limitPaise: 999900, categoryId: food);
+
+    await tester.pumpWidget(host(const PlansPage()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('from a template'));
+    await tester.pumpAndSettle();
+    expect(find.text('A month, pre-drawn.'), findsOneWidget);
+    expect(find.text('the at-home month'), findsOneWidget);
+    expect(find.text('the Pune office month'), findsOneWidget);
+    expect(find.text('the lean month'), findsOneWidget);
+
+    await tester.tap(find.text('the at-home month'));
+    await tester.pumpAndSettle();
+
+    final drawn = await db.select(db.budgets).get();
+    final byName = {for (final b in drawn) b.name: b.limitPaise};
+    // The standing line was left exactly as drawn…
+    expect(byName['Food & chai'], 999900);
+    // …and the template's other lines landed with their own limits.
+    expect(byName['Clothes & shoes'], 300000);
+    expect(byName['Grooming & care'], 150000);
+    expect(byName['Kirana & home'], 300000);
+    expect(drawn.length, 7, reason: 'six template lines around one kept');
+
+    await settleAndUnmount(tester);
+  });
+
   testWidgets('the recurring shelf has a way onto it', (tester) async {
     final cash = await seedFood();
     await RecurringRepo(db, TxnRepo(db)).create(

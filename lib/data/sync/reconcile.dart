@@ -35,6 +35,21 @@ class SyncReconciler {
     for (final kind in SyncKinds.inDependencyOrder) {
       for (final localId in await _unmapped(kind)) {
         await _outbox.upsert(kind, localId);
+        // An account the server has never seen carries a balance the server
+        // can never derive: its anchor was set while the book was unwired, so
+        // no anchor row was ever queued. Send the current reading alongside
+        // the account itself — anchored at *now*, because the local figure
+        // already includes every entry that will be pushed with it. Without
+        // this, the first pull after the queue drains would overwrite the
+        // phone's worth with whatever the server derived from nothing.
+        if (kind == SyncKinds.account) {
+          final row = await (_db.select(
+            _db.accounts,
+          )..where((a) => a.id.equals(localId))).getSingleOrNull();
+          if (row != null) {
+            await _outbox.anchor(localId, row.balancePaise, DateTime.now());
+          }
+        }
         queued++;
       }
     }

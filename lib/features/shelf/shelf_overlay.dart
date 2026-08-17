@@ -21,6 +21,10 @@ import '../vault/vault_page.dart';
 
 /// Tap the wordmark: the box opens. Every book on one shelf, each spine
 /// telling the truth about what's inside it right now.
+///
+/// The shelf *descends* — the whole panel rides down from above the screen
+/// and settles, the way a drawer is pulled open, instead of fading into
+/// place while barely moving. Going back up it accelerates away.
 Future<void> showShelf(BuildContext context) {
   final scrim = LedgerColors.of(context).ink.withValues(alpha: 0.32);
   return showGeneralDialog(
@@ -28,16 +32,20 @@ Future<void> showShelf(BuildContext context) {
     barrierDismissible: true,
     barrierLabel: 'shelf',
     barrierColor: scrim,
-    transitionDuration: Motion.spring,
+    transitionDuration: const Duration(milliseconds: 420),
     pageBuilder: (context, a, b) => const _Shelf(),
     transitionBuilder: (context, anim, a, child) {
-      final curved = CurvedAnimation(parent: anim, curve: Motion.curve);
+      final curved = CurvedAnimation(
+        parent: anim,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
       return SlideTransition(
         position: Tween(
-          begin: const Offset(0, -0.06),
+          begin: const Offset(0, -1),
           end: Offset.zero,
         ).animate(curved),
-        child: FadeTransition(opacity: curved, child: child),
+        child: child,
       );
     },
   );
@@ -175,35 +183,39 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
 });
 
 class _Spine {
-  const _Spine(this.name, {this.builder, this.subIcon, this.thickness = 30});
+  const _Spine(this.name, this.icon, {this.builder});
 
   final String name;
+  final IconData icon;
 
   /// Null = Money (pop back to it). A builder routes to that book.
   final WidgetBuilder? builder;
-  final IconData? subIcon;
-
-  /// The spine's height — the daily book is the fattest on the shelf.
-  final double thickness;
 }
 
 class _Shelf extends ConsumerWidget {
   const _Shelf();
 
   static final _spines = <_Spine>[
-    const _Spine('Money', thickness: 38),
-    _Spine('Alarms', builder: (_) => const AlarmPage(), thickness: 26),
-    _Spine('Calendar', builder: (_) => const CalendarPage()),
-    _Spine('Notes', builder: (_) => const NotesPage()),
-    _Spine('Focus', builder: (_) => const FocusPage()),
-    _Spine('Journal', builder: (_) => const JournalPage(), thickness: 34),
-    _Spine('Daily', builder: (_) => const DailyPage()),
+    const _Spine('Money', Icons.currency_rupee),
+    _Spine('Alarms', Icons.alarm, builder: (_) => const AlarmPage()),
     _Spine(
-      'Vault',
-      subIcon: Icons.lock_outline,
-      builder: (_) => const VaultPage(),
-      thickness: 26,
+      'Calendar',
+      Icons.calendar_today_outlined,
+      builder: (_) => const CalendarPage(),
     ),
+    _Spine(
+      'Notes',
+      Icons.sticky_note_2_outlined,
+      builder: (_) => const NotesPage(),
+    ),
+    _Spine('Focus', Icons.timer_outlined, builder: (_) => const FocusPage()),
+    _Spine(
+      'Journal',
+      Icons.menu_book_outlined,
+      builder: (_) => const JournalPage(),
+    ),
+    _Spine('Daily', Icons.task_alt, builder: (_) => const DailyPage()),
+    _Spine('Vault', Icons.lock_outline, builder: (_) => const VaultPage()),
   ];
 
   void _go(BuildContext context, _Spine s) {
@@ -248,7 +260,9 @@ class _Shelf extends ConsumerWidget {
                 const SizedBox(height: Gap.x2),
                 for (final (i, s) in _spines.indexed)
                   InkIn(
-                    delay: Duration(milliseconds: 36 * i),
+                    // The rows ink in only after the drawer has landed —
+                    // two motions at once read as neither.
+                    delay: Duration(milliseconds: 260 + 40 * i),
                     child: Pressable(
                       scale: 0.985,
                       onTap: () => _go(context, s),
@@ -261,29 +275,15 @@ class _Shelf extends ConsumerWidget {
                         padding: const EdgeInsets.symmetric(vertical: Gap.x3),
                         child: Row(
                           children: [
-                            // The spine itself: ink for a bound book, an
-                            // outlined sleeve for the sealed one.
-                            Container(
-                              width: 16,
-                              height: s.thickness,
-                              decoration: BoxDecoration(
-                                color: s.subIcon == null ? c.ink : null,
-                                border: s.subIcon == null
-                                    ? null
-                                    : Border.all(color: c.inkFaint, width: 1.4),
-                                borderRadius: BorderRadius.circular(3),
+                            // One simple mark per book — the open one in
+                            // moonlight, the rest in quiet ink.
+                            SizedBox(
+                              width: 26,
+                              child: Icon(
+                                s.icon,
+                                size: 20,
+                                color: s.builder == null ? c.quill : c.inkFaint,
                               ),
-                              alignment: Alignment.center,
-                              child: s.name == 'Money'
-                                  ? Container(
-                                      width: 16,
-                                      height: 4,
-                                      decoration: BoxDecoration(
-                                        color: c.quill,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                    )
-                                  : null,
                             ),
                             const SizedBox(width: Gap.x3),
                             Text(
@@ -293,10 +293,6 @@ class _Shelf extends ConsumerWidget {
                               ),
                             ),
                             const Spacer(),
-                            if (s.subIcon != null) ...[
-                              Icon(s.subIcon, size: 12, color: c.inkFaint),
-                              const SizedBox(width: 4),
-                            ],
                             AnimatedSwitcher(
                               duration: Motion.quick,
                               child: Text(

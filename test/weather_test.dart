@@ -66,6 +66,43 @@ void main() {
       // The sun's own hours, for this place, to-day.
       expect(url.queryParameters['daily'], contains('sunrise,sunset'));
       expect(url.queryParameters['timezone'], 'auto');
+      // Eight days: the strip reads the first, the sky page the rest.
+      expect(url.queryParameters['forecast_days'], '8');
+    });
+
+    test('the week ahead is read out of the daily columns, and survives '
+        'the cache', () {
+      const body = '''
+      {
+        "current": {"temperature_2m": 30.2, "weather_code": 3},
+        "daily": {
+          "time": ["2026-08-16", "2026-08-17", "2026-08-18"],
+          "temperature_2m_max": [33.4, 31.0, 29.8],
+          "temperature_2m_min": [26.1, 25.3, 24.9],
+          "weather_code": [3, 61, 95],
+          "sunrise": ["2026-08-16T05:57"],
+          "sunset": ["2026-08-16T18:31"]
+        }
+      }
+      ''';
+      final sky = WeatherRepo.parse(body, at: DateTime(2026, 8, 16, 9))!;
+      expect(sky.days, hasLength(3));
+      expect(sky.days.first.date, DateTime(2026, 8, 16));
+      expect(sky.days[1].code, 61);
+      expect(sky.days[1].highC, 31.0);
+      expect(sky.days[2].lowC, 24.9);
+
+      // The round trip through the settings table loses nothing.
+      final kept = Weather.fromJson(sky.toJson())!;
+      expect(kept.days, hasLength(3));
+      expect(kept.days[2].code, 95);
+      expect(kept.days.first.date, DateTime(2026, 8, 16));
+    });
+
+    test('a reading without daily columns simply has no week', () {
+      final sky = WeatherRepo.parse(_body, at: DateTime(2026, 8, 14, 9))!;
+      expect(sky.days, isEmpty);
+      expect(Weather.fromJson(sky.toJson())!.days, isEmpty);
     });
 
     test('an old reading wears its age', () {

@@ -19,6 +19,7 @@ class SettingsRepo {
   static const _themeMode = 'themeMode';
   static const _pinHash = 'pinHash';
   static const _pinSalt = 'pinSalt';
+  static const _pinLength = 'pinLength';
   static const _setupDone = 'setupDone';
   static const _intent = 'intent';
   static const _yearFrame = 'yearFrame';
@@ -32,8 +33,10 @@ class SettingsRepo {
   static const _kuralIndex = 'kuralIndex';
   static const _kuralStreak = 'kuralStreak';
   static const _birthdayBurstYear = 'birthdayBurstYear';
+  static const _birthdaySurpriseYear = 'birthdaySurpriseYear';
   static const _serverUrl = 'serverUrl';
   static const _serverToken = 'serverToken';
+  static const _waterBottleMl = 'waterBottleMl';
 
   /// The preferences worth keeping on the server, so a reinstall comes back
   /// as the same book rather than a blank one.
@@ -50,6 +53,7 @@ class SettingsRepo {
     _intent,
     _yearFrame,
     _birthday,
+    _waterBottleMl,
   ];
 
   Future<String?> _get(String key) async {
@@ -132,6 +136,14 @@ class SettingsRepo {
 
   // ————— the day's kural —————
 
+  /// The day's water bottle, in millilitres. The glasses target maps onto
+  /// this whole: eight glasses always make one bottle, whatever it holds —
+  /// change the bottle and every glass quietly resizes with it.
+  Future<int> waterBottleMl() async =>
+      int.tryParse(await _get(_waterBottleMl) ?? '') ?? 750;
+
+  Future<void> setWaterBottleMl(int ml) => _set(_waterBottleMl, '$ml');
+
   Future<String?> kuralDay() => _get(_kuralDay);
 
   /// 0-based position inside the current shuffled cycle.
@@ -186,10 +198,15 @@ class SettingsRepo {
   /// The single commit point behind “படித்தேன்”. Idempotent for a double tap
   /// and guarded by the expected position so an old page cannot consume a
   /// newer one. Finishing a cycle rotates the seed and starts a fresh shuffle.
+  ///
+  /// [advance] false marks the day read — streak and all — without moving
+  /// the cycle: for the one page a year that steps outside the shuffle, so
+  /// the verse standing at to-day's position simply waits for to-morrow.
   Future<int> completeDailyKural(
     String today, {
     required int expectedPosition,
     required int total,
+    bool advance = true,
   }) {
     return _db.transaction(() async {
       final previous = int.tryParse(await _get(_kuralStreak) ?? '') ?? 0;
@@ -200,16 +217,18 @@ class SettingsRepo {
       if (current != expectedPosition) return previous;
 
       final streak = _nextStreak(today, lastDay, previous);
-      final next = expectedPosition + 1;
       await _set(_kuralDay, today);
       await _set(_kuralStreak, '$streak');
-      if (next >= total) {
-        await _set(_kuralPosition, '0');
-        final oldSeed = int.tryParse(await _get(_kuralSeed) ?? '');
-        final seed = _newKuralSeed(excluding: oldSeed);
-        await _set(_kuralSeed, '$seed');
-      } else {
-        await _set(_kuralPosition, '$next');
+      if (advance) {
+        final next = expectedPosition + 1;
+        if (next >= total) {
+          await _set(_kuralPosition, '0');
+          final oldSeed = int.tryParse(await _get(_kuralSeed) ?? '');
+          final seed = _newKuralSeed(excluding: oldSeed);
+          await _set(_kuralSeed, '$seed');
+        } else {
+          await _set(_kuralPosition, '$next');
+        }
       }
       return streak;
     });
@@ -229,6 +248,14 @@ class SettingsRepo {
       await _get(_birthdayBurstYear) != '$year';
 
   Future<void> markBirthdayBurst(int year) => _set(_birthdayBurstYear, '$year');
+
+  /// The year the book last turned its owner's-day page. Separate from the
+  /// Today burst on purpose: one is a shower on a screen, the other is a
+  /// ceremony with the door shut.
+  Future<String?> birthdaySurpriseYear() => _get(_birthdaySurpriseYear);
+
+  Future<void> markBirthdaySurprise(int year) =>
+      _set(_birthdaySurpriseYear, '$year');
 
   /// How the year is framed: 'calendar' or 'fy' (Apr–Mar).
   Future<String> yearFrame() async => await _get(_yearFrame) ?? 'calendar';
@@ -292,7 +319,14 @@ class SettingsRepo {
     final salt = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
     await _set(_pinSalt, salt);
     await _set(_pinHash, _hash(pin, salt));
+    await _set(_pinLength, '${pin.length}');
   }
+
+  /// How many digits the cover should ask for. PINs set before the length
+  /// was recorded were all four — the fallback keeps an old lock openable,
+  /// which is the difference between an upgrade and a lockout.
+  Future<int> pinLength() async =>
+      int.tryParse(await _get(_pinLength) ?? '') ?? 4;
 
   Future<bool> checkPin(String pin) async {
     final hash = await _get(_pinHash);
@@ -304,7 +338,7 @@ class SettingsRepo {
   Future<void> clearPin() async {
     await (_db.delete(
       _db.settings,
-    )..where((s) => s.key.isIn(const [_pinHash, _pinSalt]))).go();
+    )..where((s) => s.key.isIn(const [_pinHash, _pinSalt, _pinLength]))).go();
   }
 
   static String _hash(String pin, String salt) =>

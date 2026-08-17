@@ -192,6 +192,44 @@ class LedgerDb extends _$LedgerDb {
     });
   }
 
+  /// Clears everything the server syncs — and *only* that — so a server copy
+  /// can land on clean pages instead of on top of a half-written book.
+  ///
+  /// This is "take the server's book" in Settings: the phone's entries,
+  /// accounts, budgets, goals, notes, journal, focus, events and vault go,
+  /// along with all sync bookkeeping, and the next pull brings the server's
+  /// copy down whole. What survives is everything that belongs to the
+  /// *device* rather than the book: settings (name, PIN, theme, the server
+  /// address itself), alarms and day marks — none of which sync — and the
+  /// category words, which the adopter marries to the server's by name.
+  Future<void> eraseForServerCopy() async {
+    await transaction(() async {
+      for (final table in <TableInfo<Table, Object?>>[
+        outbox,
+        remoteIds,
+        activities,
+        balanceSnapshots,
+        txns,
+        pinneds,
+        budgets,
+        recurrings,
+        goals,
+        daySeals,
+        journalEntries,
+        notes,
+        focusSessions,
+        events,
+        vaultItems,
+        accounts,
+      ]) {
+        await delete(table).go();
+      }
+      await (delete(
+        settings,
+      )..where((s) => s.key.isIn(['sync.cursor', 'sync.adopted']))).go();
+    });
+  }
+
   /// Appends any of [wanted] the book doesn't already have a name for, after
   /// whatever is there — an upgrade adds words, it never reorders his.
   Future<void> _addMissingCategories(

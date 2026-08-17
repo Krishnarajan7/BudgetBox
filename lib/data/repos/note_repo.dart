@@ -41,6 +41,10 @@ class NoteRepo {
     return id;
   }
 
+  /// One note by id — for the capture line that opens what it just wrote.
+  Future<Note?> byId(int id) =>
+      (_db.select(_db.notes)..where((n) => n.id.equals(id))).getSingleOrNull();
+
   /// Rewrites title and/or body, and bumps [Note.updatedAt] so the note
   /// climbs back to the top of its section.
   Future<void> update(int id, {String? title, String? body}) {

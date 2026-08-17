@@ -62,6 +62,48 @@ void main() {
     },
   );
 
+  test('the owner\'s day steps outside the shuffle and costs it nothing',
+      () async {
+    // Only the one morning, and never the same page two years running.
+    expect(ownersDayKuralIndex(DateTime(2026, 8, 18)), isNotNull);
+    expect(
+      ownersDayKuralIndex(DateTime(2027, 8, 18)),
+      isNot(ownersDayKuralIndex(DateTime(2026, 8, 18))),
+    );
+    expect(ownersDayKuralIndex(DateTime(2026, 8, 17)), isNull);
+    expect(ownersDayKuralIndex(DateTime(2026, 8, 19)), isNull);
+    expect(ownersDayKuralIndex(DateTime(2026, 9, 18)), isNull);
+
+    // Completing without advancing: the day is read, the streak counts,
+    // and the verse standing at to-day's position waits for to-morrow.
+    final db = LedgerDb.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+    final s = SettingsRepo(db);
+    await s.completeDailyKural(
+      '2026-08-17',
+      expectedPosition: 0,
+      total: kuralCount,
+    );
+    expect(await s.kuralPosition(), 1);
+
+    final streak = await s.completeDailyKural(
+      '2026-08-18',
+      expectedPosition: 1,
+      total: kuralCount,
+      advance: false,
+    );
+    expect(streak, 2, reason: 'the special page still keeps the flame');
+    expect(await s.kuralDay(), '2026-08-18');
+    expect(await s.kuralPosition(), 1, reason: 'the cycle did not move');
+
+    await s.completeDailyKural(
+      '2026-08-19',
+      expectedPosition: 1,
+      total: kuralCount,
+    );
+    expect(await s.kuralPosition(), 2, reason: 'the shuffle resumes intact');
+  });
+
   test('finishing a cycle resets its position and rotates its seed', () async {
     final db = LedgerDb.forTesting(NativeDatabase.memory());
     addTearDown(db.close);

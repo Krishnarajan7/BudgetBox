@@ -41,12 +41,16 @@ flutter:
   uses-material-design: true
 
   fonts:
-    - family: Fraunces
+    - family: Absans
       fonts:
-        - asset: assets/fonts/Fraunces.ttf
-    - family: Hanken Grotesk
+        - asset: assets/fonts/Absans-Regular.otf
+    - family: Subjectivity
       fonts:
-        - asset: assets/fonts/HankenGrotesk.ttf
+        - asset: assets/fonts/Subjectivity-Regular.otf
+        - asset: assets/fonts/Subjectivity-Medium.otf
+          weight: 500
+        - asset: assets/fonts/Subjectivity-Bold.otf
+          weight: 700
     - family: Spline Sans Mono
       fonts:
         - asset: assets/fonts/SplineSansMono.ttf

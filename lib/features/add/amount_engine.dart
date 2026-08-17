@@ -113,19 +113,20 @@ class AmountEngine {
         _pendingOp = p;
       } else {
         final n = double.parse(p);
-        _accumulated =
-            _accumulated == null ? n : _apply(_accumulated!, _pendingOp!, n);
+        _accumulated = _accumulated == null
+            ? n
+            : _apply(_accumulated!, _pendingOp!, n);
       }
     }
   }
 
   static double _apply(double a, String op, double b) => switch (op) {
-        '+' => a + b,
-        '−' => a - b,
-        '×' => a * b,
-        '÷' => b == 0 ? a : a / b,
-        _ => b,
-      };
+    '+' => a + b,
+    '−' => a - b,
+    '×' => a * b,
+    '÷' => b == 0 ? a : a / b,
+    _ => b,
+  };
 
   static String _trimNum(double v) => v == v.roundToDouble()
       ? v.round().toString()

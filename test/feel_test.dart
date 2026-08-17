@@ -118,4 +118,19 @@ void main() {
       expect(spread(0.5, 0.5), lessThan(spread(0.95, 0.05)));
     });
   });
+
+  group('the story line', () {
+    test('chips and why fold into one said-back line', () {
+      expect(
+        feltStoryLine('resting,alone,home', 'Just sleeping'),
+        'resting · alone · home — Just sleeping',
+      );
+      expect(feltStoryLine('resting,alone', null), 'resting · alone');
+      expect(feltStoryLine(null, 'long day'), 'long day');
+      expect(feltStoryLine('', '  '), isNull);
+      expect(feltStoryLine(null, null), isNull);
+      // Stray commas and spaces from hand-edited tags never show.
+      expect(feltStoryLine(' resting , ,home ', ''), 'resting · home');
+    });
+  });
 }

@@ -562,6 +562,24 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
             ),
           ],
         ),
+        // The check-in's detail rides under the dateline, on the word's
+        // side: the chips and the why, said back instead of swallowed.
+        if (feltStoryLine(_feelTags, _feelWhy) case final story?)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                story,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 11,
+                  color: c.inkFaint,
+                ),
+              ),
+            ),
+          ),
         const SizedBox(height: Gap.x2),
         Stack(
           children: [

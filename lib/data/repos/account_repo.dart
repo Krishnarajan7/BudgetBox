@@ -142,6 +142,49 @@ class AccountRepo {
     return series.isEmpty ? [await netWorthPaise()] : series;
   }
 
+  /// Per-account change over the trailing [days]: today's figure minus the
+  /// reading that stood when the window opened (carried forward, same rule
+  /// as [netWorthHistory]). Liabilities are signed so paying one down counts
+  /// as growth. An account whose first reading falls inside the window
+  /// counts from zero — arriving on the shelf IS the move.
+  Future<Map<int, int>> accountDeltas({int days = 30}) async {
+    final accounts = await (_db.select(
+      _db.accounts,
+    )..where((a) => a.archived.equals(false))).get();
+    final fromKey = LedgerDates.dayKey(
+      DateTime.now().subtract(Duration(days: days)),
+    );
+    final deltas = <int, int>{};
+    for (final a in accounts) {
+      final sign = a.kind == AccountKind.liability ? -1 : 1;
+      final before =
+          await (_db.select(_db.balanceSnapshots)
+                ..where(
+                  (s) =>
+                      s.accountId.equals(a.id) &
+                      s.date.isSmallerOrEqualValue(fromKey),
+                )
+                ..orderBy([(s) => OrderingTerm.desc(s.date)])
+                ..limit(1))
+              .get();
+      final int baseline;
+      if (before.isNotEmpty) {
+        baseline = before.first.balancePaise;
+      } else {
+        final any =
+            await (_db.select(_db.balanceSnapshots)
+                  ..where((s) => s.accountId.equals(a.id))
+                  ..limit(1))
+                .get();
+        // No reading at all: the account predates its own history — treat
+        // it as unmoved rather than inventing a from-zero jump.
+        baseline = any.isEmpty ? a.balancePaise : 0;
+      }
+      deltas[a.id] = (a.balancePaise - baseline) * sign;
+    }
+    return deltas;
+  }
+
   /// Net worth right now: assets minus liabilities.
   Future<int> netWorthPaise() async {
     final rows = await (_db.select(

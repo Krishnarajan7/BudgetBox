@@ -156,10 +156,19 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
 
-      // The note landed in the list and the capture line cleared itself.
+      // The pen goes straight onto the page: the editor opens on the new
+      // note with the headline already down, ready for the body.
+      expect(find.byType(NoteEditorPage), findsOneWidget);
+      expect(find.text('Buy jaggery before Sunday'), findsOneWidget);
+
+      // Coming back, the note stands in the list and the capture line has
+      // cleared itself for the next thought.
+      tester.state<NavigatorState>(find.byType(Navigator)).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(NoteEditorPage), findsNothing);
       expect(find.text('Buy jaggery before Sunday'), findsOneWidget);
       expect(
-        tester.widget<TextField>(find.byType(TextField)).controller?.text,
+        tester.widget<TextField>(find.byType(TextField).first).controller?.text,
         isEmpty,
       );
       expect(

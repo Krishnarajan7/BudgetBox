@@ -21,12 +21,15 @@ import '../../data/providers.dart';
 /// straight off the activity log. Null when it has only ever been written
 /// once; a whisper with nothing to say stays quiet.
 Future<({int times, DateTime last})?> txnRewriteHistory(
-    LedgerDb db, int txnId) async {
-  final rows = await (db.select(db.activities)
-        ..where((a) => a.txnId.equals(txnId))
-        ..where((a) => a.action.equalsValue(ActivityAction.edited))
-        ..orderBy([(a) => OrderingTerm.desc(a.at)]))
-      .get();
+  LedgerDb db,
+  int txnId,
+) async {
+  final rows =
+      await (db.select(db.activities)
+            ..where((a) => a.txnId.equals(txnId))
+            ..where((a) => a.action.equalsValue(ActivityAction.edited))
+            ..orderBy([(a) => OrderingTerm.desc(a.at)]))
+          .get();
   if (rows.isEmpty) return null;
   return (times: rows.length, last: rows.first.at);
 }
@@ -43,10 +46,7 @@ String rewriteWhisper(int times, DateTime last) {
 /// and saving stamps it again. No toast; the corrected line is the
 /// confirmation.
 Future<void> showTxnEditor(BuildContext context, Txn txn) {
-  return showLedgerSheet<void>(
-    context,
-    builder: (_) => TxnEditor(txn: txn),
-  );
+  return showLedgerSheet<void>(context, builder: (_) => TxnEditor(txn: txn));
 }
 
 /// The long-press context sheet: pin the entry as a one-tap repeat, or
@@ -84,7 +84,9 @@ Future<void> showTxnActions(BuildContext context, WidgetRef ref, Txn txn) {
                     onTap: () async {
                       HapticFeedback.lightImpact();
                       final nav = Navigator.of(sheetContext);
-                      await ref.read(pinnedRepoProvider).pin(
+                      await ref
+                          .read(pinnedRepoProvider)
+                          .pin(
                             title: txn.title,
                             amountPaise: txn.amountPaise,
                             categoryId: txn.categoryId!,
@@ -126,10 +128,12 @@ class TxnEditor extends ConsumerStatefulWidget {
 }
 
 class _TxnEditorState extends ConsumerState<TxnEditor> {
-  late final TextEditingController _title =
-      TextEditingController(text: widget.txn.title);
-  late final TextEditingController _note =
-      TextEditingController(text: widget.txn.note ?? '');
+  late final TextEditingController _title = TextEditingController(
+    text: widget.txn.title,
+  );
+  late final TextEditingController _note = TextEditingController(
+    text: widget.txn.note ?? '',
+  );
   final _amountCtl = TextEditingController();
 
   List<Category> _categories = const [];
@@ -164,15 +168,17 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
     final kind = widget.txn.type == TxnType.income
         ? CategoryKind.income
         : CategoryKind.expense;
-    final cats = await (db.select(db.categories)
-          ..where((x) => x.archived.equals(false))
-          ..where((x) => x.kind.equalsValue(kind))
-          ..orderBy([(x) => OrderingTerm.asc(x.sortOrder)]))
-        .get();
-    final accts = await (db.select(db.accounts)
-          ..where((a) => a.archived.equals(false))
-          ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
-        .get();
+    final cats =
+        await (db.select(db.categories)
+              ..where((x) => x.archived.equals(false))
+              ..where((x) => x.kind.equalsValue(kind))
+              ..orderBy([(x) => OrderingTerm.asc(x.sortOrder)]))
+            .get();
+    final accts =
+        await (db.select(db.accounts)
+              ..where((a) => a.archived.equals(false))
+              ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
+            .get();
     if (!mounted) return;
     setState(() {
       _categories = cats;
@@ -181,8 +187,7 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
   }
 
   Future<void> _loadHistory() async {
-    final past =
-        await txnRewriteHistory(ref.read(dbProvider), widget.txn.id);
+    final past = await txnRewriteHistory(ref.read(dbProvider), widget.txn.id);
     if (!mounted || past == null) return;
     setState(() => _history = rewriteWhisper(past.times, past.last));
   }
@@ -213,10 +218,13 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
   void _startAmountEdit() {
     HapticFeedback.selectionClick();
     final p = _amountPaise;
-    _amountCtl.text =
-        p % 100 == 0 ? '${p ~/ 100}' : (p / 100).toStringAsFixed(2);
-    _amountCtl.selection =
-        TextSelection(baseOffset: 0, extentOffset: _amountCtl.text.length);
+    _amountCtl.text = p % 100 == 0
+        ? '${p ~/ 100}'
+        : (p / 100).toStringAsFixed(2);
+    _amountCtl.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _amountCtl.text.length,
+    );
     setState(() => _editingAmount = true);
   }
 
@@ -233,7 +241,9 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
         : _title.text.trim();
     final note = _note.text.trim();
 
-    await ref.read(txnRepoProvider).updateTxn(
+    await ref
+        .read(txnRepoProvider)
+        .updateTxn(
           widget.txn.id,
           amountPaise: _amountPaise,
           categoryId: _categoryId,
@@ -267,8 +277,7 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
       padding: EdgeInsets.only(bottom: viewInsets),
       child: SingleChildScrollView(
         child: Padding(
-          padding:
-              const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+          padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -292,8 +301,10 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
                   delay: const Duration(milliseconds: 80),
                   child: Text(
                     _history!,
-                    style: LedgerType.bodyText
-                        .copyWith(fontSize: 11, color: c.inkFaint),
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 11,
+                      color: c.inkFaint,
+                    ),
                   ),
                 ),
               ],
@@ -308,27 +319,18 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
   List<Widget> _editBody(LedgerColors c) {
     return [
       const SizedBox(height: Gap.x2),
-      InkIn(
-        delay: const Duration(milliseconds: 110),
-        child: _categoryChips(c),
-      ),
+      InkIn(delay: const Duration(milliseconds: 110), child: _categoryChips(c)),
       const SizedBox(height: Gap.x2),
       InkIn(
         delay: const Duration(milliseconds: 150),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _titleField(c),
-            _defaultsRow(c),
-          ],
+          children: [_titleField(c), _defaultsRow(c)],
         ),
       ),
       if (_noteOpen) InkIn(child: _noteField(c)),
       const SizedBox(height: Gap.x4),
-      InkIn(
-        delay: const Duration(milliseconds: 190),
-        child: _stampButton(c),
-      ),
+      InkIn(delay: const Duration(milliseconds: 190), child: _stampButton(c)),
       const SizedBox(height: Gap.x1),
       // One strike affordance wears the seal, and it is the long-press
       // sheet's. Here it stays faint — the stamp owns the vermilion.
@@ -337,8 +339,10 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
           onPressed: _saving ? null : _strike,
           child: Text(
             'strike it out',
-            style:
-                LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
           ),
         ),
       ),
@@ -460,13 +464,17 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
     );
   }
 
-  Widget _chip(LedgerColors c,
-      {required Category category, required bool selected}) {
+  Widget _chip(
+    LedgerColors c, {
+    required Category category,
+    required bool selected,
+  }) {
     return GestureDetector(
       onTap: () {
         HapticFeedback.selectionClick();
         setState(
-            () => _categoryId = _categoryId == category.id ? null : category.id);
+          () => _categoryId = _categoryId == category.id ? null : category.id,
+        );
       },
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: selected ? 1 : 0, end: selected ? 1 : 0),
@@ -492,8 +500,9 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
                 category.name,
                 style: (selected ? LedgerType.bodyStrong : LedgerType.bodyText)
                     .copyWith(
-                        fontSize: 13,
-                        color: Color.lerp(c.inkFaint, c.quill, t)),
+                      fontSize: 13,
+                      color: Color.lerp(c.inkFaint, c.quill, t),
+                    ),
               ),
             ],
           ),
@@ -560,7 +569,10 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
         children: [
           Text(
             label,
-            style: LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
           ),
           const SizedBox(width: 2),
           PenChevron(size: 12, color: c.inkFaint),
@@ -581,8 +593,10 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
         style: LedgerType.bodyText.copyWith(fontSize: 14, color: c.ink),
         decoration: InputDecoration(
           hintText: 'a line for later',
-          hintStyle:
-              LedgerType.bodyText.copyWith(fontSize: 14, color: c.inkFaint),
+          hintStyle: LedgerType.bodyText.copyWith(
+            fontSize: 14,
+            color: c.inkFaint,
+          ),
           border: InputBorder.none,
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(vertical: Gap.x2),
@@ -649,8 +663,15 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
       lastDate: now,
     );
     if (picked != null) {
-      setState(() => _at = DateTime(
-          picked.year, picked.month, picked.day, _at.hour, _at.minute));
+      setState(
+        () => _at = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _at.hour,
+          _at.minute,
+        ),
+      );
     }
   }
 }

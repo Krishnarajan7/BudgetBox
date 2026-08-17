@@ -1242,6 +1242,17 @@ class _DayNumbers extends StatelessWidget {
     }
     final water = habits.where((h) => h.unit == 'glasses').firstOrNull;
     final glasses = water == null ? null : countOn(marks, dayKey, water.kind);
+    // Past a full bottle the count folds into bottles: "9 of 8" is a lie
+    // about the target — "+1 · 1 of 8" is the day. Same arithmetic as the
+    // water room: a standing full bottle is not on the shelf yet.
+    String waterLine = '';
+    if (water != null && glasses != null) {
+      final fill = glasses == 0 ? 0 : (glasses - 1) % water.target + 1;
+      final done = (glasses - fill) ~/ water.target;
+      waterLine = done == 0
+          ? '$glasses of ${water.target}'
+          : '+$done · $fill of ${water.target}';
+    }
     // Spread edge to edge — the row owns its whole line, no dead right
     // margin. Each number takes only its own width; the space between
     // carries the rhythm.
@@ -1257,11 +1268,7 @@ class _DayNumbers extends StatelessWidget {
           ),
           HeroAmount(caption: 'focus', amount: '${minutes}m', size: 30),
           if (water != null && glasses != null)
-            HeroAmount(
-              caption: 'water',
-              amount: '$glasses of ${water.target}',
-              size: 30,
-            ),
+            HeroAmount(caption: 'water', amount: waterLine, size: 30),
         ],
       ),
     );
@@ -1350,6 +1357,25 @@ class _PageLine extends StatelessWidget {
                 ],
               ),
             ),
+            // The rest of the check-in, finally said back: what was
+            // happening, with whom, where — and the why, if one was given.
+            if (feltStoryLine(entry?.feelTags, entry?.feelWhy)
+                case final story?) ...[
+              const SizedBox(height: Gap.x1),
+              Padding(
+                // Indented to hang under the word, clear of the blob.
+                padding: const EdgeInsets.only(left: 42),
+                child: Text(
+                  story,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: Gap.x3),
           Pressable(

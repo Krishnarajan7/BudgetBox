@@ -88,4 +88,43 @@ void main() {
     expect(find.text('today'), findsWidgets);
     await drain(tester);
   });
+
+  testWidgets('a six-digit PIN asks for six and opens on the sixth',
+      (tester) async {
+    final db = LedgerDb.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+    final settings = SettingsRepo(db);
+    await settings.markSetupDone();
+    await settings.setPin('123456');
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [dbProvider.overrideWithValue(db)],
+      child: const BudgetBoxApp(),
+    ));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // Five digits are not an answer — the cover keeps waiting.
+    for (final d in ['1', '2', '3', '4', '5']) {
+      await tester.tap(find.text(d));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('today'), findsNothing);
+
+    await tester.tap(find.text('6'));
+    await tester.pump();
+    // The same rhythm the four-digit walk keeps: a short beat after the
+    // last digit, then the three beats of the way in — wink, press, pause.
+    // Without the short beat the open-pause timer lands outside every
+    // pumped window and the settle walks away from a door mid-swing.
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('today'), findsWidgets);
+    await drain(tester);
+  });
 }

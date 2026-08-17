@@ -160,7 +160,12 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
   final Set<int> _seenEvents = {};
   bool _eventsPrimed = false;
 
-  static const _spineWidth = 60.0;
+  /// Wide enough for two lanes: the month written up the far edge, and the
+  /// day blocks centred in what remains.
+  static const _spineWidth = 68.0;
+
+  /// The far-edge lane the rotated month owns; date cells keep out of it.
+  static const _spineCaptionLane = 20.0;
 
   /// The day the agenda starts from — the week strip's business.
   late DateTime _selected;
@@ -177,6 +182,20 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
   /// is — a flipped month slides in from the side it was reached from.
   double _flipDx = 1;
   int _flipSeq = 0;
+
+  /// Counts every change of the chosen day. The agenda's switcher keys on
+  /// this rather than the day itself: a counter can never revisit a value,
+  /// so a fast A → B → A can never put two children with one key inside
+  /// the same animation.
+  int _pageSeq = 0;
+
+  /// Points the agenda at [day], stamping a fresh page number. A no-op for
+  /// the day it is already on — re-choosing to-day must not turn the page.
+  void _focusDay(DateTime day) {
+    if (day == _selected) return;
+    _selected = day;
+    _pageSeq++;
+  }
 
   /// The money window the two ledger streams read. It is only re-cut when
   /// the visible months change; moving a day inside it keeps the streams.
@@ -196,7 +215,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
   void _select(DateTime day) {
     HapticFeedback.selectionClick();
     setState(() {
-      _selected = day;
+      _focusDay(day);
       _aimGrid(LedgerDates.monthStart(day));
     });
   }
@@ -220,7 +239,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
         ? DateTime(now.year, now.month, now.day)
         : target;
     setState(() {
-      _selected = landing;
+      _focusDay(landing);
       _aimGrid(target);
     });
   }
@@ -238,7 +257,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
   void _pickFromGrid(DateTime day) {
     HapticFeedback.selectionClick();
     setState(() {
-      _selected = day;
+      _focusDay(day);
       _monthView = false;
       _aimGrid(LedgerDates.monthStart(day));
     });
@@ -511,13 +530,42 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
           onStep: _monthView ? _flipGridMonth : _stepMonth,
         ),
         Expanded(
-          // The whole month and the running agenda are two readings of the
-          // same book — they cross-fade into each other.
-          child: AnimatedSwitcher(
-            duration: reduced ? Duration.zero : Motion.spring,
-            switchInCurve: Motion.curve,
-            switchOutCurve: Motion.curve,
-            child: _monthView
+          // Both readings hang from the week strip, so the switch is
+          // anchored there: the month unfolds down out of the strip and the
+          // agenda slips back underneath it — a page over a page, never two
+          // views cross-fading in place. Reversing the toggle folds the
+          // month back up the way it came.
+          child: ClipRect(
+            child: AnimatedSwitcher(
+              duration: reduced ? Duration.zero : Motion.settle,
+              switchInCurve: Motion.curve,
+              switchOutCurve: Motion.curve.flipped,
+              layoutBuilder: (current, previous) => Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.topCenter,
+                children: [...previous, ?current],
+              ),
+              transitionBuilder: (child, anim) {
+                final grid = child.key == const ValueKey('view-grid');
+                return FadeTransition(
+                  opacity: anim,
+                  child: SlideTransition(
+                    position: Tween(
+                      begin: Offset(0, grid ? -0.05 : 0.04),
+                      end: Offset.zero,
+                    ).animate(anim),
+                    child: ScaleTransition(
+                      scale: Tween<double>(
+                        begin: grid ? 0.96 : 1,
+                        end: 1,
+                      ).animate(anim),
+                      alignment: Alignment.topCenter,
+                      child: child,
+                    ),
+                  ),
+                );
+              },
+              child: _monthView
                 ? KeyedSubtree(
                     key: const ValueKey('view-grid'),
                     // A drag across the grid turns to the next month.
@@ -563,29 +611,84 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                   )
                 : KeyedSubtree(
                     key: const ValueKey('view-agenda'),
-                    // Refocusing on a day reads as turning to its page: the
-                    // content fades and rises the smallest amount.
-                    child: AnimatedSwitcher(
-                      duration: reduced ? Duration.zero : Motion.quick,
-                      switchInCurve: Motion.curve,
-                      switchOutCurve: Motion.curve,
-                      transitionBuilder: (child, anim) => FadeTransition(
-                        opacity: anim,
-                        child: SlideTransition(
-                          position: Tween(
-                            begin: const Offset(0, 0.01),
-                            end: Offset.zero,
-                          ).animate(anim),
-                          child: child,
+                    // The spine wears its month down the side, written up
+                    // the page the way a binder stamps a book's edge. It
+                    // rides fixed over the scrolling days — the spine is
+                    // one unbroken object, not a stack of cells.
+                    child: Stack(
+                      children: [
+                        // The binding runs the whole height of the page,
+                        // whether or not the month has enough days to fill
+                        // it — the spine belongs to the book, not to the
+                        // rows. The day cells paint over it seamlessly.
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: _spineWidth,
+                          child: ColoredBox(color: c.ink),
                         ),
-                      ),
-                      child: ListView(
-                        key: ValueKey('page-${LedgerDates.dayKey(_selected)}'),
-                        padding: EdgeInsets.zero,
-                        children: rows,
-                      ),
+                        // Refocusing on a day reads as turning to its page:
+                        // the content fades and rises the smallest amount.
+                        AnimatedSwitcher(
+                          duration: reduced ? Duration.zero : Motion.quick,
+                          switchInCurve: Motion.curve,
+                          switchOutCurve: Motion.curve,
+                          transitionBuilder: (child, anim) => FadeTransition(
+                            opacity: anim,
+                            child: SlideTransition(
+                              position: Tween(
+                                begin: const Offset(0, 0.01),
+                                end: Offset.zero,
+                              ).animate(anim),
+                              child: child,
+                            ),
+                          ),
+                          // Keyed by a counter, not the day: a key that can
+                          // recur (day A → B → back to A inside the fade)
+                          // trips AnimatedSwitcher's duplicate-key check.
+                          child: ListView(
+                            key: ValueKey('page-$_pageSeq'),
+                            padding: EdgeInsets.zero,
+                            children: rows,
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: _spineCaptionLane,
+                          child: IgnorePointer(
+                            child: Center(
+                              child: RotatedBox(
+                                quarterTurns: 3,
+                                child: AnimatedSwitcher(
+                                  duration: reduced
+                                      ? Duration.zero
+                                      : Motion.spring,
+                                  switchInCurve: Motion.curve,
+                                  switchOutCurve: Motion.curve,
+                                  // Same rule: the flip counter never
+                                  // repeats, so neither can this key.
+                                  child: Text(
+                                    '${_selected.year}  '
+                                    '${_monthWord(_selected)}',
+                                    key: ValueKey('spine-month-$_flipSeq'),
+                                    style: LedgerType.label.copyWith(
+                                      fontSize: 12,
+                                      letterSpacing: 4.5,
+                                      color: c.warn,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+            ),
           ),
         ),
       ],
@@ -781,9 +884,19 @@ class _WeekStripState extends State<_WeekStrip> {
                   child: AnimatedSwitcher(
                     duration: Motion.reduced(context)
                         ? Duration.zero
-                        : Motion.quick,
+                        : Motion.spring,
                     switchInCurve: Motion.curve,
                     switchOutCurve: Motion.curve,
+                    // The glyph turns over as the view does — a quarter
+                    // twist in, so the change of mode is felt in the hand
+                    // that asked for it.
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: RotationTransition(
+                        turns: Tween(begin: 0.75, end: 1.0).animate(anim),
+                        child: ScaleTransition(scale: anim, child: child),
+                      ),
+                    ),
                     child: Icon(
                       widget.monthView ? Icons.view_agenda : Icons.grid_on,
                       key: ValueKey('view-toggle-${widget.monthView}'),
@@ -1007,21 +1120,31 @@ class _DayGroup extends StatelessWidget {
           Container(
             width: _CalendarPageState._spineWidth,
             color: c.ink,
-            padding: const EdgeInsets.symmetric(vertical: Gap.x3),
-            alignment: Alignment.topCenter,
+            padding: const EdgeInsets.only(
+              left: _CalendarPageState._spineCaptionLane - 6,
+              top: Gap.x3,
+              bottom: Gap.x3,
+            ),
+            // Centred against its whole band, the way a bound edge labels
+            // the page it holds — not pinned to the first line.
+            alignment: Alignment.center,
             child: _SpineDate(day: day, isToday: isToday),
           ),
           Expanded(
             child: Container(
               color: zebra ? c.paperRaised.withValues(alpha: 0.6) : c.paper,
+              // Taller bands than the lines strictly need: the reference
+              // design breathes, and the spine dates centre against this.
+              constraints: const BoxConstraints(minHeight: 88),
               padding: const EdgeInsets.fromLTRB(
                 Gap.x4,
-                Gap.x3,
+                Gap.x4,
                 Gap.page,
-                Gap.x3,
+                Gap.x4,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // The day's own figure, kept in the margin the way a
                   // book-keeper tallies down the side.
@@ -1127,17 +1250,22 @@ class _SpineDate extends StatelessWidget {
         const SizedBox(height: 1),
         Text(
           '${day.day}',
-          style: LedgerType.amountTotal.copyWith(fontSize: 19, color: fg),
+          style: LedgerType.amountTotal.copyWith(
+            fontSize: 20,
+            height: 1.05,
+            color: fg,
+          ),
         ),
       ],
     );
     if (!isToday) return column;
-    // To-day steps out of the spine onto paper.
+    // To-day steps out of the spine onto paper — a leaf of the page pressed
+    // into the binding, with room to breathe on every side.
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
         color: c.paper,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(13),
       ),
       child: column,
     );
@@ -1183,17 +1311,18 @@ class _EventLine extends StatelessWidget {
         onTap: onEdit,
         onLongPress: onArchive,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 7),
+          padding: const EdgeInsets.symmetric(vertical: Gap.x2),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // The plan's mark: a solid capsule of ink, thick enough to
+              // read as an object pressed into the page rather than a rule.
               Container(
-                width: 4,
-                height: 30,
-                margin: const EdgeInsets.only(top: 2),
+                width: 9,
+                height: 34,
                 decoration: BoxDecoration(
                   color: tick,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(99),
                 ),
               ),
               const SizedBox(width: Gap.x3),
@@ -1206,13 +1335,30 @@ class _EventLine extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: LedgerType.bodyStrong.copyWith(
-                        fontSize: 14,
+                        fontSize: 16,
                         color: c.ink,
                       ),
                     ),
-                    const SizedBox(height: 1),
-                    Text(
-                      yearly ? '$_timeLabel · every year' : _timeLabel,
+                    const SizedBox(height: 2),
+                    Text.rich(
+                      TextSpan(
+                        text: yearly ? '$_timeLabel · every year' : _timeLabel,
+                        children: [
+                          // Whatever was written under the plan travels on
+                          // the hour's line, the way an address would.
+                          if (e.note case final note?
+                              when note.trim().isNotEmpty)
+                            TextSpan(
+                              text: '   ${note.trim()}',
+                              style: LedgerType.bodyText.copyWith(
+                                fontSize: 11,
+                                color: c.inkFaint,
+                              ),
+                            ),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: LedgerType.amount.copyWith(
                         fontSize: 11,
                         color: c.inkFaint,
@@ -1222,10 +1368,7 @@ class _EventLine extends StatelessWidget {
                 ),
               ),
               if (yearly)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Icon(Icons.cake_outlined, size: 14, color: c.inkFaint),
-                ),
+                Icon(Icons.cake_outlined, size: 14, color: c.inkFaint),
             ],
           ),
         ),
@@ -1249,12 +1392,14 @@ class _ChargeLine extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
+          // The same capsule as a plan's, at a bill's size: this line is
+          // borrowed from the money book, and its mark says so quietly.
           Container(
-            width: 3,
-            height: 14,
+            width: 6,
+            height: 18,
             decoration: BoxDecoration(
               color: c.quill,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(99),
             ),
           ),
           const SizedBox(width: Gap.x3),

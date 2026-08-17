@@ -1,4 +1,5 @@
 import 'package:budgetbox/core/theme.dart';
+import 'package:budgetbox/core/undo_banner.dart';
 import 'package:budgetbox/core/widgets/cat_mark.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
@@ -52,22 +53,30 @@ void main() {
   });
 
   test('the rewrite whisper reads like a margin note', () {
-    expect(rewriteWhisper(1, DateTime(2026, 7, 12)), 'rewritten once · last on 12 Jul');
-    expect(rewriteWhisper(2, DateTime(2026, 7, 12)), 'rewritten twice · last on 12 Jul');
     expect(
-        rewriteWhisper(9, DateTime(2026, 7, 12)), 'rewritten 9 times · last on 12 Jul');
+      rewriteWhisper(1, DateTime(2026, 7, 12)),
+      'rewritten once · last on 12 Jul',
+    );
+    expect(
+      rewriteWhisper(2, DateTime(2026, 7, 12)),
+      'rewritten twice · last on 12 Jul',
+    );
+    expect(
+      rewriteWhisper(9, DateTime(2026, 7, 12)),
+      'rewritten 9 times · last on 12 Jul',
+    );
   });
 
   group('striking a line out', () {
     late LedgerDb db;
 
     Widget host() => ProviderScope(
-          overrides: [dbProvider.overrideWithValue(db)],
-          child: MaterialApp(
-            theme: ledgerDayTheme(),
-            home: const Scaffold(body: BookPage()),
-          ),
-        );
+      overrides: [dbProvider.overrideWithValue(db)],
+      child: MaterialApp(
+        theme: ledgerDayTheme(),
+        home: const Scaffold(body: BookPage()),
+      ),
+    );
 
     Future<void> settleAndUnmount(WidgetTester tester) async {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -104,46 +113,69 @@ void main() {
       await settleAndUnmount(tester);
     });
 
-    testWidgets('a struck line stays on the page and can be kept',
-        (tester) async {
+    testWidgets('a struck line dissolves, offers undo, and undo re-forms it', (
+      tester,
+    ) async {
       await tester.pumpWidget(host());
       await tester.pumpAndSettle();
 
       await tester.drag(find.text('Chai'), const Offset(-400, 0));
       await tester.pumpAndSettle();
-
-      // Struck, not gone: nothing has left the database yet.
-      expect(find.textContaining('tap to keep it'), findsOneWidget);
-      expect(await db.select(db.txns).get(), hasLength(1));
-
-      await tester.tap(find.textContaining('tap to keep it'));
+      // Through the stroke and the full dissolve; the undo offer stands.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 1300));
       await tester.pumpAndSettle();
 
-      expect(find.text('Chai'), findsOneWidget);
-      expect(find.textContaining('tap to keep it'), findsNothing);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(BookPage)),
+      );
+      final banner = container.read(undoBannerProvider);
+      expect(banner, isNotNull);
+      // Dissolved, not gone: nothing has left the database yet.
+      expect(await db.select(db.txns).get(), hasLength(1));
 
-      // Well past the grace — the entry that was kept is still there.
-      await tester.pump(const Duration(seconds: 6));
+      // Undo: the particles run backwards and the line stands whole again.
+      banner!.onUndo();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 850));
+      await tester.pump();
+
+      expect(find.text('Chai'), findsOneWidget);
+      expect(container.read(undoBannerProvider), isNull);
+
+      // Well past the undo window — the kept entry is still there.
+      await tester.pump(const Duration(seconds: 8));
       await tester.pump();
       expect(await db.select(db.txns).get(), hasLength(1));
 
       await settleAndUnmount(tester);
     });
 
-    testWidgets('left alone, the strike lands after its grace',
-        (tester) async {
+    testWidgets('left alone, the strike lands after its undo window', (
+      tester,
+    ) async {
       await tester.pumpWidget(host());
       await tester.pumpAndSettle();
 
       await tester.drag(find.text('Chai'), const Offset(-400, 0));
       await tester.pumpAndSettle();
+      // Through the stroke and the full dissolve, into the undo window.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 1300));
+      await tester.pumpAndSettle();
       expect(await db.select(db.txns).get(), hasLength(1));
 
       await tester.pump(bookStrikeGrace + const Duration(seconds: 1));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
 
       expect(await db.select(db.txns).get(), isEmpty);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(BookPage)),
+      );
+      expect(container.read(undoBannerProvider), isNull);
       // The account got its money back with the line.
       final account = (await db.select(db.accounts).get()).single;
       expect(account.balancePaise, 500000);
@@ -151,12 +183,13 @@ void main() {
       await settleAndUnmount(tester);
     });
 
-    testWidgets('the heat view closes with one sentence, not a tally',
-        (tester) async {
+    testWidgets('the heat view closes with one sentence, not a tally', (
+      tester,
+    ) async {
       await tester.pumpWidget(host());
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('heat'));
+      await tester.tap(find.text('month'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('entry written'), findsOneWidget);

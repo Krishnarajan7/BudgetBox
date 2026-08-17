@@ -450,7 +450,11 @@ Future<void> maybeShowDailyKural(
 
   final position = await settings.kuralPosition();
   final seed = await settings.kuralCycleSeed();
-  final index = shuffledKuralIndex(kuralCount, seed, position);
+  // One morning a year the shuffle stands aside and the book chooses the
+  // verse itself. The cycle loses nothing: to-day's scheduled verse simply
+  // arrives to-morrow.
+  final chosen = ownersDayKuralIndex(today);
+  final index = chosen ?? shuffledKuralIndex(kuralCount, seed, position);
   final streak = await settings.previewKuralStreak(key, lastDay);
   if (!context.mounted) return;
   await Navigator.of(context).push(
@@ -464,11 +468,22 @@ Future<void> maybeShowDailyKural(
             key,
             expectedPosition: position,
             total: kuralCount,
+            advance: chosen == null,
           );
         },
       ),
     ),
   );
+}
+
+/// The verse the book hands its owner on his own day — picked, not drawn.
+/// Two of them stand ready, trading years, so no two birthdays in a row
+/// read the same page. Null every ordinary morning.
+int? ownersDayKuralIndex(DateTime today) {
+  if (today.month != 8 || today.day != 18) return null;
+  // Kural numbers 596 and 666, as list indices. Both are about the same
+  // thing, said two ways — which is the point of the day they arrive on.
+  return today.year.isEven ? 595 : 665;
 }
 
 /// The reference's streak banner, in this book's hand.

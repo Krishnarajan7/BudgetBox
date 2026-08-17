@@ -63,6 +63,28 @@ final marksRepoProvider = Provider<MarksRepo>(
   (ref) => MarksRepo(ref.watch(dbProvider)),
 );
 
+/// What the book was asked to watch for — 'leaks', 'goal', or 'truth'.
+/// Loaded once from settings, then kept live, so the Today page reorders
+/// itself the moment the answer changes rather than on the next launch.
+final intentProvider = NotifierProvider<IntentNotifier, String?>(
+  IntentNotifier.new,
+);
+
+class IntentNotifier extends Notifier<String?> {
+  @override
+  String? build() {
+    ref.read(settingsRepoProvider).intent().then((saved) {
+      if (saved != null && saved != state) state = saved;
+    });
+    return null;
+  }
+
+  void set(String value) {
+    state = value;
+    ref.read(settingsRepoProvider).setIntent(value);
+  }
+}
+
 final nudgesProvider = Provider<Nudges>(
   (ref) => Nudges(
     ref.watch(dbProvider),

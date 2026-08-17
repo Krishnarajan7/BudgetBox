@@ -10,7 +10,6 @@ import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/cat_mark.dart';
-import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
@@ -18,6 +17,8 @@ import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/txn_repo.dart';
+import '../today/widgets/digit_roll.dart';
+import '../today/widgets/ledger_rows.dart';
 import 'amount_engine.dart';
 
 /// The sacred flow. Keypad visible on open, amount is the only required
@@ -408,15 +409,40 @@ class _AddSheetState extends ConsumerState<AddSheet> {
             Expanded(
               child: _PulseOnChange(
                 trigger: _engine.paise,
-                child: CountUp(
-                  value: _engine.paise,
-                  format: (p) => _moneyIn ? '+${Inr.format(p)}' : Inr.format(p),
-                  style: LedgerType.heroAmount.copyWith(
-                    fontSize: 38,
-                    color: _moneyIn ? c.jama : c.ink,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_moneyIn)
+                        Text(
+                          '+',
+                          style: LedgerType.heroAmount.copyWith(
+                            fontSize: 38,
+                            color: c.jama,
+                          ),
+                        ),
+                      // Each keypress rolls the digits into place — the
+                      // separators sliding as the figure grows is the felt
+                      // confirmation that the paper took the digit. Quick,
+                      // because typing must feel instant, just soft.
+                      DigitRoll(
+                        paise: _engine.paise,
+                        duration: const Duration(milliseconds: 190),
+                        staggerPerDigit: const Duration(milliseconds: 12),
+                        style: LedgerType.heroAmount
+                            .copyWith(
+                              fontSize: 38,
+                              color: _moneyIn ? c.jama : c.ink,
+                            )
+                            .copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                      ),
+                    ],
                   ),
-                  // Typing must feel instant, just soft.
-                  duration: const Duration(milliseconds: 160),
                 ),
               ),
             ),
@@ -519,12 +545,8 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         ),
       Pressable(
         onTap: _pickCategory,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            border: Border.all(color: c.rule),
-            borderRadius: BorderRadius.circular(Corner.chip),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           child: PenDots(size: 16, color: c.inkFaint),
         ),
       ),
@@ -556,52 +578,55 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     required Category category,
     required bool selected,
   }) {
-    Widget body(Color? wash) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: wash,
-        border: Border.all(color: selected ? c.quill : c.rule),
-        borderRadius: BorderRadius.circular(Corner.chip),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CatMark(
-            category.icon,
-            size: 13,
-            color: selected ? c.quill : c.inkFaint,
-          ),
-          const SizedBox(width: 5),
-          Text(
-            category.name,
-            style: selected
-                ? LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill)
-                : LedgerType.bodyText.copyWith(fontSize: 13, color: c.inkFaint),
-          ),
-        ],
-      ),
-    );
-
-    // When the title's memory picked this chip, it takes one soft quill
-    // wash — out and back in 250ms, self-settling.
+    final color = selected ? c.quill : c.inkFaint;
+    // When the title's memory picked this chip, the underline re-draws —
+    // the pen visibly underlining the remembered choice. The seq keys a
+    // fresh stroke each time the memory speaks.
     final remembered = selected && category.id == _flashCategoryId;
     return Pressable(
       onTap: () => _setCategory(selected ? null : category.id),
-      child: remembered
-          ? TweenAnimationBuilder<double>(
-              key: ValueKey('chip-wash-$_flashSeq'),
-              tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-              builder: (context, t, _) => body(
-                Color.lerp(
-                  c.quillSoft,
-                  c.quill.withValues(alpha: 0.3),
-                  math.sin(math.pi * t),
-                ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CatMark(category.icon, size: 13, color: color),
+                  const SizedBox(width: 5),
+                  Text(
+                    category.name,
+                    style: selected
+                        ? LedgerType.bodyStrong.copyWith(
+                            fontSize: 13,
+                            color: color,
+                          )
+                        : LedgerType.bodyText.copyWith(
+                            fontSize: 13,
+                            color: color,
+                          ),
+                  ),
+                ],
               ),
-            )
-          : body(selected ? c.quillSoft : null),
+              const SizedBox(height: 3),
+              SizedBox(
+                height: 2,
+                child: selected
+                    ? PenUnderline(
+                        key: ValueKey(
+                          remembered ? 'flash-$_flashSeq' : 'selected',
+                        ),
+                        color: c.quill,
+                      )
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -754,13 +779,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
             ),
             const SizedBox(width: Gap.x2),
             for (final a in _accounts) ...[
-              LedgerChip(
+              QuillTab(
                 a.name,
                 selected: _accountId == a.id,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _accountId = a.id);
-                },
+                onTap: () => setState(() => _accountId = a.id),
               ),
               const SizedBox(width: Gap.x2),
             ],
@@ -939,8 +961,14 @@ class _Keypad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget key(String label, VoidCallback onTap, {bool op = false}) =>
-        _Key(label: label, onTap: onTap, op: op);
+    // Keyed so tests (and tooling) can press a key without colliding with
+    // the hero's rolling digits, which render the same glyphs.
+    Widget key(String label, VoidCallback onTap, {bool op = false}) => _Key(
+      key: ValueKey('add-key-$label'),
+      label: label,
+      onTap: onTap,
+      op: op,
+    );
 
     // Ops earn their keys by use: sums dominate real purchases, so + and −
     // live in the column; × and ÷ stay in the engine for later. Their glyphs
@@ -1005,7 +1033,12 @@ class _Keypad extends StatelessWidget {
 }
 
 class _Key extends StatelessWidget {
-  const _Key({required this.label, required this.onTap, this.op = false});
+  const _Key({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.op = false,
+  });
 
   final String label;
   final VoidCallback onTap;

@@ -263,3 +263,17 @@ List<FeelBubble> feelBubbleLayout({
       FeelBubble(w, pos[i], rad[i], feelBubbleColor(w.x, w.y)),
   ];
 }
+
+/// The check-in's second breath, said back in one line: the chips joined
+/// with middle dots, the "why" trailing after a dash. Null when the day
+/// carries neither — a line that says nothing should not exist.
+String? feltStoryLine(String? tags, String? why) {
+  final t = (tags ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+  final w = (why ?? '').trim();
+  if (t.isEmpty && w.isEmpty) return null;
+  return [if (t.isNotEmpty) t.join(' · '), if (w.isNotEmpty) w].join(' — ');
+}

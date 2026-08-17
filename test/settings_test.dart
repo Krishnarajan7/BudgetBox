@@ -305,4 +305,30 @@ void main() {
       await drain(tester, db);
     });
   });
+
+  group('what the book watches for', () {
+    test('the provider loads the saved answer and persists a new one',
+        () async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = SettingsRepo(db);
+      await repo.setIntent('leaks');
+
+      final container = ProviderContainer(
+        overrides: [dbProvider.overrideWithValue(db)],
+      );
+      addTearDown(container.dispose);
+
+      // The saved answer surfaces once the settings read lands.
+      container.read(intentProvider);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(intentProvider), 'leaks');
+
+      // Changing it is felt immediately and written durably.
+      container.read(intentProvider.notifier).set('goal');
+      expect(container.read(intentProvider), 'goal');
+      await Future<void>.delayed(Duration.zero);
+      expect(await repo.intent(), 'goal');
+    });
+  });
 }

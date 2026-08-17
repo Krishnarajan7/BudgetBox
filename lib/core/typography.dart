@@ -1,55 +1,43 @@
 import 'package:flutter/material.dart';
 
 /// Three faces, one job each:
-/// Fraunces speaks (titles, hero amounts) · Hanken Grotesk works (UI text) ·
-/// Spline Sans Mono keeps the books (every tabular amount).
+/// Absans headlines and carries the hero figures (titles, the wordmark, the
+/// one big number a screen exists for) · Subjectivity works (UI text) ·
+/// Spline Sans Mono keeps the books (every tabular amount — its digits are
+/// the only bundled ones with uniform widths, so columns stay columns).
 abstract final class LedgerType {
-  static const display = 'Fraunces';
-  static const body = 'Hanken Grotesk';
+  /// Absans (Collletttivo, OFL) — a single-weight early-grotesque with just
+  /// enough quirk to feel hand-set.
+  static const headline = 'Absans';
+
+  /// Subjectivity (Alex Slobzheninov, OFL) — geometric with calligraphic
+  /// tails on a, j, y, t. Static weights: Regular 400, Medium 500, Bold 700
+  /// are bundled; anything else would be faked by the engine.
+  static const body = 'Subjectivity';
   static const ledger = 'Spline Sans Mono';
 
-  // Variable-font axes. Fraunces reads warmest at high optical size.
-  static const _displayAxes = [
-    FontVariation('wght', 560),
-    FontVariation('opsz', 100),
-    FontVariation('SOFT', 0),
-    FontVariation('WONK', 1),
-  ];
-
-  /// ₹ hero on Today / Worth — the one number the screen exists for.
+  /// ₹ hero on Today / Worth — the one number the screen exists for. A lone
+  /// figure, never a column, so the headline face can carry it and the
+  /// numerals match the words above them.
   static const heroAmount = TextStyle(
-    fontFamily: display,
-    fontVariations: _displayAxes,
+    fontFamily: headline,
     fontSize: 44,
     height: 1.05,
     letterSpacing: -0.5,
   );
 
   /// A count carried inside a mark — the streak's figure in its flame.
-  /// Fraunces, because the number is the point; heavier and tighter than the
-  /// hero so it holds up against the fire behind it.
   static const markCount = TextStyle(
-    fontFamily: display,
-    fontVariations: [
-      FontVariation('wght', 700),
-      FontVariation('opsz', 100),
-      FontVariation('SOFT', 0),
-      FontVariation('WONK', 1),
-    ],
+    fontFamily: headline,
     fontSize: 22,
     height: 1,
     letterSpacing: -0.5,
   );
 
-  /// Screen titles and story lines.
+  /// Screen titles and story lines. Absans ships one weight — no axes to
+  /// pull; the size and the air around it do the emphasis.
   static const title = TextStyle(
-    fontFamily: display,
-    fontVariations: [
-      FontVariation('wght', 540),
-      FontVariation('opsz', 60),
-      FontVariation('SOFT', 0),
-      FontVariation('WONK', 1),
-    ],
+    fontFamily: headline,
     fontSize: 26,
     height: 1.18,
     letterSpacing: -0.3,
@@ -57,8 +45,7 @@ abstract final class LedgerType {
 
   /// The wordmark.
   static const wordmark = TextStyle(
-    fontFamily: display,
-    fontVariations: _displayAxes,
+    fontFamily: headline,
     fontSize: 17,
     letterSpacing: -0.2,
   );
@@ -66,7 +53,7 @@ abstract final class LedgerType {
   /// Body text, buttons, row titles.
   static const bodyText = TextStyle(
     fontFamily: body,
-    fontVariations: [FontVariation('wght', 460)],
+    fontWeight: FontWeight.w400,
     fontSize: 15,
     height: 1.4,
   );
@@ -74,7 +61,7 @@ abstract final class LedgerType {
   /// Emphasised UI text (buttons, row names).
   static const bodyStrong = TextStyle(
     fontFamily: body,
-    fontVariations: [FontVariation('wght', 640)],
+    fontWeight: FontWeight.w500,
     fontSize: 15,
     height: 1.35,
   );
@@ -82,7 +69,7 @@ abstract final class LedgerType {
   /// Small caption / label — sentence case, never all-caps rows.
   static const label = TextStyle(
     fontFamily: body,
-    fontVariations: [FontVariation('wght', 600)],
+    fontWeight: FontWeight.w500,
     fontSize: 12,
     height: 1.3,
     letterSpacing: 0.5,

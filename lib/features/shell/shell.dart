@@ -1,15 +1,19 @@
+import 'dart:async' show unawaited;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/tabs.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/undo_banner.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../add/add_sheet.dart';
+import '../birthday/birthday_page.dart';
 import '../kural/kural_page.dart';
 import '../add/fab_menu.dart';
 import '../book/book_page.dart';
@@ -25,26 +29,42 @@ class LedgerShell extends StatefulWidget {
   State<LedgerShell> createState() => _LedgerShellState();
 }
 
-class _LedgerShellState extends State<LedgerShell> {
+class _LedgerShellState extends State<LedgerShell> with WidgetsBindingObserver {
   int _index = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // The day's kural greets the first opening — after the frame, so the
-    // shell is standing before the page turns.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // shell is standing before the page turns. One morning a year, another
+    // page comes first, and the kural waits its turn behind it.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final ref = ProviderScope.containerOf(context);
-      maybeShowDailyKural(context, ref);
+      await maybeShowBirthdaySurprise(context, ref);
+      if (!mounted) return;
+      await maybeShowDailyKural(context, ref);
     });
   }
 
-  static const _pages = [
-    TodayPage(),
-    BookPage(),
-    PlansPage(),
-    WorthPage(),
-  ];
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A phone left open overnight resumes into the new day without ever
+    // re-running initState — so the one morning a year that matters is
+    // re-checked here. The gate is idempotent; every other morning this
+    // is one settings read and silence.
+    if (state != AppLifecycleState.resumed) return;
+    final ref = ProviderScope.containerOf(context);
+    unawaited(maybeShowBirthdaySurprise(context, ref));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  static const _pages = [TodayPage(), BookPage(), PlansPage(), WorthPage()];
 
   @override
   Widget build(BuildContext context) {
@@ -56,19 +76,56 @@ class _LedgerShellState extends State<LedgerShell> {
         bottom: false,
         child: _PageTurn(index: _index, children: _pages),
       ),
-      bottomNavigationBar: _LedgerNav(
-        index: _index,
-        onSelect: (i) {
-          if (i != _index) HapticFeedback.selectionClick();
-          setState(() => _index = i);
-        },
-        onAdd: () {
-          HapticFeedback.lightImpact();
-          showAddSheet(context);
-        },
-        onAddLong: () {
-          HapticFeedback.mediumImpact();
-          showFabMenu(context);
+      // While an undo offer stands, the nav steps down off the page and the
+      // undo toast rises into its place — then they trade back. One slot,
+      // two tenants, never both.
+      bottomNavigationBar: Consumer(
+        builder: (context, ref, _) {
+          final banner = ref.watch(undoBannerProvider);
+          final nav = KeyedSubtree(
+            key: const ValueKey('shell-nav'),
+            child: _LedgerNav(
+              index: _index,
+              onSelect: (i) {
+                if (i != _index) HapticFeedback.selectionClick();
+                ref.read(activeTabProvider.notifier).set(i);
+                setState(() => _index = i);
+              },
+              onAdd: () {
+                HapticFeedback.lightImpact();
+                showAddSheet(context);
+              },
+              onAddLong: () {
+                HapticFeedback.mediumImpact();
+                showFabMenu(context);
+              },
+            ),
+          );
+          return AnimatedSwitcher(
+            duration: Motion.reduced(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 380),
+            // The old tenant drops away first; the new one rises a beat
+            // later, so the slot is never crowded.
+            switchOutCurve: const Interval(0.55, 1, curve: Curves.easeIn),
+            switchInCurve: const Interval(0.4, 1, curve: Curves.easeOutCubic),
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween(
+                  begin: const Offset(0, 0.6),
+                  end: Offset.zero,
+                ).animate(anim),
+                child: child,
+              ),
+            ),
+            child: banner == null
+                ? nav
+                : _UndoToast(
+                    key: ValueKey('undo-${banner.id}'),
+                    banner: banner,
+                  ),
+          );
         },
       ),
     );
@@ -132,36 +189,42 @@ class _PageTurnState extends State<_PageTurn>
         return Stack(
           fit: StackFit.expand,
           children: [
+            // One constant wrapper chain per slot, whatever the slot's role —
+            // only the parameters change. If the widget TYPE at a slot ever
+            // changed (Opacity one frame, Offstage the next), Flutter would
+            // remount the whole page: streams resubscribing, a flash of
+            // empty state, numbers re-counting. That remount was the "glitch"
+            // every tab switch used to carry.
             for (final (i, page) in widget.children.indexed)
-              if (i == widget.index)
-                // The new page arrives from the side you're heading — a
-                // page turned, not a scene swapped. The old one drifts the
-                // other way underneath as it fades.
-                Opacity(
-                  opacity: t,
-                  child: Transform.translate(
-                    offset: Offset(28 * (1 - t) * _dir, 0),
-                    child: page,
-                  ),
-                )
-              else
-                Offstage(
-                  offstage: i != _leaving,
-                  child: TickerMode(
-                    enabled: false,
-                    child: IgnorePointer(
-                      child: i == _leaving
-                          ? Opacity(
-                              opacity: 1 - t,
-                              child: Transform.translate(
-                                offset: Offset(-16 * t * _dir, 0),
-                                child: page,
-                              ),
-                            )
-                          : page,
+              Offstage(
+                offstage: i != widget.index && i != _leaving,
+                child: TickerMode(
+                  enabled: i == widget.index,
+                  child: IgnorePointer(
+                    ignoring: i != widget.index,
+                    child: Opacity(
+                      // The new page arrives from the side you're heading —
+                      // a page turned, not a scene swapped. The old one
+                      // drifts the other way underneath as it fades. An
+                      // opacity of exactly 1 costs nothing, so only the two
+                      // pages mid-turn ever pay for a layer.
+                      opacity: i == widget.index
+                          ? t
+                          : i == _leaving
+                          ? 1 - t
+                          : 1,
+                      child: Transform.translate(
+                        offset: i == widget.index
+                            ? Offset(28 * (1 - t) * _dir, 0)
+                            : i == _leaving
+                            ? Offset(-16 * t * _dir, 0)
+                            : Offset.zero,
+                        child: RepaintBoundary(child: page),
+                      ),
                     ),
                   ),
                 ),
+              ),
           ],
         );
       },
@@ -231,8 +294,7 @@ class _LedgerNav extends StatelessWidget {
                 builder: (context, box) {
                   final tabW = (box.maxWidth - _chopSlot) / 4;
                   // Slots 0,1 sit left of the chop; 2,3 to its right.
-                  double slotLeft(int i) =>
-                      i * tabW + (i >= 2 ? _chopSlot : 0);
+                  double slotLeft(int i) => i * tabW + (i >= 2 ? _chopSlot : 0);
                   return Stack(
                     children: [
                       // The pool of moonlight, travelling between names.
@@ -312,18 +374,171 @@ class _LedgerNav extends StatelessWidget {
         onTap: () => onSelect(i),
         child: Center(
           child: AnimatedDefaultTextStyle(
-            duration:
-                Motion.reduced(context) ? Duration.zero : Motion.spring,
+            duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
             curve: Motion.curve,
             style: (selected ? LedgerType.bodyStrong : LedgerType.bodyText)
                 .copyWith(
-              fontSize: 13.5,
-              color: selected ? c.quill : c.inkFaint,
-            ),
+                  fontSize: 13.5,
+                  color: selected ? c.quill : c.inkFaint,
+                ),
             child: Text(_items[i]),
           ),
         ),
       ),
     );
   }
+}
+
+/// The undo's turn on the glass: the same floating plate the nav uses,
+/// carrying one sentence, a draining ring, and the word that takes it all
+/// back. When the ring empties (or undo is taken) the toast steps down and
+/// the nav returns.
+class _UndoToast extends StatelessWidget {
+  const _UndoToast({super.key, required this.banner});
+
+  final UndoBanner banner;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x3),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF000000).withValues(alpha: 0.28),
+              blurRadius: 26,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+            child: Container(
+              height: 64,
+              padding: const EdgeInsets.symmetric(horizontal: Gap.x4),
+              decoration: BoxDecoration(
+                color: c.paperRaised.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: c.rule.withValues(alpha: 0.85)),
+              ),
+              child: Row(
+                children: [
+                  _CountdownRing(
+                    duration: banner.duration,
+                    color: c.quill,
+                    track: c.rule,
+                  ),
+                  const SizedBox(width: Gap.x3),
+                  Expanded(
+                    child: Text(
+                      banner.label,
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 13,
+                        color: c.ink,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Pressable(
+                    onTap: banner.onUndo,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: Gap.x3,
+                        vertical: Gap.x3,
+                      ),
+                      child: Text(
+                        'undo',
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 14,
+                          color: c.quill,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The offer's remaining time as an emptying ring — no digits, just the
+/// arc quietly letting go clockwise from the top.
+class _CountdownRing extends StatelessWidget {
+  const _CountdownRing({
+    required this.duration,
+    required this.color,
+    required this.track,
+  });
+
+  final Duration duration;
+  final Color color;
+  final Color track;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 20.0;
+    if (Motion.reduced(context)) {
+      return CustomPaint(
+        size: const Size(size, size),
+        painter: _RingPainter(1, color, track),
+      );
+    }
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1, end: 0),
+      duration: duration,
+      builder: (context, v, _) => CustomPaint(
+        size: const Size(size, size),
+        painter: _RingPainter(v, color, track),
+      ),
+    );
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  const _RingPainter(this.fraction, this.color, this.track);
+
+  final double fraction;
+  final Color color;
+  final Color track;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2 - 1.2;
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..color = track,
+    );
+    if (fraction <= 0) return;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -1.5707963267948966,
+      6.283185307179586 * fraction,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round
+        ..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) =>
+      old.fraction != fraction || old.color != color || old.track != track;
 }

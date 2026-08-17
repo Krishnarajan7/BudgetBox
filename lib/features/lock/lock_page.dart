@@ -37,6 +37,10 @@ class _LockPageState extends ConsumerState<LockPage>
   bool _wrong = false;
   bool _success = false;
 
+  /// How many digits this cover asks for. New PINs are six; a PIN set
+  /// before the change stays four, so the book never locks out its owner.
+  int _pinLength = 4;
+
   /// One quiet, factual line under the date — or nothing at all.
   String? _whisper;
 
@@ -104,6 +108,7 @@ class _LockPageState extends ConsumerState<LockPage>
   Future<void> _prepare() async {
     final settings = ref.read(settingsRepoProvider);
     final hasPin = await settings.hasPin();
+    final pinLength = await settings.pinLength();
     if (!mounted) return;
     if (!hasPin) {
       // No lock set — then there is no cover and nothing to ask. The book
@@ -115,6 +120,7 @@ class _LockPageState extends ConsumerState<LockPage>
     }
     setState(() {
       _hasPin = hasPin;
+      _pinLength = pinLength;
       _checked = true;
     });
   }
@@ -188,12 +194,12 @@ class _LockPageState extends ConsumerState<LockPage>
   }
 
   Future<void> _digit(String d) async {
-    if (_entered.length >= 4 || _success) return;
+    if (_entered.length >= _pinLength || _success) return;
     setState(() {
       _wrong = false;
       _entered.write(d);
     });
-    if (_entered.length < 4) return;
+    if (_entered.length < _pinLength) return;
 
     final ok = await ref
         .read(settingsRepoProvider)
@@ -354,7 +360,7 @@ class _LockPageState extends ConsumerState<LockPage>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      for (var i = 0; i < 4; i++)
+                      for (var i = 0; i < _pinLength; i++)
                         _PinDot(
                           filled: i < _entered.length,
                           ink: dotInk,
@@ -425,31 +431,87 @@ class _LockPageState extends ConsumerState<LockPage>
     LedgerColors c,
     String label,
     VoidCallback onTap, {
-    Widget? mark,
     bool faint = false,
   }) {
+    return _LockKey(label: label, onTap: onTap, faint: faint);
+  }
+}
+
+/// A keypad key that answers the finger with light: the pressed numeral
+/// catches the moonlight and the block warms under it, both fading as the
+/// finger leaves — ink cooling after the stroke. The scale-give and the
+/// click come from [Pressable]; this adds only the light.
+class _LockKey extends StatefulWidget {
+  const _LockKey({
+    required this.label,
+    required this.onTap,
+    this.faint = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool faint;
+
+  @override
+  State<_LockKey> createState() => _LockKeyState();
+}
+
+class _LockKeyState extends State<_LockKey>
+    with SingleTickerProviderStateMixin {
+  // Starts settled at 1 — `lit` below is the *remaining* light, so a key
+  // that has never been pressed must read fully cooled, not fully lit.
+  late final AnimationController _glow = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 380),
+    value: 1,
+  );
+
+  @override
+  void dispose() {
+    _glow.dispose();
+    super.dispose();
+  }
+
+  void _tap() {
+    if (!Motion.reduced(context)) _glow.forward(from: 0);
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
     return Padding(
       padding: const EdgeInsets.all(5),
       child: Pressable(
         scale: 0.92,
-        onTap: onTap,
-        child: Container(
-          width: 78,
-          height: 56,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: c.paperRaised,
-            borderRadius: BorderRadius.circular(Corner.key),
-          ),
-          child:
-              mark ??
-              Text(
-                label,
+        onTap: _tap,
+        child: AnimatedBuilder(
+          animation: _glow,
+          builder: (context, _) {
+            // Full light at the press, easing back to ink — never a step.
+            final lit =
+                1 - Curves.easeOutCubic.transform(_glow.value);
+            final restInk = widget.faint ? c.inkFaint : c.ink;
+            return Container(
+              width: 78,
+              height: 56,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Color.alphaBlend(
+                  c.quill.withValues(alpha: 0.14 * lit),
+                  c.paperRaised,
+                ),
+                borderRadius: BorderRadius.circular(Corner.key),
+              ),
+              child: Text(
+                widget.label,
                 style: LedgerType.amount.copyWith(
                   fontSize: 20,
-                  color: faint ? c.inkFaint : c.ink,
+                  color: Color.lerp(restInk, c.quill, lit),
                 ),
               ),
+            );
+          },
         ),
       ),
     );

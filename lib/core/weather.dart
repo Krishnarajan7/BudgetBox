@@ -8,6 +8,45 @@ import 'package:http/http.dart' as http;
 import '../data/db.dart';
 import '../data/providers.dart';
 
+/// One day of the week ahead: the shape of its sky and its bracket. The
+/// full-page reading shows eight of these under the big numeral.
+class DayForecast {
+  const DayForecast({
+    required this.date,
+    required this.code,
+    required this.highC,
+    required this.lowC,
+  });
+
+  /// The day, as local midnight.
+  final DateTime date;
+  final int code;
+  final double highC;
+  final double lowC;
+
+  Map<String, Object?> toJson() => {
+    'date': date.toIso8601String(),
+    'code': code,
+    'high': highC,
+    'low': lowC,
+  };
+
+  static DayForecast? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final date = DateTime.tryParse('${raw['date']}');
+    final high = raw['high'];
+    final low = raw['low'];
+    if (date == null || high is! num || low is! num) return null;
+    final code = raw['code'];
+    return DayForecast(
+      date: date,
+      code: code is num ? code.toInt() : 0,
+      highC: high.toDouble(),
+      lowC: low.toDouble(),
+    );
+  }
+}
+
 /// A reading of the sky: what it is now, what the day is bracketed by, and
 /// when it was taken. The book would rather show an hour-old reading with
 /// its age on it than a spinner.
@@ -21,6 +60,7 @@ class Weather {
     this.rainLater = false,
     this.sunrise,
     this.sunset,
+    this.days = const [],
   });
 
   final double nowC;
@@ -40,6 +80,10 @@ class Weather {
   /// True when rain shows up later in the day but isn't falling now — the
   /// only forecast worth acting on before leaving the house.
   final bool rainLater;
+
+  /// The week ahead, to-day first. Empty on readings cached before the sky
+  /// page existed; the next refresh carries them.
+  final List<DayForecast> days;
 
   /// "33° · light rain by evening" — the whole reading in one line.
   String get line {
@@ -104,6 +148,7 @@ class Weather {
     'rainLater': rainLater,
     if (sunrise != null) 'sunrise': sunrise!.toIso8601String(),
     if (sunset != null) 'sunset': sunset!.toIso8601String(),
+    'days': ?(days.isEmpty ? null : [for (final d in days) d.toJson()]),
   };
 
   static Weather? fromJson(Object? raw) {
@@ -123,6 +168,9 @@ class Weather {
       rainLater: raw['rainLater'] == true,
       sunrise: DateTime.tryParse('${raw['sunrise']}'),
       sunset: DateTime.tryParse('${raw['sunset']}'),
+      days: raw['days'] is List
+          ? [for (final d in raw['days'] as List) ?DayForecast.fromJson(d)]
+          : const [],
     );
   }
 
@@ -290,7 +338,10 @@ class WeatherRepo {
               'temperature_2m_max,temperature_2m_min,weather_code,'
               'sunrise,sunset',
           'timezone': 'auto',
-          'forecast_days': '1',
+          // Eight days: to-day for the strip, the week ahead for the sky
+          // page. One request either way — Open-Meteo charges nothing for
+          // the extra rows and the strip simply reads the first.
+          'forecast_days': '8',
         },
       );
 
@@ -331,6 +382,32 @@ class WeatherRepo {
     final sunUp = _firstTime(daily['sunrise']);
     final sunDown = _firstTime(daily['sunset']);
 
+    // The week ahead, zipped from the daily columns. Any column shorter
+    // than the rest simply ends the week early — never a guessed day.
+    final dayDates = daily['time'];
+    final dayCodes = daily['weather_code'];
+    final days = <DayForecast>[];
+    if (dayDates is List) {
+      for (var i = 0; i < dayDates.length; i++) {
+        final date = DateTime.tryParse('${dayDates[i]}');
+        if (date == null || i >= highs.length || i >= lows.length) break;
+        final high = highs[i];
+        final low = lows[i];
+        if (high is! num || low is! num) break;
+        final code = dayCodes is List && i < dayCodes.length
+            ? dayCodes[i]
+            : null;
+        days.add(
+          DayForecast(
+            date: date,
+            code: code is num ? code.toInt() : 0,
+            highC: high.toDouble(),
+            lowC: low.toDouble(),
+          ),
+        );
+      }
+    }
+
     return Weather(
       nowC: nowC.toDouble(),
       highC: (highs.first as num).toDouble(),
@@ -340,6 +417,7 @@ class WeatherRepo {
       rainLater: rainLater,
       sunrise: sunUp,
       sunset: sunDown,
+      days: days,
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:budgetbox/data/repos/txn_repo.dart';
 import 'package:budgetbox/data/sync/ids.dart';
 import 'package:budgetbox/data/sync/outbox.dart';
 import 'package:budgetbox/data/sync/puller.dart';
+import 'package:budgetbox/data/sync/reconcile.dart';
 import 'package:budgetbox/data/sync/seam.dart';
 import 'package:budgetbox/data/sync/sync_engine.dart';
 import 'package:budgetbox/data/sync/wire.dart';
@@ -639,5 +640,95 @@ void main() {
     expect(server.calls, isEmpty);
     expect(engine.status.value.phase, SyncPhase.idle);
     expect(await db.select(db.outbox).get(), isEmpty);
+  });
+
+  // ————— the catch-up sweep —————
+
+  test('a swept account carries its balance up as an anchor', () async {
+    // A book that predates its server: the seam was never installed, so the
+    // account and its worth were written with no outbox row anywhere.
+    uninstallSyncSeam();
+    final sbi = await accounts.create(
+      name: 'SBI savings',
+      kind: AccountKind.bank,
+      openingBalancePaise: 250000,
+    );
+    await db.delete(db.outbox).go();
+    installSyncSeam(OutboxSeam(outbox));
+
+    await SyncReconciler(db, outbox).sweep();
+
+    final rows = await queue();
+    final ids = [for (final r in rows) (r.kind, r.localId)];
+    expect(ids, contains((SyncKinds.account, sbi)));
+    final anchors = rows
+        .where((r) => r.kind == SyncKinds.anchor && r.localId == sbi)
+        .toList();
+    expect(
+      anchors,
+      hasLength(1),
+      reason:
+          'the pre-wire balance must travel, or the first pull overwrites '
+          'the worth with whatever the server derived from nothing',
+    );
+    final body = jsonDecode(anchors.single.payload!) as Map<String, dynamic>;
+    expect(body['balance_paise'], 250000);
+    expect(
+      ids.indexOf((SyncKinds.account, sbi)),
+      lessThan(ids.indexOf((SyncKinds.anchor, sbi))),
+      reason: 'the reading drains after the account it reads',
+    );
+  });
+
+  test('an already-married account is not re-anchored by the sweep', () async {
+    // hdfc is mapped: the seam claimed its uuid7 when it was created, so
+    // the server knows of it and the sweep must leave it alone.
+    await db.delete(db.outbox).go();
+
+    await SyncReconciler(db, outbox).sweep();
+
+    expect(
+      (await queue()).where((r) => r.kind == SyncKinds.anchor),
+      isEmpty,
+      reason: 'a mapped account\'s balance is the server\'s to derive',
+    );
+  });
+
+  // ————— taking the server's book —————
+
+  test('eraseForServerCopy clears the book but keeps the device', () async {
+    await txns.addExpense(
+      amountPaise: 500,
+      accountId: hdfc,
+      categoryId: food,
+      title: 'Auto',
+    );
+    for (final (key, value) in [
+      ('sync.cursor', '42'),
+      ('sync.adopted', 'true'),
+      ('user.name', 'Krish'),
+    ]) {
+      await db
+          .into(db.settings)
+          .insertOnConflictUpdate(
+            SettingsCompanion(key: Value(key), value: Value(value)),
+          );
+    }
+
+    await db.eraseForServerCopy();
+
+    expect(await db.select(db.txns).get(), isEmpty);
+    expect(await db.select(db.accounts).get(), isEmpty);
+    expect(await db.select(db.outbox).get(), isEmpty);
+    expect(await db.select(db.remoteIds).get(), isEmpty);
+    expect(
+      await db.select(db.categories).get(),
+      isNotEmpty,
+      reason: 'the words stay — the adopter marries them to the server\'s',
+    );
+    final keys = {for (final s in await db.select(db.settings).get()) s.key};
+    expect(keys, contains('user.name'));
+    expect(keys, isNot(contains('sync.cursor')));
+    expect(keys, isNot(contains('sync.adopted')));
   });
 }

@@ -57,7 +57,7 @@ void main() {
     // Walk the spine: Book, Plans, Worth all render.
     await tester.tap(find.text('book'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('heat'), findsOneWidget);
+    expect(find.textContaining('month'), findsWidgets);
 
     await tester.tap(find.text('plans'));
     await tester.pumpAndSettle();

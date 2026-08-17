@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/settings/settings_page.dart';
 import '../../features/shelf/shelf_overlay.dart';
+import '../../features/weather/weather_page.dart';
 import '../holidays.dart';
 import '../tokens.dart';
 import '../typography.dart';
@@ -76,7 +78,8 @@ class LedgerAppBar extends ConsumerWidget {
 }
 
 /// The sky as one small drawn mark and the temperature beside it. Tap it and
-/// it says the words: "overcast · 15° now · 22° / 12° to-day".
+/// it says the words: "overcast · 15° now · 22° / 12° to-day". Double-tap
+/// and the sky gets its whole page.
 class SkyMarkChip extends ConsumerWidget {
   const SkyMarkChip({super.key});
 
@@ -88,47 +91,57 @@ class SkyMarkChip extends ConsumerWidget {
 
     final now = DateTime.now();
     final stale = sky.staleness(now);
-    return _Says(
-      message: [
-        Weather.describe(sky.code),
-        ?(sky.rainLater && !Weather.isWet(sky.code) ? 'rain later' : null),
-        '${sky.nowC.round()}° now',
-        sky.bracket,
-        ?sky.sunLine(now),
-        ?stale,
-      ].join(' · '),
-      child: Padding(
-        padding: const EdgeInsets.only(right: Gap.x3),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SkyMark(
-              shape: skyShapeFor(sky.code, night: sky.isNight(now)),
-              color: c.inkFaint,
-              size: 20,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              '${sky.nowC.round()}°',
-              style: LedgerType.amount.copyWith(fontSize: 12, color: c.ink),
-            ),
-            const SizedBox(width: 5),
-            // The word as well as the mark: a drawn cloud is a guess until
-            // it is read once, and this bar is not a quiz. Capped, so a
-            // long condition can never crowd the wordmark off the page.
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 64),
-              child: Text(
-                Weather.shortLabel(sky.code),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: LedgerType.bodyText.copyWith(
-                  fontSize: 11,
-                  color: c.inkFaint,
+    return GestureDetector(
+      // A second tap within the window wins the gesture arena, so a single
+      // tap still opens the tooltip — just a beat later.
+      onDoubleTap: () {
+        HapticFeedback.lightImpact();
+        Navigator.of(
+          context,
+        ).push(LedgerRoute<void>(builder: (_) => const WeatherPage()));
+      },
+      child: _Says(
+        message: [
+          Weather.describe(sky.code),
+          ?(sky.rainLater && !Weather.isWet(sky.code) ? 'rain later' : null),
+          '${sky.nowC.round()}° now',
+          sky.bracket,
+          ?sky.sunLine(now),
+          ?stale,
+        ].join(' · '),
+        child: Padding(
+          padding: const EdgeInsets.only(right: Gap.x3),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SkyMark(
+                shape: skyShapeFor(sky.code, night: sky.isNight(now)),
+                color: c.inkFaint,
+                size: 20,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                '${sky.nowC.round()}°',
+                style: LedgerType.amount.copyWith(fontSize: 12, color: c.ink),
+              ),
+              const SizedBox(width: 5),
+              // The word as well as the mark: a drawn cloud is a guess until
+              // it is read once, and this bar is not a quiz. Capped, so a
+              // long condition can never crowd the wordmark off the page.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 64),
+                child: Text(
+                  Weather.shortLabel(sky.code),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 11,
+                    color: c.inkFaint,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

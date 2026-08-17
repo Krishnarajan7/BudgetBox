@@ -3,6 +3,7 @@ import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
 import 'package:budgetbox/data/repos/txn_repo.dart';
 import 'package:budgetbox/features/add/add_sheet.dart';
+import 'package:budgetbox/features/today/widgets/digit_roll.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +40,12 @@ void main() {
 
   tearDown(() => db.close());
 
+  Future<void> tapKey(WidgetTester tester, String k) =>
+      tester.tap(find.byKey(ValueKey('add-key-$k')));
+
+  int heroPaise(WidgetTester tester) =>
+      tester.widget<DigitRoll>(find.byType(DigitRoll)).paise;
+
   testWidgets('novel entry: amount + category + stamp = a saved transaction', (
     tester,
   ) async {
@@ -49,13 +56,13 @@ void main() {
     // Keypad is visible on open — no keyboard summon.
     expect(find.text('stamp'), findsOneWidget);
 
-    await tester.tap(find.text('1'));
-    await tester.tap(find.text('8'));
-    await tester.tap(find.text('0'));
+    await tapKey(tester, '1');
+    await tapKey(tester, '8');
+    await tapKey(tester, '0');
     await tester.pump();
-    // Extra frames: the hero amount counts up over 160ms before it settles.
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('₹180'), findsOneWidget);
+    // Extra frames: the hero digits roll over ~200ms before they settle.
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(heroPaise(tester), 18000);
 
     // One chip tap for the category…
     await tester.tap(find.textContaining('Food & chai'));
@@ -82,12 +89,12 @@ void main() {
     await tester.pumpAndSettle();
 
     for (final k in ['1', '2', '0', '+', '6', '0']) {
-      await tester.tap(find.text(k));
+      await tapKey(tester, k);
     }
     await tester.pump();
-    // Extra frames: the hero amount counts up over 160ms before it settles.
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('₹180'), findsOneWidget);
+    // Extra frames: the hero digits roll over ~200ms before they settle.
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(heroPaise(tester), 18000);
     expect(find.text('120 + 60'), findsOneWidget);
 
     await tester.tap(find.text('stamp'));
@@ -127,8 +134,8 @@ void main() {
       'split with A',
     );
 
-    await tester.tap(find.text('4'));
-    await tester.tap(find.text('0'));
+    await tapKey(tester, '4');
+    await tapKey(tester, '0');
     await tester.pump();
     await tester.tap(find.text('stamp'));
     await tester.pumpAndSettle();
@@ -164,9 +171,10 @@ void main() {
     expect(find.text('usually'), findsOneWidget);
     await tester.tap(find.text('₹120'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    // Now in two places: the hero, and the whisper it came from.
-    expect(find.text('₹120'), findsNWidgets(2));
+    await tester.pump(const Duration(milliseconds: 300));
+    // The hero took the figure; the whisper still shows where it came from.
+    expect(heroPaise(tester), 12000);
+    expect(find.text('₹120'), findsOneWidget);
   });
 
   testWidgets('long-press stamps and stays open for the next entry', (
@@ -176,8 +184,8 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('2'));
-    await tester.tap(find.text('0'));
+    await tapKey(tester, '2');
+    await tapKey(tester, '0');
     await tester.tap(find.textContaining('Food & chai'));
     await tester.pump();
     await tester.longPress(find.text('stamp'));
@@ -186,7 +194,7 @@ void main() {
     expect(await db.select(db.txns).get(), hasLength(1));
     // Still open, amount cleared, category kept for the catch-up session.
     expect(find.text('stamp'), findsOneWidget);
-    expect(find.text('₹0'), findsOneWidget);
+    expect(heroPaise(tester), 0);
   });
 
   testWidgets('the money-in flip writes income, and the balance rises', (
@@ -208,9 +216,9 @@ void main() {
     expect(find.text('where did it come from? (optional)'), findsOneWidget);
     expect(find.text('into'), findsOneWidget);
 
-    await tester.tap(find.text('6'));
-    await tester.tap(find.text('0'));
-    await tester.tap(find.text('0'));
+    await tapKey(tester, '6');
+    await tapKey(tester, '0');
+    await tapKey(tester, '0');
     await tester.pump(const Duration(milliseconds: 200));
 
     await tester.tap(find.text('stamp'));

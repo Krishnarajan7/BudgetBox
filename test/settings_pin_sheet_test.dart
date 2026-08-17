@@ -33,9 +33,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('PIN'));
     await tester.pumpAndSettle();
-    expect(find.text('Four digits. Only your book, only you.'), findsOneWidget);
+    expect(find.text('Six digits. Only your book, only you.'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField), '4321');
+    await tester.enterText(find.byType(TextField), '432156');
     await tester.pump();
 
     await tester.tap(find.text('Lock it down'));

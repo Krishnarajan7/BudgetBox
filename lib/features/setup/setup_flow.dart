@@ -824,26 +824,26 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
       // before the book had a server; saying it now would be a lie about
       // exactly the thing a person is trusting you with.
       _hint(c,
-          'Four digits below, Face ID in front of them. The PIN stays on this '
+          'Six digits below, Face ID in front of them. The PIN stays on this '
           'phone — it guards this device and is never sent to your server. '
           'Leave it blank to skip for now.'),
       const SizedBox(height: Gap.x6),
       Center(
         child: SizedBox(
-          width: 160,
+          width: 220,
           child: TextField(
             controller: _pin,
             obscureText: true,
-            maxLength: 4,
+            maxLength: 6,
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
             style: LedgerType.heroAmount
-                .copyWith(fontSize: 30, color: c.ink, letterSpacing: 14),
+                .copyWith(fontSize: 30, color: c.ink, letterSpacing: 10),
             decoration: InputDecoration(
               counterText: '',
-              hintText: '····',
+              hintText: '······',
               hintStyle: LedgerType.heroAmount.copyWith(
-                  fontSize: 30, color: c.inkFaint, letterSpacing: 14),
+                  fontSize: 30, color: c.inkFaint, letterSpacing: 10),
               enabledBorder: UnderlineInputBorder(
                   borderSide: BorderSide(color: c.rule)),
               focusedBorder: UnderlineInputBorder(
@@ -980,7 +980,9 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
 
     await settings.setName(_name.trim().isEmpty ? 'Krish' : _name.trim());
     await settings.setSalaryDay(_salaryDay);
-    await settings.setIntent(_intents[_intent]);
+    // Through the provider, not the repo: a ritual re-run from Settings
+    // must reorder Today immediately, same as the Settings row does.
+    ref.read(intentProvider.notifier).set(_intents[_intent]);
 
     for (final a in _accounts) {
       await accountRepo.create(
@@ -1019,7 +1021,7 @@ class _SetupFlowState extends ConsumerState<SetupFlow> {
     }
 
     final pin = _pin.text.trim();
-    if (pin.length == 4 && int.tryParse(pin) != null) {
+    if (pin.length == 6 && int.tryParse(pin) != null) {
       await settings.setPin(pin);
     }
 

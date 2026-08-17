@@ -18,10 +18,7 @@ import 'money_moves.dart';
 /// Long-press the ＋: the power menu. Pinned repeats stamp instantly —
 /// the true sub-second path — with transfer/income/catch-up behind it.
 Future<void> showFabMenu(BuildContext context) {
-  return showLedgerSheet<void>(
-    context,
-    builder: (_) => const _FabMenu(),
-  );
+  return showLedgerSheet<void>(context, builder: (_) => const _FabMenu());
 }
 
 class _FabMenu extends ConsumerStatefulWidget {
@@ -48,10 +45,13 @@ class _FabMenuState extends ConsumerState<_FabMenu> {
   Future<void> _loadUses() async {
     final db = ref.read(dbProvider);
     final now = DateTime.now();
-    final rows = await (db.select(db.txns)
-          ..where((t) => t.at.isBiggerOrEqualValue(DateTime(now.year, now.month)))
-          ..orderBy([(t) => OrderingTerm.desc(t.at)]))
-        .get();
+    final rows =
+        await (db.select(db.txns)
+              ..where(
+                (t) => t.at.isBiggerOrEqualValue(DateTime(now.year, now.month)),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.at)]))
+            .get();
     if (!mounted) return;
     setState(() => _thisMonth = rows);
   }
@@ -147,14 +147,10 @@ class _FabMenuState extends ConsumerState<_FabMenu> {
                   spacing: Gap.x4,
                   runSpacing: Gap.x3,
                   children: const [
-                    _Move('transfer', 'pocket to pocket',
-                        showTransferSheet),
-                    _Move('fix', 'make the book match',
-                        showFixBalanceSheet),
-                    _Move('income', 'money that came in',
-                        showIncomeSheet),
-                    _Move('catch-up',
-                        'the days I skipped', showCatchUpSheet),
+                    _Move('transfer', 'pocket to pocket', showTransferSheet),
+                    _Move('fix', 'make the book match', showFixBalanceSheet),
+                    _Move('income', 'money that came in', showIncomeSheet),
+                    _Move('catch-up', 'the days I skipped', showCatchUpSheet),
                   ],
                 ),
               ],
@@ -195,8 +191,10 @@ class _Move extends StatelessWidget {
             padding: const EdgeInsets.only(left: 2),
             child: Text(
               sub,
-              style:
-                  LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 11,
+                color: c.inkFaint,
+              ),
             ),
           ),
         ],

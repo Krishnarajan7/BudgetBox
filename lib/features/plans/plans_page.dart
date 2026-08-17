@@ -247,12 +247,22 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
               return EmptyPage(
                 line: 'No lines drawn yet.',
                 sub:
-                    'The setup ritual proposes them — or one category can '
-                    'start on its own.',
-                action: LedgerChip(
-                  'draw the first line',
-                  selected: true,
-                  onTap: () => _newBudget(context),
+                    'Start from a month this book already knows, or draw '
+                    'one category at a time.',
+                action: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LedgerChip(
+                      'start from a template',
+                      selected: true,
+                      onTap: () => _fromTemplate(context),
+                    ),
+                    const SizedBox(height: Gap.x2),
+                    LedgerChip(
+                      'draw the first line',
+                      onTap: () => _newBudget(context),
+                    ),
+                  ],
                 ),
               );
             }
@@ -335,25 +345,45 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
               sealed: v.budget.id == sealId,
             ),
           ),
-        Pressable(
-          onTap: () => _newBudget(context),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: Gap.x3),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                PenPlus(size: 13, color: c.quill),
-                const SizedBox(width: Gap.x2),
-                Text(
-                  'draw another line',
+        Row(
+          children: [
+            Pressable(
+              onTap: () => _newBudget(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    PenPlus(size: 13, color: c.quill),
+                    const SizedBox(width: Gap.x2),
+                    Text(
+                      'draw another line',
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 13,
+                        color: c.quill,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: Gap.x6),
+            // The quick route: a template's missing lines land beside the
+            // hand-drawn ones, never over them.
+            Pressable(
+              onTap: () => _fromTemplate(context),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                child: Text(
+                  'from a template',
                   style: LedgerType.bodyStrong.copyWith(
                     fontSize: 13,
                     color: c.quill,
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
         if (onNow) ...[
           _suggestions(c, views),
@@ -581,6 +611,45 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
     if (mounted) setState(() => _beforeRebalance = null);
   }
 
+  /// A whole month's lines in one tap: pick a template, and every line it
+  /// carries lands — but only for categories that don't already have one,
+  /// so applying twice (or on top of hand-drawn lines) never doubles or
+  /// overwrites anything. Every number stays editable afterwards.
+  Future<void> _fromTemplate(BuildContext context) async {
+    final picked = await showLedgerSheet<_PlanTemplate>(
+      context,
+      builder: (_) => const _TemplateSheet(),
+    );
+    if (picked == null || !mounted) return;
+    final db = ref.read(dbProvider);
+    final cats =
+        await (db.select(db.categories)..where(
+              (t) =>
+                  t.kind.equalsValue(CategoryKind.expense) &
+                  t.archived.equals(false),
+            ))
+            .get();
+    final byName = {for (final c in cats) c.name.toLowerCase(): c.id};
+    final existing = await (db.select(
+      db.budgets,
+    )..where((b) => b.archived.equals(false))).get();
+    final taken = {
+      for (final b in existing)
+        if (b.categoryId != null) b.categoryId,
+    };
+    final repo = ref.read(budgetRepoProvider);
+    var drawn = 0;
+    for (final (name, rupees) in picked.lines) {
+      final catId = byName[name.toLowerCase()];
+      // A renamed or missing category simply skips its line — a template
+      // must never invent categories behind the manager's back.
+      if (catId == null || taken.contains(catId)) continue;
+      await repo.create(name: name, limitPaise: rupees * 100, categoryId: catId);
+      drawn++;
+    }
+    if (drawn > 0) HapticFeedback.lightImpact();
+  }
+
   Future<void> _newBudget(BuildContext context) async {
     final db = ref.read(dbProvider);
     final cats =
@@ -607,6 +676,166 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
           limitPaise: rupees * 100,
           categoryId: categoryId,
         );
+  }
+}
+
+/// A month someone has already lived, offered as a starting point. The
+/// names must match the seeded categories exactly — [_fromTemplate] skips
+/// any line whose category has been renamed away.
+class _PlanTemplate {
+  const _PlanTemplate(this.name, this.caption, this.lines);
+
+  final String name;
+  final String caption;
+
+  /// (category name, monthly limit in rupees).
+  final List<(String, int)> lines;
+
+  int get totalRupees => lines.fold(0, (s, l) => s + l.$2);
+}
+
+/// The months this book actually knows: working from home (where food,
+/// clothes and skin care carry the spending), the full Pune office month,
+/// and the deliberately thin one.
+const _templates = <_PlanTemplate>[
+  _PlanTemplate(
+    'the at-home month',
+    'working from home — food, clothes and the care shelf lead',
+    [
+      ('Food & chai', 4000),
+      ('Kirana & home', 3000),
+      ('Clothes & shoes', 3000),
+      ('Grooming & care', 1500),
+      ('Bills & recharge', 1500),
+      ('Family & gifts', 2000),
+      ('Fun & extras', 1500),
+    ],
+  ),
+  _PlanTemplate(
+    'the Pune office month',
+    'back at the desk — rent, the commute and office lunches join in',
+    [
+      ('Rent', 15000),
+      ('Food & chai', 6000),
+      ('Getting around', 2500),
+      ('Kirana & home', 3000),
+      ('Bills & recharge', 1500),
+      ('Friends & going out', 3000),
+      ('Clothes & shoes', 2000),
+      ('Grooming & care', 1000),
+    ],
+  ),
+  _PlanTemplate(
+    'the lean month',
+    'essentials only — for when the month should cost almost nothing',
+    [
+      ('Food & chai', 3000),
+      ('Kirana & home', 2500),
+      ('Bills & recharge', 1200),
+      ('Grooming & care', 800),
+    ],
+  ),
+];
+
+/// The templates, laid out to be read before they are taken: name and
+/// total up front, the lines themselves in small print underneath.
+class _TemplateSheet extends StatelessWidget {
+  const _TemplateSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: Gap.x2),
+            Text(
+              'A month, pre-drawn.',
+              style: LedgerType.title.copyWith(fontSize: 20, color: c.ink),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Tap one and its lines land — only where no line stands '
+              'already, and every number stays yours to redraw.',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                color: c.inkFaint,
+              ),
+            ),
+            const SizedBox(height: Gap.x3),
+            for (final (i, t) in _templates.indexed)
+              InkIn(
+                delay: Duration(milliseconds: 40 * i),
+                child: Pressable(
+                  scale: 0.985,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.of(context).pop(t);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                    decoration: i == _templates.length - 1
+                        ? null
+                        : BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(color: c.rule),
+                            ),
+                          ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              t.name,
+                              style: LedgerType.bodyStrong.copyWith(
+                                fontSize: 15,
+                                color: c.ink,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              Inr.format(t.totalRupees * 100),
+                              style: LedgerType.amount.copyWith(
+                                fontSize: 14,
+                                color: c.ink,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          t.caption,
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 12,
+                            color: c.inkFaint,
+                          ),
+                        ),
+                        const SizedBox(height: Gap.x1),
+                        Text(
+                          [
+                            for (final (name, rupees) in t.lines)
+                              '$name ${Inr.format(rupees * 100)}',
+                          ].join(' · '),
+                          style: LedgerType.amount.copyWith(
+                            fontSize: 11,
+                            color: c.inkFaint,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -879,7 +1108,7 @@ class _BudgetRowState extends ConsumerState<_BudgetRow> {
   Future<void> _editLimit(BuildContext context) async {
     final result = await showLedgerSheet<(int, int?)>(
       context,
-      builder: (context) => _AmountSheet(
+      builder: (context) => AmountSheet(
         title: view.name,
         line: 'the monthly line, in rupees',
         cta: 'set the line',
@@ -1665,7 +1894,7 @@ class _GoalCardState extends ConsumerState<_GoalCard> {
     if (accounts.isEmpty || !context.mounted) return;
     final result = await showLedgerSheet<(int, int?)>(
       context,
-      builder: (context) => _AmountSheet(
+      builder: (context) => AmountSheet(
         title: 'Add to ${view.goal.name}',
         line: 'in rupees',
         cta: 'stamp it',
@@ -1924,8 +2153,11 @@ class _PocketLine extends StatelessWidget {
 /// One number, asked for plainly: a title, a ruled field of bare digits, the
 /// figure echoed underneath in the book's own hand, and a stamp to close it.
 /// Pops `(rupees, accountId)`.
-class _AmountSheet extends StatefulWidget {
-  const _AmountSheet({
+/// "How much, and from where?" — the goal-feeding sheet. Public because
+/// Worth's "being built" section feeds goals through the same door.
+class AmountSheet extends StatefulWidget {
+  const AmountSheet({
+    super.key,
     required this.title,
     required this.line,
     required this.cta,
@@ -1946,10 +2178,10 @@ class _AmountSheet extends StatefulWidget {
   final List<Account> accounts;
 
   @override
-  State<_AmountSheet> createState() => _AmountSheetState();
+  State<AmountSheet> createState() => AmountSheetState();
 }
 
-class _AmountSheetState extends State<_AmountSheet> {
+class AmountSheetState extends State<AmountSheet> {
   late final TextEditingController _ctl = TextEditingController(
     text: (widget.initial ?? 0) > 0 ? '${widget.initial}' : '',
   );

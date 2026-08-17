@@ -1,6 +1,7 @@
 import 'package:budgetbox/core/holidays.dart';
 import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/core/widgets/motion.dart';
+import 'package:budgetbox/core/widgets/pen_marks.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
@@ -407,6 +408,32 @@ void main() {
         find.textContaining('${next.day} ${_months[next.month - 1]}'),
         findsOneWidget,
       );
+      await _drain(tester, db);
+    });
+
+    testWidgets('flipping a month there and back mid-fade never crashes', (
+      tester,
+    ) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      await _pumpCalendar(tester, db);
+
+      // Forward a month, then straight back while the spine caption and
+      // the page are still animating: a day-keyed switcher would find the
+      // same key twice in one stack and throw the duplicate-key assertion.
+      final forward = find.byWidgetPredicate(
+        (w) => w is RotatedBox && w.quarterTurns == 0 && w.child is PenChevron,
+      );
+      final back = find.byWidgetPredicate(
+        (w) => w is RotatedBox && w.quarterTurns == 2 && w.child is PenChevron,
+      );
+      await tester.tap(forward);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tap(back);
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tap(forward);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
       await _drain(tester, db);
     });
 

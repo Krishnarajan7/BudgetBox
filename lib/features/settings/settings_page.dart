@@ -242,6 +242,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     'Dec',
   ];
 
+  /// The same question the ritual asked, answerable again: what the book
+  /// watches for. It reorders the Today page, nothing more.
+  Future<void> _pickIntent() async {
+    final picked = await showLedgerSheet<String>(
+      context,
+      builder: (context) => _IntentSheet(current: ref.read(intentProvider)),
+    );
+    if (picked == null || !mounted) return;
+    ref.read(intentProvider.notifier).set(picked);
+  }
+
   Future<void> _pickBirthday() async {
     final picked = await showLedgerSheet<(int, int)>(
       context,
@@ -519,6 +530,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   'teach the book what is worth it',
                   onTap: () => _push(const CoachingManagerPage()),
                 ),
+                // The ritual's one question, finally changeable — the hint
+                // there always promised it could be.
+                _Row(
+                  'Watching for',
+                  switch (ref.watch(intentProvider)) {
+                    'leaks' => 'the leaks — the month leads Today',
+                    'goal' => 'the saving — the goal leads Today',
+                    'truth' => 'the plain truth — no favourites',
+                    _ => 'never asked — the plain order',
+                  },
+                  onTap: _pickIntent,
+                ),
               ],
             ),
             _Section(
@@ -763,17 +786,136 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final settings = ref.read(settingsRepoProvider);
     switch (outcome) {
       case _PinChosen(:final pin)
-          when pin.length == 4 && int.tryParse(pin) != null:
+          when pin.length == 6 && int.tryParse(pin) != null:
         await settings.setPin(pin);
       case _PinRemoved() when _hasPin == true:
         await settings.clearPin();
-      // Dismissed, or four digits that weren't four digits: the book keeps
+      // Dismissed, or six digits that weren't six digits: the book keeps
       // whatever it had.
       case _:
         break;
     }
     if (!mounted) return;
     await _refreshPin();
+  }
+}
+
+/// What an erase of the server copy leaves behind.
+enum _EraseChoice {
+  /// The phone's book is uploaded fresh — the server ends as this phone.
+  reupload,
+
+  /// The address is forgotten too — the server ends empty and stays empty.
+  disconnect,
+}
+
+/// Whose book survives when a phone that holds one is wired to a server
+/// that also holds one.
+enum _FirstSyncChoice { keepPhone, takeServer, merge }
+
+/// The question the first sync used to skip: two books, one address —
+/// whose is it? Shown only when both sides actually hold something.
+class _FirstSyncSheet extends StatelessWidget {
+  const _FirstSyncSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SheetHandle(),
+          const SizedBox(height: Gap.x2),
+          Text(
+            'Two books, one address.',
+            style: LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'This phone holds a book, and so does that server. Decide whose '
+            'it is before they speak — syncing blind would pour one into the '
+            'other and double what both hold.',
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              color: c.inkFaint,
+            ),
+          ),
+          const SizedBox(height: Gap.x3),
+          _option(
+            context,
+            title: 'Keep this phone\'s book',
+            caption:
+                'the server copy is erased, and this book uploads itself in '
+                'its place',
+            choice: _FirstSyncChoice.keepPhone,
+          ),
+          _option(
+            context,
+            title: 'Take the server\'s book',
+            caption:
+                'entries and accounts on this phone are cleared, and the '
+                'server copy comes down whole — your name, PIN and settings '
+                'stay',
+            choice: _FirstSyncChoice.takeServer,
+          ),
+          _option(
+            context,
+            title: 'Keep both, merged',
+            caption:
+                'everything from both sides lands in one book — balances and '
+                'totals may double where the two overlap',
+            choice: _FirstSyncChoice.merge,
+          ),
+          const SizedBox(height: Gap.x2),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Not now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _option(
+    BuildContext context, {
+    required String title,
+    required String caption,
+    required _FirstSyncChoice choice,
+  }) {
+    final c = LedgerColors.of(context);
+    return Pressable(
+      scale: 0.98,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.of(context).pop(choice);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: Gap.x2),
+        padding: const EdgeInsets.all(Gap.x3),
+        decoration: BoxDecoration(
+          color: c.paperRaised,
+          borderRadius: BorderRadius.circular(Corner.key),
+          border: Border.all(color: c.rule),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: LedgerType.bodyStrong.copyWith(color: c.ink)),
+            const SizedBox(height: 2),
+            Text(
+              caption,
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 12,
+                color: c.inkFaint,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -991,14 +1133,14 @@ class _PinSheetState extends State<_PinSheet> {
         children: [
           const SheetHandle(),
           Text(
-            'Four digits. Only your book, only you.',
+            'Six digits. Only your book, only you.',
             style: LedgerType.bodyStrong.copyWith(color: c.ink),
           ),
           TextField(
             controller: _controller,
             autofocus: true,
             obscureText: true,
-            maxLength: 4,
+            maxLength: 6,
             keyboardType: TextInputType.number,
             style: LedgerType.heroAmount.copyWith(
               fontSize: 32,
@@ -1102,10 +1244,11 @@ class _Row extends StatelessWidget {
                   child: Text(
                     caption,
                     key: ValueKey(caption),
+                    // Subjectivity is static — no light axis to pull; the
+                    // faint colour alone keeps the caption quiet.
                     style: LedgerType.bodyText.copyWith(
                       fontSize: 11.5,
                       height: 1.25,
-                      fontVariations: const [FontVariation('wght', 380)],
                       color: captionColor ?? c.inkFaint,
                     ),
                   ),
@@ -1280,6 +1423,80 @@ class _DayCell extends StatelessWidget {
   }
 }
 
+/// The ritual's question, asked again in the same words. Pops 'leaks',
+/// 'goal' or 'truth'.
+class _IntentSheet extends StatelessWidget {
+  const _IntentSheet({required this.current});
+
+  final String? current;
+
+  static const _options = [
+    ('leaks', 'stop the leaks', 'the month and its charges lead Today'),
+    ('goal', 'save for something', 'the goal leads, the rest follows'),
+    ('truth', 'just see the truth', 'the plain order, no favourites'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Gap.page, 0, Gap.page, Gap.x4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: Gap.x2),
+            Text(
+              'What should this book watch for?',
+              style: LedgerType.title.copyWith(fontSize: 18, color: c.ink),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'it reorders the Today page, nothing more',
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 12,
+                color: c.inkFaint,
+              ),
+            ),
+            const SizedBox(height: Gap.x3),
+            for (final (i, (value, label, caption)) in _options.indexed)
+              InkIn(
+                delay: Duration(milliseconds: 40 * i),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: Gap.x2),
+                  child: Row(
+                    children: [
+                      LedgerChip(
+                        label,
+                        selected: value == current,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.of(context).pop(value);
+                        },
+                      ),
+                      const SizedBox(width: Gap.x2),
+                      Expanded(
+                        child: Text(
+                          caption,
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 12,
+                            color: c.inkFaint,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Day and month, nothing else — the book does not need your year to buy
 /// the chai. Pops `(day, month)`.
 class _BirthdaySheet extends StatefulWidget {
@@ -1442,12 +1659,39 @@ class _ServerPageState extends ConsumerState<ServerPage> {
     _ => table.replaceAll('_', ' '),
   };
 
+  /// Burns the server copy and makes the phone forget the server it knew:
+  /// queued writes, remote id mappings, the pull cursor, the adoption flag.
+  /// Returns null when it worked, a sentence when it did not.
+  Future<String?> _burnServerCopy(BbxConfig server) async {
+    final client = BbxClient(server);
+    try {
+      await client.post('/v1/book/erase', {});
+    } on BbxOffline catch (e) {
+      return 'could not reach it — ${e.detail}';
+    } on BbxProblem catch (e) {
+      return 'the server refused — ${e.detail}';
+    } finally {
+      client.close();
+    }
+    final db = ref.read(dbProvider);
+    await db.delete(db.outbox).go();
+    await db.delete(db.remoteIds).go();
+    await (db.delete(
+      db.settings,
+    )..where((s) => s.key.isIn(['sync.cursor', 'sync.adopted']))).go();
+    return null;
+  }
+
   Future<void> _erase() async {
     final server = _server;
     final counts = _counts;
     if (server == null || !server.wired) return;
     final total = counts?.values.fold(0, (a, b) => a + b) ?? 0;
-    final sure = await showLedgerSheet<bool>(
+    // The old single "erase" was a lie by omission: the server emptied, and
+    // then the very next sync quietly re-uploaded the whole phone — so the
+    // rows looked immortal. Now the erase *is* the decision about what
+    // happens next, and both outcomes are said out loud.
+    final choice = await showLedgerSheet<_EraseChoice>(
       context,
       builder: (context) {
         final c = LedgerColors.of(context);
@@ -1467,8 +1711,7 @@ class _ServerPageState extends ConsumerState<ServerPage> {
               Text(
                 '${total > 0 ? '$total rows go' : 'Everything there goes'}, '
                 'permanently — there is no undo on the server. The book on '
-                'this phone is untouched, and the next sync uploads whatever '
-                'the phone holds, fresh.',
+                'this phone is untouched either way. What happens after?',
                 style: LedgerType.bodyText.copyWith(
                   fontSize: 13,
                   color: c.inkFaint,
@@ -1477,11 +1720,19 @@ class _ServerPageState extends ConsumerState<ServerPage> {
               const SizedBox(height: Gap.x4),
               FilledButton(
                 style: FilledButton.styleFrom(backgroundColor: c.seal),
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Erase it forever'),
+                onPressed: () =>
+                    Navigator.of(context).pop(_EraseChoice.reupload),
+                child: const Text('Erase, then upload this book fresh'),
+              ),
+              const SizedBox(height: Gap.x1),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: c.inkFaint),
+                onPressed: () =>
+                    Navigator.of(context).pop(_EraseChoice.disconnect),
+                child: const Text('Erase and stop syncing'),
               ),
               TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
+                onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Keep it'),
               ),
             ],
@@ -1489,35 +1740,44 @@ class _ServerPageState extends ConsumerState<ServerPage> {
         );
       },
     );
-    if (sure != true || !mounted) return;
+    if (choice == null || !mounted) return;
 
     HapticFeedback.heavyImpact();
-    final client = BbxClient(server);
-    try {
-      await client.post('/v1/book/erase', {});
-      // The phone's sync bookkeeping must forget the server it knew:
-      // queued writes, remote id mappings, the pull cursor, the adoption
-      // flag. The next sync starts from zero and re-uploads the phone.
-      final db = ref.read(dbProvider);
-      await db.delete(db.outbox).go();
-      await db.delete(db.remoteIds).go();
-      await (db.delete(
-        db.settings,
-      )..where((s) => s.key.isIn(['sync.cursor', 'sync.adopted']))).go();
-      ref.read(syncEngineProvider).refresh();
-      if (mounted) {
-        setState(() {
-          _counts = {};
-          _note = 'erased — the server holds nothing now';
-        });
-      }
-    } on BbxOffline catch (e) {
-      if (mounted) setState(() => _note = 'could not reach it — ${e.detail}');
-    } on BbxProblem catch (e) {
-      if (mounted) setState(() => _note = 'the server refused — ${e.detail}');
-    } finally {
-      client.close();
+    final problem = await _burnServerCopy(server);
+    if (!mounted) return;
+    if (problem != null) {
+      setState(() => _note = problem);
+      return;
     }
+
+    if (choice == _EraseChoice.disconnect) {
+      // The server is empty and *stays* empty: nothing is wired to refill it.
+      await ref.read(settingsRepoProvider).clearServer();
+      if (!mounted) return;
+      ref.read(syncEngineProvider).reconfigure(BbxConfig.none);
+      setState(() {
+        _server = BbxConfig.none;
+        _counts = null;
+        _note =
+            'erased — the server holds nothing, and this book now syncs '
+            'with nothing';
+      });
+      return;
+    }
+
+    setState(() {
+      _counts = {};
+      _note = 'erased — uploading this book fresh…';
+    });
+    final engine = ref.read(syncEngineProvider);
+    await engine.syncNow();
+    if (!mounted) return;
+    setState(
+      () => _note = engine.status.value.phase == SyncPhase.idle
+          ? 'erased — this book stands whole on the server now'
+          : 'erased — the upload finishes when ${server.host} answers',
+    );
+    unawaited(_fetchCounts());
   }
 
   Future<void> _editServer() async {
@@ -1532,7 +1792,37 @@ class _ServerPageState extends ConsumerState<ServerPage> {
       _ServerCleared() => BbxConfig.none,
       _ServerChosen(:final config) => config,
     };
+
     if (next.wired) {
+      // Both sides may already hold a book. Whose survives is decided
+      // *before* the address is even saved — the first sync used to fire
+      // blind and pour one book into the other, doubling what both held.
+      var choice = _FirstSyncChoice.merge;
+      if (await _needsFirstSyncChoice(next)) {
+        if (!mounted) return;
+        final picked = await showLedgerSheet<_FirstSyncChoice>(
+          context,
+          builder: (_) => const _FirstSyncSheet(),
+        );
+        // Dismissed means undecided: nothing saved, nothing synced.
+        if (picked == null || !mounted) return;
+        choice = picked;
+      }
+      if (!mounted) return;
+      switch (choice) {
+        case _FirstSyncChoice.keepPhone:
+          final problem = await _burnServerCopy(next);
+          if (!mounted) return;
+          if (problem != null) {
+            setState(() => _note = problem);
+            return;
+          }
+        case _FirstSyncChoice.takeServer:
+          await ref.read(dbProvider).eraseForServerCopy();
+        case _FirstSyncChoice.merge:
+          break;
+      }
+      if (!mounted) return;
       await settings.setServer(next.baseUrl, next.token);
     } else {
       await settings.clearServer();
@@ -1545,8 +1835,68 @@ class _ServerPageState extends ConsumerState<ServerPage> {
       _note = null;
     });
     if (next.wired) {
-      unawaited(engine.syncNow());
-      unawaited(_fetchCounts());
+      // Counts only after the round settles — counting mid-sync showed a
+      // shelf that was still being stocked.
+      unawaited(
+        engine.syncNow().then((_) {
+          if (mounted) unawaited(_fetchCounts());
+        }),
+      );
+    }
+  }
+
+  /// True only when this phone and that server each hold a book of their
+  /// own — the one situation where syncing without asking invents a third
+  /// book neither side ever wrote.
+  Future<bool> _needsFirstSyncChoice(BbxConfig next) async {
+    final db = ref.read(dbProvider);
+    // A book already married to this same address is one book in two places,
+    // not two books — re-saving the token must not offer to erase anything.
+    final current = _server;
+    if (current != null && current.wired && current.baseUrl == next.baseUrl) {
+      final married = await (db.select(db.remoteIds)..limit(1)).get();
+      if (married.isNotEmpty) return false;
+    }
+    final localRow = await db
+        .customSelect(
+          'SELECT (SELECT COUNT(*) FROM accounts) + '
+          '(SELECT COUNT(*) FROM txns) + '
+          '(SELECT COUNT(*) FROM goals) + '
+          '(SELECT COUNT(*) FROM budgets) + '
+          '(SELECT COUNT(*) FROM recurrings) + '
+          '(SELECT COUNT(*) FROM pinneds) + '
+          '(SELECT COUNT(*) FROM notes) + '
+          '(SELECT COUNT(*) FROM journal_entries) + '
+          '(SELECT COUNT(*) FROM events) + '
+          '(SELECT COUNT(*) FROM focus_sessions) + '
+          '(SELECT COUNT(*) FROM vault_items) + '
+          '(SELECT COUNT(*) FROM day_seals) AS n',
+        )
+        .getSingle();
+    if (localRow.read<int>('n') == 0) return false;
+
+    final client = BbxClient(next);
+    try {
+      final body = await client.get('/v1/book/stats');
+      final counts = ((body as Map)['counts'] as Map).cast<String, int>();
+      var remote = 0;
+      counts.forEach((table, n) {
+        // Categories are seeded on both sides and settings are preferences,
+        // not a book; the change log is an echo of rows, not rows.
+        if (table != 'categories' &&
+            table != 'settings' &&
+            table != 'change_events') {
+          remote += n;
+        }
+      });
+      return remote > 0;
+    } on Object {
+      // Could not see the shelf. Falling through to a plain sync is right:
+      // if the server is unreachable the sync fails softly too, and an
+      // empty-but-unreadable server has nothing to conflict with.
+      return false;
+    } finally {
+      client.close();
     }
   }
 
@@ -1684,8 +2034,8 @@ class _ServerPageState extends ConsumerState<ServerPage> {
               padding: const EdgeInsets.symmetric(vertical: Gap.x2),
               child: Text(
                 'Erasing deletes every row above from the server, forever. '
-                'This phone\'s book is untouched — the next sync uploads it '
-                'fresh.',
+                'This phone\'s book is untouched — you choose whether it '
+                'then uploads itself fresh, or stops syncing altogether.',
                 style: LedgerType.bodyText.copyWith(
                   fontSize: 13,
                   color: c.inkFaint,

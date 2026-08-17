@@ -1,17 +1,21 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:drift/drift.dart' show InsertMode, Value;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/cat_inks.dart';
+import '../../core/widgets/particles.dart';
+import '../../core/undo_banner.dart';
 import '../../core/dates.dart';
 import '../../core/icons.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/cat_mark.dart';
-import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
@@ -22,10 +26,22 @@ import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../add/add_sheet.dart';
 import '../../data/repos/txn_repo.dart';
+import '../today/widgets/ledger_rows.dart';
+import '../today/widgets/sections.dart';
 import 'txn_editor.dart';
 
-/// How long a struck line stays on the page before the book lets it go.
+/// How long the undo toast stays offered after a struck line has dissolved
+/// off the page. Only when this runs out does the delete land.
 const bookStrikeGrace = Duration(seconds: 4);
+
+/// The strike's beats: the pen crosses the line, the line dissolves to
+/// particles (slow enough to watch), a kept line reassembles. Each phase
+/// timer runs a hair past its animation so nothing is ever cut off.
+const _strokeBeat = Duration(milliseconds: 340);
+const _dissolveAnim = Duration(milliseconds: 1050);
+const _dissolveBeat = Duration(milliseconds: 1150);
+const _reformAnim = Duration(milliseconds: 680);
+const _reformBeat = Duration(milliseconds: 760);
 
 /// The month [delta] pages away — flipping past a year boundary just works.
 DateTime bookMonthShift(DateTime month, int delta) =>
@@ -134,13 +150,30 @@ List<WhereSlice> whereItWent(Iterable<(int?, int)> expenses, {int top = 6}) {
   return (inPaise: inP, outPaise: outP, keptPaise: inP - outP);
 }
 
-/// A line on its way out: struck through, still on the page, one tap from
-/// being kept. When the grace runs out the deletion actually lands.
-class _Strike {
-  _Strike(this.timer);
+/// A struck line's journey: the stroke lands, the line dissolves into
+/// particles and the gap closes; the undo toast (down in the nav's slot)
+/// waits out [bookStrikeGrace], and only then does the deletion actually
+/// land. Undo at any point reassembles the line from the same particles.
+enum _StrikePhase { struck, dissolving, hidden, reforming }
 
-  final Timer timer;
+class _Strike {
+  _StrikePhase phase = _StrikePhase.struck;
+  Timer? next;
+
+  /// A photograph of the untouched line, taken the instant the strike
+  /// landed — the dissolve tears up this picture and the undo puts it
+  /// back together.
+  ui.Image? image;
+  Size? size;
   bool committed = false;
+
+  void cancel() => next?.cancel();
+
+  void dispose() {
+    next?.cancel();
+    image?.dispose();
+    image = null;
+  }
 }
 
 /// The transactions list IS the ledger: day-ruled pages, running totals,
@@ -171,14 +204,14 @@ class _BookPageState extends ConsumerState<BookPage> {
   final _seen = <int>{};
   bool _primed = false;
 
-  /// The heat cells stagger in only the first time the view opens per visit.
-  bool _heatPlayed = false;
-  bool _heatStagger = false;
-
   /// Struck lines waiting out their grace, and how many times each entry has
   /// been brought back (the seq re-inks the line when it returns).
   final _struck = <int, _Strike>{};
   final _reinked = <int, int>{};
+
+  /// One repaint boundary per visible row, so a strike can photograph the
+  /// line it is about to dissolve.
+  final _boundaryKeys = <int, GlobalKey>{};
 
   /// Held so a struck line can still be let go while the page is leaving.
   TxnRepo? _strikeRepo;
@@ -204,7 +237,7 @@ class _BookPageState extends ConsumerState<BookPage> {
     final repo = _strikeRepo;
     if (repo != null) {
       for (final entry in _struck.entries) {
-        entry.value.timer.cancel();
+        entry.value.dispose();
         unawaited(repo.deleteTxn(entry.key));
       }
       _struck.clear();
@@ -238,37 +271,105 @@ class _BookPageState extends ConsumerState<BookPage> {
 
   // ————— striking a line out, the ledger way —————
 
-  /// Swiping doesn't tear the line out: it strikes it through and starts a
-  /// short grace. One tap in that window keeps it.
+  /// Swiping doesn't tear the line out politely: the pen crosses it, the
+  /// line dissolves into particles, and an in-place undo waits five
+  /// seconds. Nothing leaves the database until the undo goes unused.
   void _strike(Txn t) {
     HapticFeedback.mediumImpact();
     final TxnRepo repo = ref.read(txnRepoProvider);
     _strikeRepo = repo;
-    _struck.remove(t.id)?.timer.cancel();
-    late final _Strike strike;
-    strike = _Strike(
-      Timer(bookStrikeGrace, () {
-        strike.committed = true;
-        _struck.remove(t.id);
-        unawaited(repo.deleteTxn(t.id));
-        if (mounted) setState(() {});
-      }),
-    );
-    setState(() => _struck[t.id] = strike);
+    _struck.remove(t.id)?.dispose();
+    final strike = _Strike();
+    _struck[t.id] = strike;
+    // Photograph the line before anything touches it — synchronously, while
+    // its render object is still the live row.
+    unawaited(_captureRow(t.id, strike));
+
+    void commit() {
+      strike.committed = true;
+      _struck.remove(t.id)?.dispose();
+      _boundaryKeys.remove(t.id);
+      unawaited(repo.deleteTxn(t.id));
+      if (mounted) setState(() {});
+    }
+
+    strike.next = Timer(_strokeBeat, () {
+      if (!mounted) {
+        commit();
+        return;
+      }
+      setState(() => strike.phase = _StrikePhase.dissolving);
+      strike.next = Timer(_dissolveBeat, () {
+        if (!mounted) {
+          commit();
+          return;
+        }
+        setState(() => strike.phase = _StrikePhase.hidden);
+        // The line is off the page; the nav steps aside and the undo
+        // toast takes its slot for the length of the grace.
+        ref
+            .read(undoBannerProvider.notifier)
+            .offer(
+              UndoBanner(
+                id: t.id,
+                label: '${t.title} · ${Inr.format(t.amountPaise)} struck',
+                duration: bookStrikeGrace,
+                onUndo: () => _undoStrike(t),
+              ),
+            );
+        strike.next = Timer(bookStrikeGrace, () {
+          if (mounted) ref.read(undoBannerProvider.notifier).clear(t.id);
+          commit();
+        });
+      });
+    });
+    setState(() {});
   }
 
-  /// Bringing a struck line back. Inside the grace this is pure bookkeeping;
-  /// if the grace ran out a heartbeat ago, the repo's own undo restores it.
-  Future<void> _unstrike(Txn t) async {
+  Future<void> _captureRow(int id, _Strike strike) async {
+    try {
+      final boundary =
+          _boundaryKeys[id]?.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      strike.size = boundary.size;
+      final image = await boundary.toImage(pixelRatio: dpr);
+      // The strike may already be over (a fast undo, a disposed page).
+      if (strike.committed || _struck[id] != strike) {
+        image.dispose();
+        return;
+      }
+      strike.image = image;
+    } on Object {
+      // No photograph, no particles — the dissolve falls back to a fade.
+    }
+  }
+
+  /// The undo: the toast steps down, and the line reassembles from its own
+  /// particles right where it was struck.
+  Future<void> _undoStrike(Txn t) async {
     HapticFeedback.selectionClick();
-    final strike = _struck.remove(t.id);
+    if (mounted) ref.read(undoBannerProvider.notifier).clear(t.id);
+    final strike = _struck[t.id];
     if (strike == null || strike.committed) {
       await ref.read(txnRepoProvider).undoLastDelete();
       return;
     }
-    strike.timer.cancel();
-    if (!mounted) return;
-    setState(() => _reinked[t.id] = (_reinked[t.id] ?? 0) + 1);
+    strike.cancel();
+    if (strike.image == null || Motion.reduced(context)) {
+      _struck.remove(t.id)?.dispose();
+      if (mounted) {
+        setState(() => _reinked[t.id] = (_reinked[t.id] ?? 0) + 1);
+      }
+      return;
+    }
+    setState(() => strike.phase = _StrikePhase.reforming);
+    strike.next = Timer(_reformBeat, () {
+      HapticFeedback.lightImpact();
+      _struck.remove(t.id)?.dispose();
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -343,9 +444,13 @@ class _BookPageState extends ConsumerState<BookPage> {
       rows = rows.where((t) => t.title.toLowerCase().contains(q)).toList();
     }
 
-    final monthSpent = all
-        .where((t) => t.type == TxnType.expense)
-        .fold(0, (s, t) => s + t.amountPaise);
+    final expensesOnly = all.where((t) => t.type == TxnType.expense).toList();
+    final monthSpent = expensesOnly.fold(0, (s, t) => s + t.amountPaise);
+    // The month's color language — same map Today uses, so an entry's ink
+    // is identical on both pages.
+    final catColor = catInks([
+      for (final t in expensesOnly) (t.categoryId, t.amountPaise),
+    ], c.chartInks);
 
     return ListView(
       // Room for the floating glass bar: the page scrolls under it, but
@@ -360,13 +465,7 @@ class _BookPageState extends ConsumerState<BookPage> {
         LedgerAppBar(
           title: 'Book',
           trailing: InkWell(
-            onTap: () => setState(() {
-              _heat = !_heat;
-              if (_heat) {
-                _heatStagger = !_heatPlayed;
-                _heatPlayed = true;
-              }
-            }),
+            onTap: () => setState(() => _heat = !_heat),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -375,7 +474,7 @@ class _BookPageState extends ConsumerState<BookPage> {
                     : PenGrid(size: 14, color: c.quill),
                 const SizedBox(width: 4),
                 Text(
-                  _heat ? 'list' : 'heat',
+                  _heat ? 'list' : 'month',
                   style: LedgerType.bodyStrong.copyWith(
                     fontSize: 13,
                     color: c.quill,
@@ -461,8 +560,10 @@ class _BookPageState extends ConsumerState<BookPage> {
                             c,
                             now,
                             all,
+                            expensesOnly,
                             monthSpent,
                             catById,
+                            catColor,
                             onNow,
                           ),
                         )
@@ -486,6 +587,7 @@ class _BookPageState extends ConsumerState<BookPage> {
                                   now,
                                   rows,
                                   catById,
+                                  catColor,
                                   fresh,
                                   onNow,
                                   sealedDays,
@@ -554,10 +656,21 @@ class _BookPageState extends ConsumerState<BookPage> {
         ),
         const Spacer(),
         if (!onNow)
-          LedgerChip(
-            'back to now',
-            selected: true,
+          Pressable(
             onTap: () => _flipMonth(DateTime.now(), direction: 1),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Gap.x2,
+                vertical: Gap.x1,
+              ),
+              child: Text(
+                'back to now',
+                style: LedgerType.bodyStrong.copyWith(
+                  fontSize: 12,
+                  color: c.quill,
+                ),
+              ),
+            ),
           ),
       ],
     );
@@ -676,14 +789,14 @@ class _BookPageState extends ConsumerState<BookPage> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              LedgerChip(
+              QuillTab(
                 'all',
                 selected: _categoryFilter == null,
                 onTap: () => setState(() => _categoryFilter = null),
               ),
               const SizedBox(width: Gap.x2),
               for (final x in used) ...[
-                LedgerChip(
+                QuillTab(
                   x.name.split(' ').first.toLowerCase(),
                   icon: LedgerIcons.resolve(x.icon),
                   selected: _categoryFilter == x.id,
@@ -778,6 +891,7 @@ class _BookPageState extends ConsumerState<BookPage> {
     DateTime now,
     List<Txn> rows,
     Map<int, Category> cats,
+    Map<int?, Color> catColor,
     Set<int> fresh,
     bool onNow,
     Set<String> sealedDays,
@@ -823,9 +937,26 @@ class _BookPageState extends ConsumerState<BookPage> {
         ),
       );
       for (final (i, t) in list.indexed) {
-        final struck = _struck.containsKey(t.id);
+        final strike = _struck[t.id];
         final reink = _reinked[t.id] ?? 0;
-        final mark = CatMark(cats[t.categoryId]?.icon, size: 14);
+        // The category's ink rides ahead of its mark — the same color this
+        // category wears on Today and in the month view.
+        final ink = t.type == TxnType.income ? c.jama : catColor[t.categoryId];
+        final mark = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: ink ?? c.rule,
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            ),
+            const SizedBox(width: Gap.x2),
+            CatMark(cats[t.categoryId]?.icon, size: 14),
+          ],
+        );
         final amount = t.type == TxnType.income
             ? Inr.format(t.amountPaise, signed: true)
             : Inr.format(t.amountPaise);
@@ -836,30 +967,32 @@ class _BookPageState extends ConsumerState<BookPage> {
           InkIn(
             key: ValueKey('txn-ink-${t.id}-$reink'),
             play: fresh.contains(t.id) || reink > 0,
-            child: struck
-                ? LedgerLine(
+            child: strike != null
+                ? _StrikeStages(
+                    key: ValueKey('struck-${t.id}'),
+                    strike: strike,
                     leading: _time(t.at),
                     mark: mark,
                     title: t.title,
-                    detail: 'tap to keep it',
                     amount: amount,
-                    struck: true,
                     last: i == list.length - 1,
-                    onTap: () => _unstrike(t),
                   )
                 : _StrikeSwipe(
                     rowKey: ValueKey('swipe-${t.id}'),
                     onEdit: () => showTxnEditor(context, t),
                     onStrike: () => _strike(t),
-                    child: LedgerLine(
-                      leading: _time(t.at),
-                      mark: mark,
-                      title: t.title,
-                      amount: amount,
-                      amountColor: t.type == TxnType.income ? c.jama : null,
-                      last: i == list.length - 1,
-                      onTap: () => showTxnEditor(context, t),
-                      onLongPress: () => showTxnActions(context, ref, t),
+                    child: RepaintBoundary(
+                      key: _boundaryKeys.putIfAbsent(t.id, GlobalKey.new),
+                      child: LedgerLine(
+                        leading: _time(t.at),
+                        mark: mark,
+                        title: t.title,
+                        amount: amount,
+                        amountColor: t.type == TxnType.income ? c.jama : null,
+                        last: i == list.length - 1,
+                        onTap: () => showTxnEditor(context, t),
+                        onLongPress: () => showTxnActions(context, ref, t),
+                      ),
                     ),
                   ),
           ),
@@ -873,29 +1006,22 @@ class _BookPageState extends ConsumerState<BookPage> {
     LedgerColors c,
     DateTime now,
     List<Txn> all,
+    List<Txn> expensesOnly,
     int monthSpent,
     Map<int, Category> catById,
+    Map<int?, Color> catColor,
     bool onNow,
   ) {
     final days = List<int>.filled(LedgerDates.daysInMonth(_month), 0);
-    for (final t in all.where((t) => t.type == TxnType.expense)) {
+    for (final t in expensesOnly) {
       days[t.at.day - 1] += t.amountPaise;
-    }
-    var maxDay = 1;
-    var maxPaise = 0;
-    for (final (i, v) in days.indexed) {
-      if (v > maxPaise) {
-        maxPaise = v;
-        maxDay = i + 1;
-      }
     }
     final elapsed = onNow ? now.day : days.length;
     final quiet = days.take(elapsed).where((v) => v == 0).length;
 
     final slices = whereItWent([
-      for (final t in all.where((t) => t.type == TxnType.expense))
-        (t.categoryId, t.amountPaise),
-    ]);
+      for (final t in expensesOnly) (t.categoryId, t.amountPaise),
+    ], top: 4);
 
     final byDay = <int, List<Txn>>{};
     for (final t in all) {
@@ -906,76 +1032,39 @@ class _BookPageState extends ConsumerState<BookPage> {
 
     return [
       HeroAmount(
-        caption: '${_monthName(_month.month)}, day by day',
+        caption: _monthName(_month.month),
         amount: Inr.format(monthSpent),
         size: 30,
       ),
-      const SizedBox(height: Gap.x1),
-      LedgerCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: Gap.x3),
-            HeatGrid(
-              dayTotalsPaise: days,
-              stagger: _heatStagger,
-              onDayTap: (d) => _openDayPage(
-                DateTime(_month.year, _month.month, d),
-                byDay[d] ?? const [],
-                catById,
-              ),
-            ),
-            const SizedBox(height: Gap.x2),
-            Text(
-              'pale = quiet day',
-              style: LedgerType.bodyText.copyWith(
-                fontSize: 11,
-                color: c.inkFaint,
-              ),
-            ),
-            ?whisper,
-          ],
+      // The same calendar and category bar Today draws for the current
+      // month — here they read any page of the book. A finished month has
+      // no ring, no future days, no catch-up offer.
+      CalendarSection(
+        expenses: expensesOnly,
+        monthTxns: all,
+        month: _month,
+        today: onNow ? now.day : null,
+        catColor: catColor,
+        onDayTap: (d) => _openDayPage(
+          DateTime(_month.year, _month.month, d),
+          byDay[d] ?? const [],
+          catById,
         ),
       ),
-      if (slices.isNotEmpty)
-        LedgerCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const RuleHeader('where it went'),
-              for (final (i, s) in slices.indexed)
-                WhereRow(
-                  key: ValueKey('where-${s.isOther ? 'other' : s.categoryId}'),
-                  label: s.isOther
-                      ? 'everything else'
-                      : (catById[s.categoryId]?.name ?? 'unfiled'),
-                  iconKey: s.isOther ? null : catById[s.categoryId]?.icon,
-                  amount: Inr.format(s.paise),
-                  frac: slices.first.paise <= 0
-                      ? 0
-                      : s.paise / slices.first.paise,
-                  stagger: i,
-                  last: i == slices.length - 1,
-                  onTap: (s.isOther || s.categoryId == null)
-                      ? null
-                      : () => setState(() {
-                          _heat = false;
-                          _categoryFilter = s.categoryId;
-                        }),
-                ),
-            ],
-          ),
-        ),
-      LedgerCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const RuleHeader('what the month looks like'),
-            const SizedBox(height: Gap.x2),
-            _monthShapeLine(c, quiet, all.length, maxDay, maxPaise > 0),
-          ],
-        ),
+      WhereSection(
+        slices: slices,
+        monthPaise: monthSpent,
+        catColor: catColor,
+        // Tapping a category folds the month view back into the ledger,
+        // filtered to that ink.
+        onSliceTap: (s) => setState(() {
+          _heat = false;
+          _categoryFilter = s.categoryId;
+        }),
       ),
+      const SectionHead('what the month looks like'),
+      _monthShapeLine(c, quiet, all.length, 0, false),
+      ?whisper,
     ];
   }
 
@@ -1132,7 +1221,9 @@ class _BookPageState extends ConsumerState<BookPage> {
 /// The book's own swipe. [SwipeRow] tears the line out of the page; here a
 /// struck line has to stay put while its grace runs, so the row springs back
 /// instead of dismissing — same reveal, same words, different ending.
-class _StrikeSwipe extends StatelessWidget {
+/// Crossing the commit threshold ticks under the finger, both ways: the hand
+/// knows the moment the swipe would land without watching for it.
+class _StrikeSwipe extends StatefulWidget {
   const _StrikeSwipe({
     required this.rowKey,
     required this.child,
@@ -1146,11 +1237,24 @@ class _StrikeSwipe extends StatelessWidget {
   final VoidCallback onStrike;
 
   @override
+  State<_StrikeSwipe> createState() => _StrikeSwipeState();
+}
+
+class _StrikeSwipeState extends State<_StrikeSwipe> {
+  bool _reached = false;
+
+  @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     return Dismissible(
-      key: rowKey,
+      key: widget.rowKey,
       direction: DismissDirection.horizontal,
+      onUpdate: (details) {
+        if (details.reached != _reached) {
+          _reached = details.reached;
+          HapticFeedback.selectionClick();
+        }
+      },
       background: Container(
         color: c.paperRaised,
         alignment: Alignment.centerLeft,
@@ -1172,20 +1276,156 @@ class _StrikeSwipe extends StatelessWidget {
       confirmDismiss: (dir) async {
         if (dir == DismissDirection.startToEnd) {
           HapticFeedback.selectionClick();
-          onEdit();
+          widget.onEdit();
         } else {
-          onStrike();
+          widget.onStrike();
         }
         // The line never leaves this way — it springs back, struck or intact.
         return false;
       },
-      child: child,
+      child: widget.child,
     );
   }
 }
 
-/// One line of the bar-list: the ink bar is the row's own background,
-/// drawing itself left→right, longest bar first. Never a pie.
+/// A struck line through its phases. The pen crosses it in vermilion,
+/// then the line dissolves into particles of its own image — torn off the
+/// page in a left-to-right wave. What remains is a quiet in-place undo for
+/// five seconds; taking it runs the particles backwards until the line
+/// stands whole again. Heights hand over through [AnimatedSize], so the
+/// page never pops.
+class _StrikeStages extends StatelessWidget {
+  const _StrikeStages({
+    super.key,
+    required this.strike,
+    required this.leading,
+    required this.mark,
+    required this.title,
+    required this.amount,
+    required this.last,
+  });
+
+  final _Strike strike;
+  final String leading;
+  final Widget mark;
+  final String title;
+  final String amount;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final rowH = strike.size?.height ?? 38;
+    final child = switch (strike.phase) {
+      _StrikePhase.struck => _struckRow(c),
+      _StrikePhase.dissolving => _particles(context, rowH, reverse: false),
+      // The ash has blown away: the gap closes and the undo lives down in
+      // the nav's slot, not here.
+      _StrikePhase.hidden => const SizedBox(width: double.infinity),
+      _StrikePhase.reforming => _particles(context, rowH, reverse: true),
+    };
+    return AnimatedSize(
+      duration: Motion.reduced(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: child,
+    );
+  }
+
+  /// The instant after the swipe: the pen crosses the whole line, once.
+  Widget _struckRow(LedgerColors c) {
+    return Container(
+      decoration: last
+          ? null
+          : BoxDecoration(
+              border: Border(bottom: BorderSide(color: c.rule)),
+            ),
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Stack(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              SizedBox(
+                width: 44,
+                child: Text(
+                  leading,
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
+                ),
+              ),
+              Baseline(
+                baseline: 11,
+                baselineType: TextBaseline.alphabetic,
+                child: Opacity(opacity: 0.55, child: mark),
+              ),
+              const SizedBox(width: Gap.x2),
+              Expanded(
+                child: Text(
+                  title,
+                  style: LedgerType.bodyText.copyWith(color: c.inkFaint),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                amount,
+                style: LedgerType.amount.copyWith(color: c.inkFaint),
+              ),
+            ],
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: LayoutBuilder(
+                  builder: (context, box) => DrawIn(
+                    duration: const Duration(milliseconds: 280),
+                    builder: (context, p) => QuillStroke(
+                      width: box.maxWidth,
+                      thickness: 1.8,
+                      color: c.seal,
+                      progress: p,
+                      seed: 11,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _particles(
+    BuildContext context,
+    double height, {
+    required bool reverse,
+  }) {
+    final image = strike.image;
+    if (image == null || Motion.reduced(context)) {
+      // No photograph (or no motion): the beat passes as blank space and
+      // the timers carry the flow.
+      return SizedBox(height: height, width: double.infinity);
+    }
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: ParticleField(
+        image: image,
+        reverse: reverse,
+        duration: reverse ? _reformAnim : _dissolveAnim,
+      ),
+    );
+  }
+}
+
 /// [DayHeader] with a settling total — adding an entry visibly bumps the day.
 /// The layout is the shared header's; only the number moves.
 class _CountingDayHeader extends StatefulWidget {

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +12,7 @@ import '../../core/typography.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/particles.dart';
 import '../../data/db.dart';
 import '../../data/repos/note_repo.dart';
 import 'note_editor.dart';
@@ -152,13 +155,25 @@ class _NotesPageState extends ConsumerState<NotesPage> {
   /// until the grace runs out, and a tap in that window brings the row back.
   final _struck = <int>{};
 
-  /// Struck rows whose grace has run out: held for one fade, then gone.
+  /// Struck rows whose grace has run out: dissolving into particles of
+  /// their own image, then a closed gap, then truly archived.
   final _leaving = <int>{};
+  final _gone = <int>{};
   final _graceTimers = <int, Timer>{};
+
+  /// One repaint boundary per struck row, so the dissolve can photograph
+  /// the exact line it is about to tear up.
+  final _boundaryKeys = <int, GlobalKey>{};
+  final _images = <int, (ui.Image, double)>{};
 
   /// Long enough to notice the strike and take it back; short enough that
   /// the page doesn't keep a graveyard.
   static const _grace = Duration(seconds: 4);
+
+  /// The dissolve's beats — matched to the Book's strike, so a line leaves
+  /// every page of this app the same way.
+  static const _dissolveAnim = Duration(milliseconds: 1050);
+  static const _dissolveBeat = Duration(milliseconds: 1150);
 
   /// Bumped each submit: the capture rule flashes quill and settles back —
   /// the pen lifting off the line.
@@ -192,6 +207,10 @@ class _NotesPageState extends ConsumerState<NotesPage> {
     for (final id in _struck) {
       unawaited(_repo.archive(id));
     }
+    for (final (img, _) in _images.values) {
+      img.dispose();
+    }
+    _images.clear();
     _capture.dispose();
     _searchFocus.removeListener(_onSearchFocus);
     _searchFocus.dispose();
@@ -220,7 +239,13 @@ class _NotesPageState extends ConsumerState<NotesPage> {
       _penLift++;
       _captureReminder = null;
     });
-    await _repo.create(title: line, remindAt: reminder);
+    final id = await _repo.create(title: line, remindAt: reminder);
+    // The headline was never the whole thought: the page opens for the
+    // rest of it immediately, instead of making the hand come back and
+    // find the row it just made.
+    final note = await _repo.byId(id);
+    if (note == null || !mounted) return;
+    _open(note, startWriting: true);
   }
 
   Future<void> _chooseCaptureReminder() async {
@@ -241,27 +266,68 @@ class _NotesPageState extends ConsumerState<NotesPage> {
     _graceTimers[id] = Timer(_grace, () => _letGo(id));
   }
 
-  /// Grace over: the row fades off the page, then the note is archived.
+  /// Grace over: the row dissolves into particles of its own image — the
+  /// same ash the Book's strike blows away — the gap closes, and only then
+  /// is the note archived.
   void _letGo(int id) {
     if (!mounted) return;
-    setState(() => _leaving.add(id));
-    _graceTimers[id] = Timer(Motion.spring, () {
+    void archive() {
       _graceTimers.remove(id);
+      _images.remove(id)?.$1.dispose();
       unawaited(_repo.archive(id));
       if (!mounted) return;
       setState(() {
         _struck.remove(id);
         _leaving.remove(id);
+        _gone.remove(id);
       });
+    }
+
+    if (Motion.reduced(context)) {
+      setState(() => _leaving.add(id));
+      _graceTimers[id] = Timer(Motion.spring, archive);
+      return;
+    }
+    unawaited(_captureStruck(id));
+    setState(() => _leaving.add(id));
+    _graceTimers[id] = Timer(_dissolveBeat, () {
+      if (!mounted) {
+        archive();
+        return;
+      }
+      setState(() => _gone.add(id));
+      _graceTimers[id] = Timer(const Duration(milliseconds: 220), archive);
     });
+  }
+
+  Future<void> _captureStruck(int id) async {
+    try {
+      final boundary =
+          _boundaryKeys[id]?.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final height = boundary.size.height;
+      final image = await boundary.toImage(
+        pixelRatio: MediaQuery.of(context).devicePixelRatio,
+      );
+      if (!_struck.contains(id)) {
+        image.dispose();
+        return;
+      }
+      _images[id] = (image, height);
+    } on Object {
+      // No photograph, no particles — the row falls back to a plain fade.
+    }
   }
 
   /// Taken back: the line re-inks where it stood.
   void _unstrike(int id) {
     _graceTimers.remove(id)?.cancel();
+    _images.remove(id)?.$1.dispose();
     setState(() {
       _struck.remove(id);
       _leaving.remove(id);
+      _gone.remove(id);
     });
   }
 
@@ -273,10 +339,12 @@ class _NotesPageState extends ConsumerState<NotesPage> {
     await _repo.update(n.id, body: body);
   }
 
-  void _open(Note note) {
-    Navigator.of(
-      context,
-    ).push(LedgerRoute<void>(builder: (_) => NoteEditorPage(note: note)));
+  void _open(Note note, {bool startWriting = false}) {
+    Navigator.of(context).push(
+      LedgerRoute<void>(
+        builder: (_) => NoteEditorPage(note: note, startWriting: startWriting),
+      ),
+    );
   }
 
   @override
@@ -465,20 +533,51 @@ class _NotesPageState extends ConsumerState<NotesPage> {
     required bool pinPopped,
   }) {
     if (_struck.contains(n.id)) {
-      return AnimatedOpacity(
+      final img = _images[n.id];
+      final leaving = _leaving.contains(n.id);
+      final Widget body;
+      if (_gone.contains(n.id)) {
+        // Ash blown away: the gap closes before the archive lands.
+        body = const SizedBox(width: double.infinity);
+      } else if (leaving && img != null) {
+        body = SizedBox(
+          height: img.$2,
+          width: double.infinity,
+          child: ParticleField(
+            image: img.$1,
+            reverse: false,
+            duration: _dissolveAnim,
+          ),
+        );
+      } else {
+        body = AnimatedOpacity(
+          duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
+          curve: Motion.curve,
+          // Only the no-photograph fallback still fades; with a photograph
+          // the particles carry the exit.
+          opacity: leaving ? 0 : 1,
+          child: RepaintBoundary(
+            key: _boundaryKeys.putIfAbsent(n.id, GlobalKey.new),
+            child: _NoteLine(
+              note: n,
+              last: last,
+              pinPopped: false,
+              struck: true,
+              onTap: () => _unstrike(n.id),
+              onLongPress: () => _unstrike(n.id),
+              onToggleDone: () => _repo.setCompleted(n.id, !n.completed),
+            ),
+          ),
+        );
+      }
+      return AnimatedSize(
         key: ValueKey('note-struck-${n.id}'),
-        duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
-        curve: Motion.curve,
-        opacity: _leaving.contains(n.id) ? 0 : 1,
-        child: _NoteLine(
-          note: n,
-          last: last,
-          pinPopped: false,
-          struck: true,
-          onTap: () => _unstrike(n.id),
-          onLongPress: () => _unstrike(n.id),
-          onToggleDone: () => _repo.setCompleted(n.id, !n.completed),
-        ),
+        duration: Motion.reduced(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: body,
       );
     }
     return InkIn(

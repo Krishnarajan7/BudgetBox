@@ -129,9 +129,13 @@ Future<DateTime?> pickNoteReminder(
 /// One note, full page. No save button — the ink dries on its own: writes
 /// are debounced ~500ms and flushed when the page is left.
 class NoteEditorPage extends ConsumerStatefulWidget {
-  const NoteEditorPage({super.key, required this.note});
+  const NoteEditorPage({super.key, required this.note, this.startWriting = false});
 
   final Note note;
+
+  /// True when the page opens straight off the capture line: the headline
+  /// is already down, so the pen lands in the body with the keyboard up.
+  final bool startWriting;
 
   @override
   ConsumerState<NoteEditorPage> createState() => _NoteEditorPageState();
@@ -368,6 +372,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   padding: const EdgeInsets.symmetric(horizontal: Gap.page),
                   child: TextField(
                     controller: _body,
+                    autofocus: widget.startWriting,
                     onChanged: (_) => _changed(),
                     maxLines: null,
                     expands: true,

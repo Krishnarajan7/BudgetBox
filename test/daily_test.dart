@@ -166,7 +166,8 @@ void main() {
       await tester.tap(find.text('Water'));
       await tester.pumpAndSettle();
       expect(find.text('add a glass'), findsOneWidget);
-      expect(find.text('glasses the goal'), findsOneWidget);
+      // The goal reads in millilitres now, against the day's bottle.
+      expect(find.text('of a 750ml bottle ›'), findsOneWidget);
 
       await tester.tap(find.text('add a glass'));
       await tester.pumpAndSettle();
@@ -174,6 +175,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('2'), findsOneWidget); // the big count
       expect(find.text('25%'), findsOneWidget); // 2 of 8
+      expect(find.text('188ml'), findsOneWidget); // 2 × 750/8, rounded
 
       // One can always be taken back.
       await tester.tap(find.text('take one back'));
@@ -184,6 +186,46 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('water-close')));
       await tester.pumpAndSettle();
       expect(find.text('1/8'), findsOneWidget);
+
+      await settle(tester);
+    });
+
+    testWidgets('the ninth glass tips the bottle onto the shelf',
+        (tester) async {
+      await pump(tester);
+
+      await scrollTo(tester, 'Water');
+      await tester.tap(find.text('Water'));
+      await tester.pumpAndSettle();
+
+      // Seven glasses in: still pouring.
+      for (var i = 0; i < 7; i++) {
+        await tester.tap(find.text('add a glass'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('bottle down'), findsNothing);
+
+      // The eighth fills the bottle — it stands full, not reset.
+      await tester.tap(find.text('add a glass'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('the bottle is full — the next glass tips it.'),
+        findsOneWidget,
+      );
+      expect(find.text('bottle down'), findsNothing);
+
+      // The ninth tips it: one finished bottle on the shelf, the vessel
+      // holding one glass of the next, the day still counting all nine.
+      await tester.tap(find.text('add a glass'));
+      await tester.pumpAndSettle();
+      expect(find.text('bottle down'), findsOneWidget);
+      expect(find.text('9'), findsOneWidget);
+      expect(find.text('844ml'), findsOneWidget); // 9 × 750/8, rounded
+
+      // The day's row folds the count into bottles, never "9 of 8".
+      await tester.tap(find.byKey(const ValueKey('water-close')));
+      await tester.pumpAndSettle();
+      expect(find.text('+1 · 1 of 8'), findsOneWidget);
 
       await settle(tester);
     });
@@ -289,10 +331,15 @@ void main() {
       expect(entry.feelTags, 'building,alone');
       expect(entry.feelWhy, 'kept a straight line all day');
 
-      // The page section now wears the word and offers the way back in.
+      // The page section now wears the word and offers the way back in —
+      // and says the rest of the check-in back instead of swallowing it.
       await scrollTo(tester, 'the page');
       expect(find.text('steady'), findsOneWidget);
       expect(find.text('re-mark'), findsOneWidget);
+      expect(
+        find.text('building · alone — kept a straight line all day'),
+        findsOneWidget,
+      );
 
       await settle(tester);
     });
