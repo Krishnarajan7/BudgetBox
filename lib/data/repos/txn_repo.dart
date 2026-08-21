@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import '../db.dart';
 import '../sync/ids.dart';
 import '../sync/seam.dart';
+import '../tonight.dart';
 
 /// A title suggestion carrying the category it was last filed under —
 /// type "sar", get "Saravana Bhavan" + Food & chai for free.
@@ -94,8 +95,8 @@ class TxnRepo {
     );
   }
 
-  Future<int> _insert(TxnsCompanion c) {
-    return _db.transaction(() async {
+  Future<int> _insert(TxnsCompanion c) async {
+    final id = await _db.transaction(() async {
       final id = await _db.into(_db.txns).insert(c);
       final row = await (_db.select(
         _db.txns,
@@ -107,10 +108,24 @@ class TxnRepo {
       await bbxSync.upsert(SyncKinds.txn, id);
       return id;
     });
+    await _revoice();
+    return id;
   }
 
-  Future<void> deleteTxn(int id) {
-    return _db.transaction(() async {
+  /// Tonight's nine o'clock line is composed when it is *scheduled*, not when
+  /// it speaks — so every stroke in this file has to re-say it, or the
+  /// evening arrives still describing the morning. Outside the transaction on
+  /// purpose: talking to the notification service is not part of a database
+  /// write, and must not be able to roll one back.
+  ///
+  /// Deliberately awaited rather than fired and forgotten. It is two small
+  /// reads and one platform call, it happens at the pace a person stamps
+  /// entries, and the alternative — letting it race the app being closed — is
+  /// precisely the failure it exists to fix.
+  Future<void> _revoice() => bbxEveningVoice(_db);
+
+  Future<void> deleteTxn(int id) async {
+    await _db.transaction(() async {
       final row = await (_db.select(
         _db.txns,
       )..where((t) => t.id.equals(id))).getSingle();
@@ -119,6 +134,7 @@ class TxnRepo {
       await (_db.delete(_db.txns)..where((t) => t.id.equals(id))).go();
       await bbxSync.remove(SyncKinds.txn, id);
     });
+    await _revoice();
   }
 
   /// Rewrite an entry: the old stroke is reversed, the new one applied, and
@@ -159,7 +175,7 @@ class TxnRepo {
       await _applyBalance(fresh, direction: 1);
       await _log(fresh, ActivityAction.edited);
       await bbxSync.upsert(SyncKinds.txn, id);
-    });
+    }).then((_) => _revoice());
   }
 
   /// Restores the most recently deleted transaction. Fearless correction.

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 
 import '../../core/notifications.dart';
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 import '../providers.dart';
 
 final alarmRepoProvider = Provider<AlarmRepo>(
@@ -113,17 +115,21 @@ class AlarmRepo {
     int snoozeMinutes = 9,
     bool vibrate = true,
   }) async {
-    final id = await _db
-        .into(_db.alarms)
-        .insert(
-          AlarmsCompanion.insert(
-            minuteOfDay: minuteOfDay,
-            label: Value(label.trim()),
-            days: Value(days),
-            snoozeMinutes: Value(snoozeMinutes),
-            vibrate: Value(vibrate),
-          ),
-        );
+    final id = await _db.transaction(() async {
+      final id = await _db
+          .into(_db.alarms)
+          .insert(
+            AlarmsCompanion.insert(
+              minuteOfDay: minuteOfDay,
+              label: Value(label.trim()),
+              days: Value(days),
+              snoozeMinutes: Value(snoozeMinutes),
+              vibrate: Value(vibrate),
+            ),
+          );
+      await bbxSync.upsert(SyncKinds.alarm, id);
+      return id;
+    });
     await _reschedule(id);
     return id;
   }
@@ -137,22 +143,30 @@ class AlarmRepo {
     int? snoozeMinutes,
     bool? vibrate,
   }) async {
-    await (_db.update(_db.alarms)..where((a) => a.id.equals(id))).write(
-      AlarmsCompanion(
-        minuteOfDay: minuteOfDay == null ? const Value.absent() : Value(minuteOfDay),
-        label: label == null ? const Value.absent() : Value(label.trim()),
-        days: days == null ? const Value.absent() : Value(days),
-        enabled: enabled == null ? const Value.absent() : Value(enabled),
-        snoozeMinutes:
-            snoozeMinutes == null ? const Value.absent() : Value(snoozeMinutes),
-        vibrate: vibrate == null ? const Value.absent() : Value(vibrate),
-      ),
-    );
+    await _db.transaction(() async {
+      await (_db.update(_db.alarms)..where((a) => a.id.equals(id))).write(
+        AlarmsCompanion(
+          minuteOfDay:
+              minuteOfDay == null ? const Value.absent() : Value(minuteOfDay),
+          label: label == null ? const Value.absent() : Value(label.trim()),
+          days: days == null ? const Value.absent() : Value(days),
+          enabled: enabled == null ? const Value.absent() : Value(enabled),
+          snoozeMinutes: snoozeMinutes == null
+              ? const Value.absent()
+              : Value(snoozeMinutes),
+          vibrate: vibrate == null ? const Value.absent() : Value(vibrate),
+        ),
+      );
+      await bbxSync.upsert(SyncKinds.alarm, id);
+    });
     await _reschedule(id);
   }
 
   Future<void> delete(int id) async {
-    await (_db.delete(_db.alarms)..where((a) => a.id.equals(id))).go();
+    await _db.transaction(() async {
+      await (_db.delete(_db.alarms)..where((a) => a.id.equals(id))).go();
+      await bbxSync.remove(SyncKinds.alarm, id);
+    });
     await LedgerReminders.cancelAlarm(id);
   }
 

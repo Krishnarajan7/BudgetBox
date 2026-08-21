@@ -324,6 +324,12 @@ class SyncOutbox implements RemoteRefs {
       case SyncKinds.vault:
         final r = await _one(_db.vaultItems, (t) => t.id.equals(localId));
         return r == null ? null : vaultBody(r);
+      case SyncKinds.mark:
+        final r = await _one(_db.dayMarks, (t) => t.id.equals(localId));
+        return r == null ? null : markBody(r);
+      case SyncKinds.alarm:
+        final r = await _one(_db.alarms, (t) => t.id.equals(localId));
+        return r == null ? null : alarmBody(r);
       case SyncKinds.journal:
         final day = SyncIds.dayForLocalId(localId);
         final r = await _one(_db.journalEntries, (t) => t.date.equals(day));

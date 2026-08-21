@@ -14,6 +14,7 @@ import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import 'money_moves.dart';
+import 'shortfall.dart';
 
 /// Long-press the ＋: the power menu. Pinned repeats stamp instantly —
 /// the true sub-second path — with transfer/income/catch-up behind it.
@@ -77,9 +78,16 @@ class _FabMenuState extends ConsumerState<_FabMenu> {
 
   Future<void> _stampPin(Pinned p) async {
     if (_stampedId != null) return;
+    final accountId = await settleShortfall(
+      context,
+      ref,
+      accountId: p.accountId,
+      amountPaise: p.amountPaise,
+    );
+    if (accountId == null || !mounted) return;
     setState(() => _stampedId = p.id);
     HapticFeedback.lightImpact();
-    await ref.read(pinnedRepoProvider).stamp(p);
+    await ref.read(pinnedRepoProvider).stamp(p, accountId: accountId);
     // The seal lands before the menu leaves — the entry is witnessed.
     await Future<void>.delayed(const Duration(milliseconds: 320));
     if (!mounted) return;

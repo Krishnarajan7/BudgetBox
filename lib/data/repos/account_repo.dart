@@ -67,6 +67,55 @@ class AccountRepo {
     });
   }
 
+  /// What an expense of [amountPaise] against [accountId] would overdraw the
+  /// pocket by, or null when it wouldn't.
+  ///
+  /// The rule here is the *same* rule [TxnRepo] applies when it moves a
+  /// balance, deliberately duplicated rather than approximated:
+  ///
+  /// * An entry dated before the account's anchor doesn't touch the figure at
+  ///   all — the money left the pocket before the pocket was counted — so
+  ///   filling in last Tuesday can never overdraw anything.
+  /// * A liability is asked to grow, not shrink; "not enough in it" is not a
+  ///   sentence about a credit card.
+  /// * A pocket nobody has ever counted says nothing. A brand-new account
+  ///   sits at zero because no figure was declared, not because it is empty,
+  ///   and a book that stopped to argue about every entry until its owner
+  ///   finished the setup ritual would be unusable. "Counted" means the
+  ///   figure is above zero, or the pocket has at least one reading behind
+  ///   it — either way, someone has told the book something true about it.
+  ///
+  /// Anything this returns is a real, arithmetical shortfall the book is
+  /// about to write down, which is why it is worth stopping for.
+  Future<({Account account, int shortPaise})?> shortfall({
+    required int accountId,
+    required int amountPaise,
+    DateTime? at,
+  }) async {
+    final account = await (_db.select(
+      _db.accounts,
+    )..where((a) => a.id.equals(accountId))).getSingleOrNull();
+    if (account == null || account.kind == AccountKind.liability) return null;
+    if ((at ?? DateTime.now()).isBefore(account.asOf)) return null;
+    if (account.balancePaise <= 0 && !await _everCounted(accountId)) {
+      return null;
+    }
+    final short = amountPaise - account.balancePaise;
+    return short > 0 ? (account: account, shortPaise: short) : null;
+  }
+
+  /// Has this pocket ever had a reading taken? One snapshot is enough — it
+  /// means a figure was declared, or money moved through it and the book
+  /// watched.
+  Future<bool> _everCounted(int accountId) async {
+    final row =
+        await (_db.select(_db.balanceSnapshots)
+              ..where((s) => s.accountId.equals(accountId))
+              ..limit(1))
+            .get();
+    return row.isNotEmpty;
+  }
+
   /// The last [points] daily readings for an account, oldest first — the
   /// sparkline's memory. Falls back to a flat line when history is short.
   Future<List<double>> spark(int accountId, {int points = 8}) async {

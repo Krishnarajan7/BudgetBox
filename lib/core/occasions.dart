@@ -101,11 +101,33 @@ class Occasions {
       final on = nextOccurrence(e, today);
       if (on == null) {
         await LedgerReminders.cancelEvent(e.id);
-      } else {
+        continue;
+      }
+      final remind = e.remindMinutes;
+      if (remind == null) {
+        // No asked-for reminder: the quiet 9 a.m. line, as always — and
+        // any eve heads-up left over from a cleared reminder goes too.
         await LedgerReminders.scheduleEventDay(
           e.id,
           e.title,
           DateTime(on.year, on.month, on.day, 9),
+        );
+        await LedgerReminders.cancelEventEve(e.id);
+      } else {
+        // The asked-for hour, in its own words — and the evening before,
+        // a heads-up that never repeats itself two days running.
+        final seed = e.id * 31 + on.month * 7 + on.day;
+        await LedgerReminders.scheduleEventDay(
+          e.id,
+          e.title,
+          DateTime(on.year, on.month, on.day, remind ~/ 60, remind % 60),
+          body: dayNudgeLine(seed),
+        );
+        await LedgerReminders.scheduleEventEve(
+          e.id,
+          'to-morrow · ${e.title}',
+          eveNudgeLine(seed),
+          DateTime(on.year, on.month, on.day - 1, 20, 30),
         );
       }
     }
@@ -128,3 +150,28 @@ class Occasions {
     }
   }
 }
+
+/// The reminder's voices. Two small rotations, picked deterministically per
+/// event and date, so the same words never arrive two days in a row — a
+/// nudge that repeats itself verbatim stops being heard.
+const _eveLines = [
+  'rest well to-night — the page is ready for it.',
+  'you are more ready than you think. sleep on it gently.',
+  'nothing to do to-night but rest — to-morrow is just another page.',
+  'walk in calm to-morrow; I will nudge you again at the hour.',
+  'steady breaths to-night. we go in prepared.',
+];
+
+const _dayLines = [
+  'the hour you asked for — go well.',
+  'it is time. you have this.',
+  'as you asked — now. walk in steady.',
+  'your nudge, as promised. all the best.',
+  'now, says the book. go gently and sure.',
+];
+
+/// The evening-before heads-up's line for [seed].
+String eveNudgeLine(int seed) => _eveLines[seed % _eveLines.length];
+
+/// The asked-for hour's line for [seed].
+String dayNudgeLine(int seed) => _dayLines[seed % _dayLines.length];

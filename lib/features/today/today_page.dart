@@ -2,6 +2,7 @@ import 'dart:async' show Timer;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/cat_inks.dart';
@@ -22,6 +23,7 @@ import '../../data/repos/journal_repo.dart' show journalRepoProvider;
 import '../book/book_page.dart' show whereItWent;
 import '../insights/insights_page.dart';
 import '../../core/widgets/feel_picker.dart';
+import '../birthday/birthday_page.dart' show BirthdayPage, gatherBirthdayFacts;
 import 'widgets/close_day.dart';
 import 'widgets/digit_roll.dart';
 import 'widgets/sections.dart';
@@ -142,12 +144,20 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     return 'good evening';
   }
 
+  /// The one day a year the greeting outranks everything. The ceremony
+  /// hardcodes 18 August, so the greeting honours the same date whether or
+  /// not the birthday was ever filled into Settings — one truth, two doors.
+  bool _isBirthday(DateTime now) {
+    final bd = _birthday;
+    if (bd != null && now.day == bd.$1 && now.month == bd.$2) return true;
+    return now.month == 8 && now.day == 18;
+  }
+
   /// One line that occasionally knows things: salary landing beats the date,
   /// a closed yesterday gets a quiet nod, and most days it's just the date.
   String _greetingLine(DateTime now) {
     final base = '$_greeting, $_name';
-    final bd = _birthday;
-    if (bd != null && now.day == bd.$1 && now.month == bd.$2) {
+    if (_isBirthday(now)) {
       return 'happy birthday, $_name';
     }
     if (now.day == _salaryDay) return '$base — salary lands today';
@@ -181,6 +191,24 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       'december',
     ];
     return '${days[d.weekday - 1]} ${d.day} ${months[d.month - 1]}';
+  }
+
+  /// The encore: on the birthday itself, a long-press on the greeting
+  /// replays the ceremony — the one page of the year, allowed a second
+  /// showing on its one day. Every other day this is an ordinary line.
+  Future<void> _replayBirthday() async {
+    HapticFeedback.lightImpact();
+    final facts = await gatherBirthdayFacts(ref.read(dbProvider), name: _name);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 600),
+        reverseTransitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, _, _) => BirthdayPage(facts: facts),
+        transitionsBuilder: (_, anim, _, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ),
+    );
   }
 
   int _daysToSalary(DateTime now) {
@@ -351,9 +379,12 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               children: [
                 const LedgerAppBar(),
                 const SizedBox(height: Gap.x4),
-                Text(
-                  _greetingLine(now),
-                  style: LedgerType.label.copyWith(color: c.inkFaint),
+                GestureDetector(
+                  onLongPress: _isBirthday(now) ? _replayBirthday : null,
+                  child: Text(
+                    _greetingLine(now),
+                    style: LedgerType.label.copyWith(color: c.inkFaint),
+                  ),
                 ),
                 const SizedBox(height: 2),
                 // The hero and its answer, side by side: the figure is the

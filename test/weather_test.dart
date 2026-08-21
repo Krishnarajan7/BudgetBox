@@ -3,10 +3,40 @@ import 'package:budgetbox/data/db.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const _body = '''
+String _hours(String field, List<Object> values) =>
+    '"$field": [${values.join(",")}]';
+
+/// The hours [from]…23 of 14 Aug, quoted for JSON.
+List<Object> hoursFrom(int from) => [
+  for (var h = from; h < 24; h++)
+    '"2026-08-14T${h.toString().padLeft(2, "0")}:00"',
+];
+
+/// Those same hours' codes: wet from 18:00 to 20:00, part cloud otherwise.
+List<Object> codesFrom(int from) => [
+  for (var h = from; h < 24; h++) (h >= 18 && h <= 20) ? 61 : 2,
+];
+
+/// To-day's twenty-four hours. Written with a real `time` column because
+/// that is what the parser matches against.
+final _times = hoursFrom(0);
+
+final _body =
+    '''
 {
-  "current": {"temperature_2m": 32.7, "weather_code": 2},
-  "hourly": {"weather_code": [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,61,61,61,3,3,3]},
+  "current": {
+    "temperature_2m": 32.7,
+    "apparent_temperature": 38.4,
+    "relative_humidity_2m": 74,
+    "weather_code": 2
+  },
+  "hourly": {
+    ${_hours("time", _times)},
+    ${_hours("weather_code", codesFrom(0))},
+    ${_hours("precipitation_probability", [
+      for (var h = 0; h < 24; h++) (h >= 18 && h <= 20) ? 80 : 5,
+    ])}
+  },
   "daily": {
     "temperature_2m_max": [35.1],
     "temperature_2m_min": [26.4],
@@ -29,16 +59,82 @@ void main() {
       expect(sky.at, at);
     });
 
-    test('rain later in the day is spotted, and said', () {
-      // At 09:00 the wet codes at 18:00 are still ahead.
+    test('rain later in the day is spotted, and the hour is named', () {
+      // At 09:00 the wet hours at 18:00 are still ahead.
       final morning = WeatherRepo.parse(_body, at: DateTime(2026, 8, 14, 9))!;
       expect(morning.rainLater, isTrue);
-      expect(morning.line, '33° · rain later');
+      expect(morning.rainFrom, DateTime(2026, 8, 14, 18));
+      // 80% is not worth doubting out loud; the hour is the whole message.
+      expect(morning.line, '33° · rain by 6 pm');
 
-      // By 20:00 the wet hours (18–20) are behind; nothing more is promised.
+      // By 20:00 only the hour you are standing in is left, and "later"
+      // never means "this minute".
       final night = WeatherRepo.parse(_body, at: DateTime(2026, 8, 14, 20))!;
       expect(night.rainLater, isFalse);
+      expect(night.rainFrom, isNull);
       expect(night.line, '33° · part cloud');
+    });
+
+    test('the wet hours are matched by the clock, not counted off', () {
+      // The same forecast, but the rows begin at 06:00 rather than midnight —
+      // which is what happens the moment the phone's timezone and the
+      // forecast's disagree. Counting from index (hour + 1) would read the
+      // 16:00 row as 10:00 and promise rain six hours early; matching on the
+      // hour column cannot.
+      final shifted =
+          '''
+      {
+        "current": {"temperature_2m": 32.7, "weather_code": 2},
+        "hourly": {
+          ${_hours("time", hoursFrom(6))},
+          ${_hours("weather_code", codesFrom(6))}
+        },
+        "daily": {"temperature_2m_max": [35.1], "temperature_2m_min": [26.4]}
+      }
+      ''';
+      final sky = WeatherRepo.parse(shifted, at: DateTime(2026, 8, 14, 9))!;
+      expect(sky.rainFrom, DateTime(2026, 8, 14, 18));
+    });
+
+    test('an uncertain forecast says how uncertain', () {
+      final unsure = _body.replaceAll('80,80,80', '35,35,35');
+      final sky = WeatherRepo.parse(unsure, at: DateTime(2026, 8, 14, 9))!;
+      expect(sky.rainChance, 35);
+      expect(sky.line, '33° · rain by 6 pm (35%)');
+    });
+
+    test('rain the far side of the window is not to-day\'s problem', () {
+      // Wet at 06:00 the day after next — real, but 40-odd hours out.
+      const body = '''
+      {
+        "current": {"temperature_2m": 30, "weather_code": 0},
+        "hourly": {
+          "time": ["2026-08-16T06:00"],
+          "weather_code": [61]
+        },
+        "daily": {"temperature_2m_max": [33], "temperature_2m_min": [25]}
+      }
+      ''';
+      final sky = WeatherRepo.parse(body, at: DateTime(2026, 8, 14, 9))!;
+      expect(sky.rainLater, isFalse);
+    });
+
+    test('rain already falling is weather, not a forecast', () {
+      final wet = _body.replaceFirst('"weather_code": 2', '"weather_code": 61');
+      final sky = WeatherRepo.parse(wet, at: DateTime(2026, 8, 14, 9))!;
+      expect(sky.rainFrom, isNull, reason: 'it is raining now — nothing to warn about');
+      expect(sky.line, '33° · rain');
+    });
+
+    test('what it feels like is read, and kept', () {
+      final sky = WeatherRepo.parse(_body, at: DateTime(2026, 8, 14, 9))!;
+      expect(sky.feelsC, 38.4);
+      expect(sky.humidity, 74);
+      final kept = Weather.fromJson(sky.toJson())!;
+      expect(kept.feelsC, 38.4);
+      expect(kept.humidity, 74);
+      expect(kept.rainFrom, DateTime(2026, 8, 14, 18));
+      expect(kept.rainChance, 80);
     });
 
     test('a shape it doesn\'t recognise is no reading, not a wrong one', () {
@@ -59,9 +155,17 @@ void main() {
       final url = WeatherRepo.endpoint(13.0827, 80.2707);
       expect(url.host, 'api.open-meteo.com');
       expect(url.queryParameters['latitude'], '13.083');
+      // Feels-like and humidity ride along: in this city the number that
+      // decides anything is rarely the dry-bulb one.
       expect(
         url.queryParameters['current'],
-        'temperature_2m,weather_code,is_day',
+        'temperature_2m,apparent_temperature,relative_humidity_2m,'
+        'weather_code,is_day',
+      );
+      // Probabilities are what let an uncertain forecast admit it.
+      expect(
+        url.queryParameters['hourly'],
+        'weather_code,precipitation_probability,precipitation',
       );
       // The sun's own hours, for this place, to-day.
       expect(url.queryParameters['daily'], contains('sunrise,sunset'));
@@ -121,7 +225,7 @@ void main() {
 
     WeatherRepo repoWith({
       required List<Uri> calls,
-      String body = _body,
+      String? body,
       bool located = true,
       bool throws = false,
     }) => WeatherRepo(
@@ -130,7 +234,7 @@ void main() {
       fetcher: (url) async {
         calls.add(url);
         if (throws) throw StateError('no signal');
-        return body;
+        return body ?? _body;
       },
     );
 
@@ -177,8 +281,8 @@ void main() {
   });
 
   group('following the sun', () {
-    Weather reading({String body = _body}) =>
-        WeatherRepo.parse(body, at: DateTime(2026, 8, 14, 9))!;
+    Weather reading({String? body}) =>
+        WeatherRepo.parse(body ?? _body, at: DateTime(2026, 8, 14, 9))!;
 
     test('sunrise and sunset come off the reading, in local wall time', () {
       final sky = reading();

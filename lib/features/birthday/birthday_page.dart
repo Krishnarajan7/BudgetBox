@@ -106,9 +106,7 @@ Future<BirthdayFacts> gatherBirthdayFacts(
       'SELECT COALESCE(SUM(minutes), 0) AS n FROM focus_sessions '
       'WHERE completed = 1',
     ),
-    journalPages: await count(
-      'SELECT COUNT(*) AS n FROM journal_entries',
-    ),
+    journalPages: await count('SELECT COUNT(*) AS n FROM journal_entries'),
   );
 }
 
@@ -238,10 +236,19 @@ class _BirthdayPageState extends State<BirthdayPage>
                 if (_rain)
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: _SealRain(
+                      child: _LottieOnce(
+                        asset: 'assets/animation/Confetti Partyyy!!.json',
+                        fit: BoxFit.cover,
                         onDone: () {
                           if (mounted) setState(() => _rain = false);
                         },
+                        // If the drawing ever fails to arrive, the painted
+                        // shower stands in — the sky always lets go.
+                        fallback: (context) => _SealRain(
+                          onDone: () {
+                            if (mounted) setState(() => _rain = false);
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -262,9 +269,7 @@ class _BirthdayPageState extends State<BirthdayPage>
                   child: KeyedSubtree(
                     key: ValueKey('scene-$_scene'),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: Gap.x6,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: Gap.x6),
                       child: switch (_scene) {
                         0 => _SceneDate(c: c),
                         1 => _SceneSeal(c: c),
@@ -345,10 +350,7 @@ class _SceneDate extends StatelessWidget {
             delay: const Duration(milliseconds: 1800),
             child: Text(
               'I know this date.',
-              style: LedgerType.bodyStrong.copyWith(
-                fontSize: 17,
-                color: c.ink,
-              ),
+              style: LedgerType.bodyStrong.copyWith(fontSize: 17, color: c.ink),
             ),
           ),
         ],
@@ -396,10 +398,7 @@ class _SceneSeal extends StatelessWidget {
             child: Text(
               'this one opens one.',
               textAlign: TextAlign.center,
-              style: LedgerType.bodyStrong.copyWith(
-                fontSize: 18,
-                color: c.ink,
-              ),
+              style: LedgerType.bodyStrong.copyWith(fontSize: 18, color: c.ink),
             ),
           ),
         ],
@@ -489,10 +488,7 @@ class _SceneCount extends StatelessWidget {
             delay: Duration(milliseconds: 700 + 420 * lines.length),
             child: Text(
               'not one of those days needed a birthday to matter.',
-              style: LedgerType.bodyStrong.copyWith(
-                fontSize: 15,
-                color: c.ink,
-              ),
+              style: LedgerType.bodyStrong.copyWith(fontSize: 15, color: c.ink),
             ),
           ),
         ],
@@ -525,6 +521,11 @@ class _SceneGift extends StatelessWidget {
               fit: BoxFit.contain,
               renderCache: RenderCache.raster,
               onLoaded: (composition) {
+                // onLoaded re-fires on any rebuild of this scene (the rain
+                // ending, a stray setState) — without this guard the box
+                // was yanked back to frame 0 mid-play and never seen to
+                // finish. One load, one performance.
+                if (gift.duration != null) return;
                 // The drawing may arrive after the page has already been
                 // left — a dead controller must not take the morning down.
                 try {
@@ -562,10 +563,7 @@ class _SceneGift extends StatelessWidget {
             child: Text(
               'so I kept it. all of it. turn the page.',
               textAlign: TextAlign.center,
-              style: LedgerType.bodyStrong.copyWith(
-                fontSize: 16,
-                color: c.ink,
-              ),
+              style: LedgerType.bodyStrong.copyWith(fontSize: 16, color: c.ink),
             ),
           ),
         ],
@@ -590,10 +588,28 @@ class _SceneWish extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Center(
-            child: StampIn(size: 64, delay: Duration(milliseconds: 300)),
+          SizedBox(
+            height: 150,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const StampIn(size: 64, delay: Duration(milliseconds: 300)),
+                // The burst around the seal — plays once as the wish lands,
+                // then leaves the stamp standing alone.
+                if (!Motion.reduced(context))
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: _LottieOnce(
+                        asset: 'assets/animation/Celebration.json',
+                        fit: BoxFit.contain,
+                        fallback: (_) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          const SizedBox(height: Gap.x6),
+          const SizedBox(height: Gap.x4),
           InkIn(
             delay: const Duration(milliseconds: 700),
             child: Text(
@@ -623,10 +639,7 @@ class _SceneWish extends StatelessWidget {
             child: Text(
               '— your book. and the brother inside it.',
               textAlign: TextAlign.center,
-              style: LedgerType.bodyStrong.copyWith(
-                fontSize: 14,
-                color: c.ink,
-              ),
+              style: LedgerType.bodyStrong.copyWith(fontSize: 14, color: c.ink),
             ),
           ),
           const SizedBox(height: Gap.x8),
@@ -713,6 +726,72 @@ class _SealRain extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+/// A Lottie that performs exactly once: winds its own controller when the
+/// composition arrives, ignores every later onLoaded re-fire, and reports
+/// when the curtain falls. Reduced motion jumps to the final frame.
+class _LottieOnce extends StatefulWidget {
+  const _LottieOnce({
+    required this.asset,
+    required this.fallback,
+    this.fit = BoxFit.contain,
+    this.onDone,
+  });
+
+  final String asset;
+  final BoxFit fit;
+  final VoidCallback? onDone;
+
+  /// Stands in if the drawing fails to load — the ceremony never breaks.
+  final WidgetBuilder fallback;
+
+  @override
+  State<_LottieOnce> createState() => _LottieOnceState();
+}
+
+class _LottieOnceState extends State<_LottieOnce>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ac;
+
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(vsync: this);
+    _ac.addStatusListener((status) {
+      if (status == AnimationStatus.completed) widget.onDone?.call();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Lottie.asset(
+      widget.asset,
+      controller: _ac,
+      fit: widget.fit,
+      renderCache: RenderCache.raster,
+      onLoaded: (composition) {
+        if (_ac.duration != null) return;
+        try {
+          _ac.duration = composition.duration;
+          if (Motion.reduced(context)) {
+            _ac.value = 1;
+          } else {
+            _ac.forward(from: 0);
+          }
+        } on Object {
+          widget.onDone?.call();
+        }
+      },
+      errorBuilder: (context, _, _) => widget.fallback(context),
     );
   }
 }

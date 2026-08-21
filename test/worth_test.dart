@@ -7,6 +7,7 @@ import 'package:budgetbox/core/widgets/sheets.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
+import 'package:budgetbox/data/repos/settings_repo.dart';
 import 'package:budgetbox/features/worth/worth_page.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -92,6 +93,39 @@ void main() {
 
       await settleAndUnmount(tester);
     });
+  });
+
+  testWidgets('the eye veils every figure, and remembers being shut',
+      (tester) async {
+    await AccountRepo(db).create(
+      name: 'HDFC',
+      kind: AccountKind.bank,
+      openingBalancePaise: 12345600,
+    );
+    await tester.pumpWidget(host(const WorthPage()));
+    await tester.pumpAndSettle();
+
+    // Open-eyed: the figure stands in plain ink.
+    expect(find.bySemanticsLabel('₹1,23,456'), findsOneWidget);
+    expect(find.textContaining('₹1,23,456'), findsWidgets);
+    expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
+
+    // One tap: the hero and the shelf both step behind the dots.
+    await tester.tap(find.byKey(const ValueKey('worth-veil')));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.visibility_off_outlined), findsOneWidget);
+    expect(find.bySemanticsLabel('₹••••'), findsOneWidget);
+    expect(find.textContaining('1,23,456'), findsNothing);
+    expect(await SettingsRepo(db).worthVeiled(), isTrue,
+        reason: 'a shut eye stays shut across opens');
+
+    // And back.
+    await tester.tap(find.byKey(const ValueKey('worth-veil')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('₹1,23,456'), findsWidgets);
+    expect(await SettingsRepo(db).worthVeiled(), isFalse);
+
+    await settleAndUnmount(tester);
   });
 
   testWidgets('an empty shelf speaks, and opens the box', (tester) async {

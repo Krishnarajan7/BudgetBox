@@ -101,6 +101,8 @@ class SyncReconciler {
         SyncKinds.focus => (table: 'focus_sessions', idExpr: 'id'),
         SyncKinds.event => (table: 'events', idExpr: 'id'),
         SyncKinds.vault => (table: 'vault_items', idExpr: 'id'),
+        SyncKinds.mark => (table: 'day_marks', idExpr: 'id'),
+        SyncKinds.alarm => (table: 'alarms', idExpr: 'id'),
         SyncKinds.seal => (
             table: 'day_seals',
             idExpr: "CAST(REPLACE(date, '-', '') AS INTEGER)",

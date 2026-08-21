@@ -19,6 +19,7 @@ import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
+import 'shortfall.dart';
 
 /// Money moves — the four doors behind the long-press ＋: income, transfer,
 /// fix-a-balance, and the quiet-days catch-up. Each is a sibling of the add
@@ -27,8 +28,17 @@ import '../../data/providers.dart';
 Future<void> showIncomeSheet(BuildContext context) =>
     _show(context, const _IncomeSheet());
 
-Future<void> showTransferSheet(BuildContext context) =>
-    _show(context, const _TransferSheet());
+/// [fromAccountId]/[toAccountId] prefill the two sides. Worth opens this from
+/// a shelf line, where "move what's in *this* pocket" is the whole intent and
+/// re-picking the account you just tapped would be a step backwards.
+Future<void> showTransferSheet(
+  BuildContext context, {
+  int? fromAccountId,
+  int? toAccountId,
+}) => _show(
+  context,
+  _TransferSheet(fromAccountId: fromAccountId, toAccountId: toAccountId),
+);
 
 Future<void> showFixBalanceSheet(BuildContext context) =>
     _show(context, const _FixBalanceSheet());
@@ -476,7 +486,10 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
 // ————— transfer —————
 
 class _TransferSheet extends ConsumerStatefulWidget {
-  const _TransferSheet();
+  const _TransferSheet({this.fromAccountId, this.toAccountId});
+
+  final int? fromAccountId;
+  final int? toAccountId;
 
   @override
   ConsumerState<_TransferSheet> createState() => _TransferSheetState();
@@ -494,6 +507,8 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
   @override
   void initState() {
     super.initState();
+    _fromId = widget.fromAccountId;
+    _toId = widget.toAccountId;
     _amount.addListener(() => setState(() {}));
     _load();
   }
@@ -501,7 +516,13 @@ class _TransferSheetState extends ConsumerState<_TransferSheet> {
   Future<void> _load() async {
     final accts = await _activeAccounts(ref.read(dbProvider));
     if (!mounted) return;
-    setState(() => _accounts = accts);
+    setState(() {
+      _accounts = accts;
+      // A prefilled side that has since been archived is no side at all.
+      final live = {for (final a in accts) a.id};
+      if (!live.contains(_fromId)) _fromId = null;
+      if (!live.contains(_toId)) _toId = null;
+    });
   }
 
   @override
@@ -921,8 +942,18 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
   }
 
   Future<void> _save(DateTime day, int paise, Category? cat) async {
-    final accountId = _accountId;
-    if (accountId == null) return;
+    if (_accountId == null) return;
+    final at = DateTime(day.year, day.month, day.day, 12);
+    // A quiet day older than the pocket's last reading is already inside
+    // that reading, so this asks nothing; a recent one can still overdraw.
+    final accountId = await settleShortfall(
+      context,
+      ref,
+      accountId: _accountId!,
+      amountPaise: paise,
+      at: at,
+    );
+    if (accountId == null || !mounted) return;
     await ref
         .read(txnRepoProvider)
         .addExpense(
@@ -930,7 +961,7 @@ class _CatchUpSheetState extends ConsumerState<_CatchUpSheet> {
           accountId: accountId,
           categoryId: cat?.id,
           title: cat?.name ?? 'Entry',
-          at: DateTime(day.year, day.month, day.day, 12),
+          at: at,
         );
   }
 

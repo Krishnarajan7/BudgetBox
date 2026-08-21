@@ -15,11 +15,13 @@ import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/widgets/pen_marks.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/goal_repo.dart';
+import '../add/money_moves.dart' show showTransferSheet;
 import '../plans/plans_page.dart' show AmountSheet;
 import '../story/story_page.dart';
 import '../today/widgets/digit_roll.dart';
@@ -53,6 +55,34 @@ extension WorthRangeCopy on WorthRange {
     WorthRange.all => 'since the book opened',
   };
 }
+
+/// Whether the page's figures sit behind the eye. It remembers — a book
+/// left veiled opens veiled — and while the stored answer is still being
+/// read it stays ON: a privacy veil that flashed the figure during loading
+/// would be a lock that opens for the first second.
+final worthVeilProvider = NotifierProvider<WorthVeilNotifier, bool>(
+  WorthVeilNotifier.new,
+);
+
+class WorthVeilNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    ref.read(settingsRepoProvider).worthVeiled().then((v) {
+      if (v != state) state = v;
+    });
+    return true;
+  }
+
+  void toggle() {
+    state = !state;
+    ref.read(settingsRepoProvider).setWorthVeiled(state);
+  }
+}
+
+/// A figure behind the veil: the ₹ stays, the magnitude goes — always four
+/// dots, so the mask itself says nothing about the number under it.
+String veilMoney(bool veiled, String formatted) =>
+    veiled ? '₹••••' : formatted;
 
 class WorthPage extends ConsumerStatefulWidget {
   const WorthPage({super.key});
@@ -228,6 +258,8 @@ class _WorthPageState extends ConsumerState<WorthPage> {
         final assetTotal = assets.fold<int>(0, (s, a) => s + a.balancePaise);
         final owedTotal = owed.fold<int>(0, (s, a) => s + a.balancePaise);
         final net = assetTotal - owedTotal;
+        final veiled = ref.watch(worthVeilProvider);
+        String veil(String figure) => veilMoney(veiled, figure);
 
         // Each account keeps its ink for as long as it sits on the shelf —
         // colour follows the entity, never this month's ranking. Beyond the
@@ -297,13 +329,49 @@ class _WorthPageState extends ConsumerState<WorthPage> {
               ),
             ),
             const SizedBox(height: Gap.x4),
-            Text(
-              'net worth',
-              style: LedgerType.label.copyWith(color: c.inkFaint),
+            Row(
+              children: [
+                Text(
+                  'net worth',
+                  style: LedgerType.label.copyWith(color: c.inkFaint),
+                ),
+                const Spacer(),
+                // The eye: one tap and every figure on the page steps
+                // behind its veil — for the glance over the shoulder that
+                // this number is none of. The choice is remembered.
+                Pressable(
+                  key: const ValueKey('worth-veil'),
+                  scale: 0.88,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    ref.read(worthVeilProvider.notifier).toggle();
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Gap.x2,
+                      vertical: 2,
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: Motion.reduced(context)
+                          ? Duration.zero
+                          : Motion.quick,
+                      child: Icon(
+                        veiled
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                        key: ValueKey('veil-$veiled'),
+                        size: 19,
+                        color: veiled ? c.quill : c.inkFaint,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 2),
             DigitRoll(
               paise: net,
+              text: veil(Inr.format(net)),
               style: LedgerType.heroAmount
                   .copyWith(fontSize: 40, color: c.ink)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
@@ -321,7 +389,7 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                       text: delta == 0
                           ? 'level'
                           : '${delta > 0 ? 'up' : 'down'} '
-                                '${Inr.format(delta.abs())}',
+                                '${veil(Inr.format(delta.abs()))}',
                       style: LedgerType.bodyText.copyWith(
                         fontSize: 13,
                         // Falling isn't a verdict — only a rise gets a mark.
@@ -341,7 +409,9 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ),
               ),
             ),
-            if (_nextMilestone(net) case final int m) ...[
+            // The milestone ladder brackets the figure too tightly to
+            // survive the veil — it steps off the page with it.
+            if (_nextMilestone(net) case final int m when !veiled) ...[
               const SizedBox(height: 2),
               Text(
                 'next milestone ${Inr.compact(m)} · '
@@ -473,7 +543,9 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 for (final (a, d) in movers.take(3))
                   LeaderRow(
                     label: a.name,
-                    amount: d > 0 ? '+${Inr.format(d)}' : '−${Inr.format(-d)}',
+                    amount: d > 0
+                        ? '+${veil(Inr.format(d))}'
+                        : '−${veil(Inr.format(-d))}',
                     amountColor: d > 0 ? c.jama : c.ink,
                   ),
             ],
@@ -481,7 +553,7 @@ class _WorthPageState extends ConsumerState<WorthPage> {
             SectionHead(
               'the shelf',
               trailing: Text(
-                Inr.compact(assetTotal),
+                veil(Inr.compact(assetTotal)),
                 style: LedgerType.amount.copyWith(
                   fontSize: 12,
                   color: c.inkFaint,
@@ -500,18 +572,22 @@ class _WorthPageState extends ConsumerState<WorthPage> {
               if (assets.any((a) => a.keptAside)) ...[
                 LeaderRow(
                   label: 'in reach',
-                  amount: Inr.format(
-                    assets
-                        .where((a) => !a.keptAside)
-                        .fold<int>(0, (t, a) => t + a.balancePaise),
+                  amount: veil(
+                    Inr.format(
+                      assets
+                          .where((a) => !a.keptAside)
+                          .fold<int>(0, (t, a) => t + a.balancePaise),
+                    ),
                   ),
                 ),
                 LeaderRow(
                   label: 'kept aside',
-                  amount: Inr.format(
-                    assets
-                        .where((a) => a.keptAside)
-                        .fold<int>(0, (t, a) => t + a.balancePaise),
+                  amount: veil(
+                    Inr.format(
+                      assets
+                          .where((a) => a.keptAside)
+                          .fold<int>(0, (t, a) => t + a.balancePaise),
+                    ),
                   ),
                 ),
                 const SizedBox(height: Gap.x1),
@@ -534,6 +610,29 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 stagger: i,
                 last: i == assets.length - 1,
               ),
+            // The shelf is a set of pockets, not a set of vaults: cash goes
+            // to the bank, the bank feeds GPay. Worth is where you *see* the
+            // imbalance, so it is where moving it should start.
+            if (assets.length > 1) ...[
+              const SizedBox(height: Gap.x3),
+              Pressable(
+                key: const ValueKey('worth-move'),
+                onTap: () => showTransferSheet(context),
+                child: Row(
+                  children: [
+                    Text(
+                      'move money between pockets',
+                      style: LedgerType.bodyStrong.copyWith(
+                        fontSize: 13,
+                        color: c.quill,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    PenChevron(size: 11, color: c.quill),
+                  ],
+                ),
+              ),
+            ],
             // The runway: what's in reach, said in months of real spending —
             // the projection that makes "liquid" mean something.
             FutureBuilder<int>(
@@ -568,7 +667,7 @@ class _WorthPageState extends ConsumerState<WorthPage> {
               SectionHead(
                 'owed',
                 trailing: Text(
-                  '− ${Inr.compact(owedTotal)}',
+                  '− ${veil(Inr.compact(owedTotal))}',
                   style: LedgerType.amount.copyWith(
                     fontSize: 12,
                     color: c.inkFaint,
@@ -673,6 +772,7 @@ class _GoalsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final veiled = ref.watch(worthVeilProvider);
     final c = LedgerColors.of(context);
     return StreamBuilder<List<GoalView>>(
       stream: ref.watch(goalRepoProvider).watchViews(),
@@ -707,7 +807,8 @@ class _GoalsSection extends ConsumerWidget {
             SectionHead(
               'being built',
               trailing: Text(
-                '${Inr.compact(put)} put away',
+                '${veilMoney(veiled, Inr.compact(put))} '
+                'put away',
                 style: LedgerType.amount.copyWith(
                   fontSize: 12,
                   color: c.inkFaint,
@@ -739,8 +840,8 @@ class _GoalsSection extends ConsumerWidget {
                             ),
                           ),
                           Text(
-                            '${Inr.compact(g.donePaise)} of '
-                            '${Inr.compact(g.goal.targetPaise)}',
+                            '${veilMoney(veiled, Inr.compact(g.donePaise))} of '
+                            '${veilMoney(veiled, Inr.compact(g.goal.targetPaise))}',
                             style: LedgerType.amount.copyWith(
                               fontSize: 12,
                               color: c.inkFaint,
@@ -815,6 +916,7 @@ class _AccountRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = LedgerColors.of(context);
+    final veiled = ref.watch(worthVeilProvider);
     final ageDays = DateTime.now().difference(account.asOf).inDays;
     final stale = ageDays >= 30;
     final asOf = ageDays <= 0
@@ -882,10 +984,14 @@ class _AccountRow extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: Gap.x3),
-            // Settles to the new figure after an update, never snaps.
+            // Settles to the new figure after an update, never snaps —
+            // unless the eye is shut, in which case it says nothing at all.
             CountUp(
               value: account.balancePaise,
-              format: (p) => negative ? '− ${Inr.format(p)}' : Inr.format(p),
+              format: (p) {
+                final figure = veilMoney(veiled, Inr.format(p));
+                return negative ? '− $figure' : figure;
+              },
               style: LedgerType.amount.copyWith(color: c.ink),
             ),
           ],
@@ -995,6 +1101,35 @@ class _AccountRow extends ConsumerWidget {
                     ],
                   );
                 },
+              ),
+              const SizedBox(height: Gap.x4),
+              Container(height: 1, color: c.rule),
+              const SizedBox(height: Gap.x3),
+              // Money rarely stays where it lands. This is the shortest way
+              // from "there is cash in my hand" to "it is in the bank" —
+              // the account you long-pressed is already the *from* side.
+              Pressable(
+                key: const ValueKey('worth-move-out'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  showTransferSheet(context, fromAccountId: account.id);
+                },
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'move money out of ${account.name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 14,
+                          color: c.quill,
+                        ),
+                      ),
+                    ),
+                    PenChevron(size: 12, color: c.quill),
+                  ],
+                ),
               ),
             ],
           ),

@@ -130,7 +130,26 @@ Map<String, dynamic> eventBody(Event r) => {
   'note': r.note,
   'date': r.date,
   'time_minutes': r.timeMinutes,
+  'remind_minutes': r.remindMinutes,
   'repeat': r.repeat.name,
+};
+
+/// A mark's `kind` is a free string on both sides: the server stores what the
+/// app spells, so a habit invented to-morrow needs no migration anywhere.
+Map<String, dynamic> markBody(DayMark r) => {
+  'date': r.date,
+  'kind': r.kind,
+  'note': r.note,
+  'at': isoInstant(r.at),
+};
+
+Map<String, dynamic> alarmBody(Alarm r) => {
+  'label': r.label,
+  'minute_of_day': r.minuteOfDay,
+  'days': r.days,
+  'enabled': r.enabled,
+  'snooze_minutes': r.snoozeMinutes,
+  'vibrate': r.vibrate,
 };
 
 Map<String, dynamic> vaultBody(VaultItem r) => {

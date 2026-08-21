@@ -311,6 +311,108 @@
         "title": "ActivityOut",
         "type": "object"
       },
+      "AlarmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "default": 0,
+            "maximum": 127.0,
+            "minimum": 0.0,
+            "title": "Days",
+            "type": "integer"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "label": {
+            "default": "",
+            "maxLength": 60,
+            "title": "Label",
+            "type": "string"
+          },
+          "minute_of_day": {
+            "maximum": 1439.0,
+            "minimum": 0.0,
+            "title": "Minute Of Day",
+            "type": "integer"
+          },
+          "snooze_minutes": {
+            "default": 9,
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Snooze Minutes",
+            "type": "integer"
+          },
+          "vibrate": {
+            "default": true,
+            "title": "Vibrate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "minute_of_day"
+        ],
+        "title": "AlarmIn",
+        "type": "object"
+      },
+      "AlarmOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minute_of_day": {
+            "title": "Minute Of Day",
+            "type": "integer"
+          },
+          "snooze_minutes": {
+            "title": "Snooze Minutes",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "vibrate": {
+            "title": "Vibrate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "minute_of_day",
+          "days",
+          "enabled",
+          "snooze_minutes",
+          "vibrate",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AlarmOut",
+        "type": "object"
+      },
       "AnchorIn": {
         "additionalProperties": false,
         "description": "A user-confirmed balance. `at` defaults to now; anchors can be backdated\n(balance derivation handles any anchor time exactly).",
@@ -1448,6 +1550,19 @@
             ],
             "title": "Note"
           },
+          "remind_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1439.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind Minutes"
+          },
           "repeat": {
             "$ref": "#/components/schemas/EventRepeat",
             "default": "none"
@@ -1511,6 +1626,17 @@
             ],
             "title": "Note"
           },
+          "remind_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind Minutes"
+          },
           "repeat": {
             "$ref": "#/components/schemas/EventRepeat"
           },
@@ -1541,6 +1667,7 @@
           "note",
           "date",
           "time_minutes",
+          "remind_minutes",
           "repeat",
           "archived",
           "created_at",
@@ -1585,6 +1712,19 @@
               }
             ],
             "title": "Note"
+          },
+          "remind_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1439.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind Minutes"
           },
           "repeat": {
             "anyOf": [
@@ -2574,6 +2714,101 @@
           "updated_at"
         ],
         "title": "JournalOut",
+        "type": "object"
+      },
+      "MarkIn": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "date",
+          "kind",
+          "at"
+        ],
+        "title": "MarkIn",
+        "type": "object"
+      },
+      "MarkOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "kind",
+          "note",
+          "at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MarkOut",
         "type": "object"
       },
       "MerchantRuleIn": {
@@ -5211,6 +5446,131 @@
         ]
       }
     },
+    "/v1/alarms": {
+      "get": {
+        "operationId": "list_alarms_v1_alarms_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlarmOut"
+                  },
+                  "title": "Response List Alarms V1 Alarms Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Alarms",
+        "tags": [
+          "alarms"
+        ]
+      }
+    },
+    "/v1/alarms/{alarm_id}": {
+      "delete": {
+        "operationId": "delete_alarm_v1_alarms__alarm_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alarm_id",
+            "required": true,
+            "schema": {
+              "title": "Alarm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Alarm",
+        "tags": [
+          "alarms"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_alarm_v1_alarms__alarm_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alarm_id",
+            "required": true,
+            "schema": {
+              "title": "Alarm Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlarmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlarmOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert Alarm",
+        "tags": [
+          "alarms"
+        ]
+      }
+    },
     "/v1/book/erase": {
       "post": {
         "description": "Deletes every content row, permanently \u2014 children before parents so\nforeign keys never object. The change log is swept LAST: the triggers\nwatching every table write fresh tombstones during the sweep itself,\nand an erased book must leave no tombstones to resurrect it.",
@@ -7516,6 +7876,177 @@
         "summary": "Day Facts",
         "tags": [
           "journal"
+        ]
+      }
+    },
+    "/v1/marks": {
+      "get": {
+        "operationId": "list_marks_v1_marks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from_day",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Day"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_day",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MarkOut"
+                  },
+                  "title": "Response List Marks V1 Marks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Marks",
+        "tags": [
+          "marks"
+        ]
+      }
+    },
+    "/v1/marks/{mark_id}": {
+      "delete": {
+        "operationId": "delete_mark_v1_marks__mark_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mark_id",
+            "required": true,
+            "schema": {
+              "title": "Mark Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Mark",
+        "tags": [
+          "marks"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_mark_v1_marks__mark_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mark_id",
+            "required": true,
+            "schema": {
+              "title": "Mark Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert Mark",
+        "tags": [
+          "marks"
         ]
       }
     },

@@ -57,7 +57,10 @@ class Weather {
     required this.lowC,
     required this.code,
     required this.at,
-    this.rainLater = false,
+    this.feelsC,
+    this.humidity,
+    this.rainFrom,
+    this.rainChance,
     this.sunrise,
     this.sunset,
     this.days = const [],
@@ -66,6 +69,14 @@ class Weather {
   final double nowC;
   final double highC;
   final double lowC;
+
+  /// What it feels like, which in Chennai in August is the number that
+  /// decides whether you take the bike. Null on readings taken before the
+  /// service was asked for it.
+  final double? feelsC;
+
+  /// Relative humidity, 0–100. Null on older readings.
+  final int? humidity;
 
   /// WMO weather code — the one number Open-Meteo speaks in.
   final int code;
@@ -77,9 +88,39 @@ class Weather {
   final DateTime? sunrise;
   final DateTime? sunset;
 
-  /// True when rain shows up later in the day but isn't falling now — the
-  /// only forecast worth acting on before leaving the house.
-  final bool rainLater;
+  /// The first hour from now that the forecast says is wet, when it isn't
+  /// already raining. Null when nothing wet is coming inside the window.
+  ///
+  /// An hour rather than a bare flag, because the two things this reading is
+  /// *for* both need the clock: the line can say "rain by 4" instead of
+  /// "rain later", and the notification knows when to speak.
+  final DateTime? rainFrom;
+
+  /// How likely, at [rainFrom], as a percentage. Null when the service did
+  /// not send probabilities.
+  final int? rainChance;
+
+  /// True when rain shows up later but isn't falling now — the only forecast
+  /// worth acting on before leaving the house.
+  bool get rainLater => rainFrom != null;
+
+  /// "rain by 4 pm", or null when nothing is coming. The chance rides along
+  /// only when it is worth doubting — a 90% forecast does not need a number
+  /// next to it, a 40% one does.
+  String? get rainLine {
+    final from = rainFrom;
+    if (from == null) return null;
+    final chance = rainChance;
+    final odds = chance != null && chance < 70 ? ' ($chance%)' : '';
+    return 'rain by ${_clock(from)}$odds';
+  }
+
+  /// 16:00 → '4 pm', 16:30 → '4.30 pm' — the way the hour gets said out loud.
+  static String _clock(DateTime at) {
+    final hour = at.hour % 12 == 0 ? 12 : at.hour % 12;
+    final half = at.minute == 0 ? '' : '.${at.minute.toString().padLeft(2, '0')}';
+    return '$hour$half ${at.hour < 12 ? 'am' : 'pm'}';
+  }
 
   /// The week ahead, to-day first. Empty on readings cached before the sky
   /// page existed; the next refresh carries them.
@@ -88,8 +129,9 @@ class Weather {
   /// "33° · light rain by evening" — the whole reading in one line.
   String get line {
     final rounded = nowC.round();
-    final sky = rainLater && !describe(code).contains('rain')
-        ? 'rain later'
+    final coming = rainLine;
+    final sky = coming != null && !describe(code).contains('rain')
+        ? coming
         : describe(code);
     return '$rounded° · $sky';
   }
@@ -145,7 +187,10 @@ class Weather {
     'low': lowC,
     'code': code,
     'at': at.toIso8601String(),
-    'rainLater': rainLater,
+    if (feelsC != null) 'feels': feelsC,
+    if (humidity != null) 'humidity': humidity,
+    if (rainFrom != null) 'rainFrom': rainFrom!.toIso8601String(),
+    if (rainChance != null) 'rainChance': rainChance,
     if (sunrise != null) 'sunrise': sunrise!.toIso8601String(),
     if (sunset != null) 'sunset': sunset!.toIso8601String(),
     'days': ?(days.isEmpty ? null : [for (final d in days) d.toJson()]),
@@ -159,13 +204,19 @@ class Weather {
     final low = raw['low'];
     final code = raw['code'];
     if (at == null || now is! num || high is! num || low is! num) return null;
+    final feels = raw['feels'];
+    final humidity = raw['humidity'];
+    final chance = raw['rainChance'];
     return Weather(
       nowC: now.toDouble(),
       highC: high.toDouble(),
       lowC: low.toDouble(),
       code: code is num ? code.toInt() : 0,
       at: at,
-      rainLater: raw['rainLater'] == true,
+      feelsC: feels is num ? feels.toDouble() : null,
+      humidity: humidity is num ? humidity.toInt() : null,
+      rainFrom: DateTime.tryParse('${raw['rainFrom']}'),
+      rainChance: chance is num ? chance.toInt() : null,
       sunrise: DateTime.tryParse('${raw['sunrise']}'),
       sunset: DateTime.tryParse('${raw['sunset']}'),
       days: raw['days'] is List
@@ -232,6 +283,14 @@ Future<String> _httpGet(Uri url) async {
   return response.body;
 }
 
+/// How recent a cached fix has to be before it can stand in for a live one.
+const _lastKnownGoodFor = Duration(minutes: 20);
+
+/// How far ahead "rain later" is allowed to mean. Long enough to cover the
+/// rest of a day and the evening commute; short enough that a shower this
+/// time to-morrow is not something to warn anyone about now.
+const _rainWindow = Duration(hours: 18);
+
 /// Asks the operating system where we are, once, gently: if permission was
 /// refused, it stays refused — the book never nags for it twice in a day.
 Future<({double lat, double lon})?> _deviceLocation() async {
@@ -244,15 +303,31 @@ Future<({double lat, double lon})?> _deviceLocation() async {
       permission == LocationPermission.deniedForever) {
     return null;
   }
-  // Last known first: it costs nothing and is plenty for a temperature.
+  // The last known fix is free, but "free" is not the same as "here": it can
+  // be yesterday's, from the other end of a train journey, and a forecast for
+  // where you were is worse than no forecast at all. Take it only while it is
+  // still plausibly this place; otherwise ask the hardware.
   final last = await Geolocator.getLastKnownPosition();
-  final position =
-      last ??
-      await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-        ),
-      );
+  if (last != null) {
+    final age = DateTime.now().difference(last.timestamp);
+    if (!age.isNegative && age < _lastKnownGoodFor) {
+      return (lat: last.latitude, lon: last.longitude);
+    }
+  }
+  // Low accuracy is a several-kilometre answer, which decides the wrong
+  // suburb's rain in a city this size. Medium is a city block and still
+  // costs no GPS lock worth speaking of.
+  final position = await Geolocator.getCurrentPosition(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.medium,
+      timeLimit: Duration(seconds: 10),
+    ),
+  ).timeout(
+    const Duration(seconds: 12),
+    // A fix that never arrives should not cost the reading: fall back to
+    // whatever the phone last knew, however old.
+    onTimeout: () async => last ?? (throw StateError('no fix')),
+  );
   return (lat: position.latitude, lon: position.longitude);
 }
 
@@ -332,8 +407,13 @@ class WeatherRepo {
         queryParameters: {
           'latitude': lat.toStringAsFixed(3),
           'longitude': lon.toStringAsFixed(3),
-          'current': 'temperature_2m,weather_code,is_day',
-          'hourly': 'weather_code',
+          'current':
+              'temperature_2m,apparent_temperature,relative_humidity_2m,'
+              'weather_code,is_day',
+          // `time` is what makes the rain line honest: matching wet hours by
+          // position in the array assumes the first row is local midnight,
+          // which is a guess. Matching by the clock is not.
+          'hourly': 'weather_code,precipitation_probability,precipitation',
           'daily':
               'temperature_2m_max,temperature_2m_min,weather_code,'
               'sunrise,sunset',
@@ -365,15 +445,55 @@ class WeatherRepo {
     if (highs.isEmpty || lows.isEmpty) return null;
     final code = current['weather_code'];
     final nowCode = code is num ? code.toInt() : 0;
+    final feels = current['apparent_temperature'];
+    final damp = current['relative_humidity_2m'];
 
-    // Rain that hasn't started yet: the rest of to-day's hourly codes.
-    var rainLater = false;
+    // Rain that hasn't started yet, and *when*.
+    //
+    // The hours are matched against the clock rather than counted off from
+    // the start of the array. Counting works only while the first row really
+    // is to-day's local midnight — which it stops being the moment the phone's
+    // timezone and the forecast's disagree, i.e. exactly when you're
+    // travelling and most want to know whether to pack a jacket.
+    DateTime? rainFrom;
+    int? rainChance;
     final hourly = raw['hourly'];
-    if (!Weather.isWet(nowCode) && hourly is Map && hourly['weather_code'] is List) {
-      // Strictly later hours: the hour you are standing in is "now", and
-      // "rain later" that means "rain this minute" would be a lie.
-      final rest = (hourly['weather_code'] as List).skip(at.hour + 1);
-      rainLater = rest.any((c) => c is num && Weather.isWet(c.toInt()));
+    if (!Weather.isWet(nowCode) && hourly is Map) {
+      final times = hourly['time'];
+      final codes = hourly['weather_code'];
+      final chances = hourly['precipitation_probability'];
+      if (times is List && codes is List) {
+        for (var i = 0; i < times.length && i < codes.length; i++) {
+          final hour = DateTime.tryParse('${times[i]}');
+          final code = codes[i];
+          // Strictly later: the hour you are standing in is "now", and
+          // "rain later" that means "rain this minute" would be a lie.
+          if (hour == null || !hour.isAfter(at)) continue;
+          if (hour.difference(at) > _rainWindow) break;
+          if (code is! num || !Weather.isWet(code.toInt())) continue;
+          rainFrom = hour;
+          final chance = chances is List && i < chances.length
+              ? chances[i]
+              : null;
+          rainChance = chance is num ? chance.toInt() : null;
+          break;
+        }
+      } else if (codes is List) {
+        // A reading without an hour column: fall back to counting, which is
+        // what this did before, rather than dropping the forecast entirely.
+        final rest = codes.skip(at.hour + 1);
+        final ahead = rest.toList().indexWhere(
+          (c) => c is num && Weather.isWet(c.toInt()),
+        );
+        if (ahead >= 0) {
+          rainFrom = DateTime(
+            at.year,
+            at.month,
+            at.day,
+            at.hour + 1 + ahead,
+          );
+        }
+      }
     }
 
     // The sun's own hours for this place, to-day. `timezone=auto` means
@@ -414,7 +534,10 @@ class WeatherRepo {
       lowC: (lows.first as num).toDouble(),
       code: nowCode,
       at: at,
-      rainLater: rainLater,
+      feelsC: feels is num ? feels.toDouble() : null,
+      humidity: damp is num ? damp.toInt() : null,
+      rainFrom: rainFrom,
+      rainChance: rainChance,
       sunrise: sunUp,
       sunset: sunDown,
       days: days,

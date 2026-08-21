@@ -38,7 +38,7 @@ class LedgerDb extends _$LedgerDb {
   LedgerDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -47,6 +47,15 @@ class LedgerDb extends _$LedgerDb {
       await _seedCategories();
     },
     onUpgrade: (m, from, to) async {
+      if (from < 14) {
+        // v14: soap, shampoo, paste, razor blades — the weekly basket that
+        // was landing in "Kirana & home" or, worse, "Fun & extras".
+        await _addMissingCategories(_bathSeed);
+      }
+      if (from < 13) {
+        // v13: an event can carry its own asked-for reminder time.
+        await m.addColumn(events, events.remindMinutes);
+      }
       if (from < 12) {
         // v12: the check-in's second breath — why the day sat that way,
         // and the context chips.
@@ -137,6 +146,7 @@ class LedgerDb extends _$LedgerDb {
     ('health', 'Health'),
     ('gift', 'Family & gifts'),
     ..._ownShelfSeed,
+    ..._bathSeed,
   ];
 
   /// The rest of his own shelf, added in v8: the money that used to get
@@ -152,6 +162,12 @@ class LedgerDb extends _$LedgerDb {
     ('sport', 'Cricket & sport'),
     ('people', 'Friends & going out'),
   ];
+
+  /// Added in v14. Its own word, not a corner of "Grooming & care": a
+  /// haircut is a thing you decide to do, soap is a thing that runs out —
+  /// they belong to different months and reading them together tells you
+  /// nothing about either.
+  static const _bathSeed = [('care', 'Bath & toiletries')];
 
   static const _incomeSeed = [('work', 'Salary'), ('up', 'Extra income')];
 
@@ -200,8 +216,10 @@ class LedgerDb extends _$LedgerDb {
   /// along with all sync bookkeeping, and the next pull brings the server's
   /// copy down whole. What survives is everything that belongs to the
   /// *device* rather than the book: settings (name, PIN, theme, the server
-  /// address itself), alarms and day marks — none of which sync — and the
-  /// category words, which the adopter marries to the server's by name.
+  /// address itself) and the category words, which the adopter marries to
+  /// the server's by name. Day marks and alarms go with the rest — since
+  /// v14 the server keeps those too, so a reinstall gets the streak and
+  /// the mornings back instead of starting them again.
   Future<void> eraseForServerCopy() async {
     await transaction(() async {
       for (final table in <TableInfo<Table, Object?>>[
@@ -220,6 +238,8 @@ class LedgerDb extends _$LedgerDb {
         focusSessions,
         events,
         vaultItems,
+        dayMarks,
+        alarms,
         accounts,
       ]) {
         await delete(table).go();

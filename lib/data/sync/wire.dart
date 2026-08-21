@@ -46,6 +46,8 @@ class SyncWire {
     SyncKinds.focus => '/v1/focus/sessions/$remoteId',
     SyncKinds.event => '/v1/events/$remoteId',
     SyncKinds.vault => '/v1/vault/$remoteId',
+    SyncKinds.mark => '/v1/marks/$remoteId',
+    SyncKinds.alarm => '/v1/alarms/$remoteId',
     _ => throw BbxProblem(
       status: 400,
       slug: 'unknown-kind',

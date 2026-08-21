@@ -46,10 +46,15 @@ class PinnedRepo {
   }
 
   /// Tap a pin → a stamped entry, now.
-  Future<int> stamp(Pinned p) {
+  ///
+  /// [accountId] overrides the pocket the pin remembers. A pin is a habit,
+  /// and the pocket a habit is usually paid from is not always the pocket
+  /// that had money in it this time — the shortfall sheet resolves which,
+  /// and hands the answer back through here.
+  Future<int> stamp(Pinned p, {int? accountId}) {
     return _txns.addExpense(
       amountPaise: p.amountPaise,
-      accountId: p.accountId,
+      accountId: accountId ?? p.accountId,
       categoryId: p.categoryId,
       title: p.title,
     );

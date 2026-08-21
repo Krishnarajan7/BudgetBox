@@ -1,3 +1,5 @@
+import '../../core/inr.dart';
+
 /// The keypad's brain: digits, one decimal point, and running arithmetic —
 /// because real purchases are "120 + 60", and mental math is a stall point.
 ///
@@ -18,6 +20,20 @@ class AmountEngine {
   /// Current value in paise (what the stamp saves).
   int get paise => (value * 100).round();
 
+  /// What the hero should print: the figure *as typed*, so a pressed point
+  /// answers on screen the instant it lands. "12." shows as ₹12. and
+  /// "12.0" as ₹12.0 — [Inr.format] alone would swallow both and the key
+  /// would feel dead. Once operators fold, the running total takes over.
+  String get display {
+    final dot = _current.indexOf('.');
+    if (_accumulated == null && dot >= 0) {
+      final rupees = int.tryParse(_current.substring(0, dot)) ?? 0;
+      final frac = _current.substring(dot + 1);
+      return '${Inr.format(rupees * 100)}.$frac';
+    }
+    return Inr.format(paise);
+  }
+
   double get value {
     final cur = _current.isEmpty ? null : double.parse(_current);
     if (_accumulated == null) return cur ?? 0;
@@ -35,6 +51,10 @@ class AmountEngine {
     // Amounts at chai scale don't need 10-digit entries.
     final digitsOnly = _current.replaceAll('.', '');
     if (digitsOnly.length >= 8) return;
+    // Paise stop at two places — a third decimal would be a lie the
+    // rounding quietly corrects, so it is refused at the key instead.
+    final dot = _current.indexOf('.');
+    if (dot >= 0 && _current.length - dot > 2) return;
     if (_current == '0') {
       _current = d;
     } else {

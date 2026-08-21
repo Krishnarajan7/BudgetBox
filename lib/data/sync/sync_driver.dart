@@ -6,9 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/notifications.dart';
 import '../../core/note_reminders.dart';
 import '../../core/occasions.dart';
+import '../../core/rain_watch.dart';
+import '../../core/weather.dart';
 import '../db.dart';
 import '../providers.dart';
 import '../repos/alarm_repo.dart';
+import '../tonight.dart';
 import 'sync_engine.dart';
 
 /// Decides *when* the book talks to the server. It draws nothing: it wraps
@@ -46,6 +49,11 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // The book's evening voice. Installed here, beside the sync seam and for
+    // the same reason: the repos know a hook, the app knows what it does.
+    // From now on every stroke in the ledger re-says tonight's nine o'clock
+    // line, so it cannot arrive describing a morning that has been overtaken.
+    installEveningVoice(revoiceTonight);
     // Reading the provider is what installs the repo seam, so it must happen
     // before any screen can write.
     final engine = ref.read(syncEngineProvider);
@@ -96,6 +104,11 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // Alarms last: an alarm that stopped ringing after an update is the one
     // failure in this app that costs a morning.
     unawaited(AlarmRepo(ref.read(dbProvider)).resync());
+    // The sky, and the one warning it can earn. Opening the book is what
+    // subscribes to it — there is no background worker and none is claimed.
+    unawaited(
+      ref.read(rainWatchProvider).resync(ref.read(weatherRepoProvider)),
+    );
     final stored = await settings.serverConfig();
     if (!mounted) return;
     _engine?.reconfigure(stored);
@@ -115,6 +128,14 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // ended while it was away seal themselves, and tonight's nudge
     // re-reads the page it now stands on.
     unawaited(ref.read(nudgesProvider).resync());
+    // The sky moves faster than anything else in this book, so every return
+    // to the front is a chance to re-read it and re-lay the rain warning.
+    unawaited(
+      ref
+          .read(rainWatchProvider)
+          .resync(ref.read(weatherRepoProvider))
+          .then((_) => mounted ? ref.invalidate(weatherProvider) : null),
+    );
     final last = _lastRun;
     if (last != null && DateTime.now().difference(last) < _resumeQuietPeriod) {
       return;

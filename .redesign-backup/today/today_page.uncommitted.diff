@@ -1,0 +1,47 @@
+diff --git a/lib/features/today/today_page.dart b/lib/features/today/today_page.dart
+index 8c0c31a..f167032 100644
+--- a/lib/features/today/today_page.dart
++++ b/lib/features/today/today_page.dart
+@@ -61,7 +61,6 @@ String _spelled(int n) {
+ class _TodayPageState extends ConsumerState<TodayPage> {
+   String _name = 'Krish';
+   int _salaryDay = 1;
+-  String? _intent;
+   bool _yesterdaySealed = false;
+   (int, int)? _birthday;
+   bool _burst = false;
+@@ -91,7 +90,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
+     final db = ref.read(dbProvider);
+     final name = await settings.name();
+     final salaryDay = await settings.salaryDay();
+-    final intent = await settings.intent();
+     final birthday = await settings.birthday();
+     final now = DateTime.now();
+     // The one day a year the book celebrates — once, then it composes itself.
+@@ -111,7 +109,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
+       setState(() {
+         _name = name;
+         _salaryDay = salaryDay;
+-        _intent = intent;
+         _yesterdaySealed = ySeal != null;
+         _birthday = birthday;
+         _burst = burst;
+@@ -207,6 +204,9 @@ class _TodayPageState extends ConsumerState<TodayPage> {
+     final txns = ref.watch(txnRepoProvider);
+     final budgets = ref.watch(budgetRepoProvider);
+     final coaching = ref.watch(coachingFeedProvider);
++    // Watched, not loaded once: changing the answer in Settings reorders
++    // this page on the very next frame.
++    final intent = ref.watch(intentProvider);
+     final now = DateTime.now();
+ 
+     return StreamBuilder<List<Budget>>(
+@@ -426,7 +426,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
+                 orElse: () => const <Widget>[],
+               ),
+             ];
+-            final ordered = switch (_intent) {
++            final ordered = switch (intent) {
+               'leaks' => [
+                 ...coachingModule,
+                 ...monthModule,

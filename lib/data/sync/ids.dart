@@ -21,6 +21,12 @@ abstract final class SyncKinds {
   static const event = 'event';
   static const vault = 'vault';
 
+  /// The day's non-money marks — habits kept, meals eaten, slips. Habit
+  /// *definitions* need no kind of their own: they ride the settings
+  /// store, which syncs on its own terms.
+  static const mark = 'mark';
+  static const alarm = 'alarm';
+
   /// Not a row of its own: a confirmed balance reading posted against an
   /// account. It rides the outbox so a balance edited on a train still lands.
   static const anchor = 'anchor';
@@ -45,6 +51,8 @@ abstract final class SyncKinds {
     focus,
     event,
     vault,
+    mark,
+    alarm,
   ];
 }
 

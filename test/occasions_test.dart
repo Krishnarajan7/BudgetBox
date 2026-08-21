@@ -107,4 +107,17 @@ void main() {
       DateTime(2026, 12, 25),
     );
   });
+
+  test('the nudge never repeats itself two days running', () {
+    // Deterministic — the same seed always speaks the same line…
+    expect(eveNudgeLine(7), eveNudgeLine(7));
+    expect(dayNudgeLine(7), dayNudgeLine(7));
+    // …and neighbouring days never share a wording.
+    for (var seed = 0; seed < 40; seed++) {
+      expect(eveNudgeLine(seed), isNot(eveNudgeLine(seed + 1)));
+      expect(dayNudgeLine(seed), isNot(dayNudgeLine(seed + 1)));
+      expect(eveNudgeLine(seed), isNot(dayNudgeLine(seed)),
+          reason: 'the eve and the hour speak in different breaths');
+    }
+  });
 }

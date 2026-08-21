@@ -35,6 +35,7 @@ def upsert(session: Session, event_id: str, data: EventIn) -> Event:
     row.note = data.note
     row.date = data.date
     row.time_minutes = data.time_minutes
+    row.remind_minutes = data.remind_minutes
     row.repeat = data.repeat
     session.commit()
     return row

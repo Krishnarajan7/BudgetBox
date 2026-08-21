@@ -3,6 +3,7 @@ import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/core/widgets/motion.dart';
 import 'package:budgetbox/core/widgets/pen_marks.dart';
 import 'package:budgetbox/data/db.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
 import 'package:budgetbox/data/repos/event_repo.dart';
@@ -169,6 +170,26 @@ void main() {
       final e = (await repo.watchAll().first).single;
       expect(e.timeMinutes, isNull);
       expect(e.repeat, EventRepeat.none);
+    });
+
+    test('an asked-for reminder survives, moves, and can be cleared',
+        () async {
+      final id = await repo.create(
+        title: 'client meeting at Karaikal',
+        date: DateTime(2026, 8, 19),
+        timeMinutes: 10 * 60,
+        remindMinutes: 8 * 60 + 30,
+      );
+      expect((await repo.watchAll().first).single.remindMinutes, 510);
+
+      await repo.update(id, remindMinutes: const Value(9 * 60));
+      expect((await repo.watchAll().first).single.remindMinutes, 540);
+
+      // Value(null) clears; absent leaves alone.
+      await repo.update(id, title: 'client meeting (moved)');
+      expect((await repo.watchAll().first).single.remindMinutes, 540);
+      await repo.update(id, remindMinutes: const Value(null));
+      expect((await repo.watchAll().first).single.remindMinutes, isNull);
     });
 
     test('archive strikes the entry off the page', () async {
@@ -509,6 +530,46 @@ void main() {
       expect(find.textContaining('Rent'), findsWidgets);
       expect(find.text('₹18,000'), findsWidgets);
       expect(find.text('₹180 out'), findsOneWidget);
+      await _drain(tester, db);
+    });
+
+    testWidgets('the composer asks whether to remind, and keeps the answer', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+
+      await _pumpCalendar(tester, db);
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+
+      expect(find.text('should I remind you?'), findsOneWidget);
+      await tester.enterText(
+        find.byType(TextField).first,
+        'client meeting at Karaikal',
+      );
+      // Give the plan its hour, then ask for the nudge: it offers an
+      // hour's grace before the meeting by default.
+      await tester.tap(find.text('pick a time'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('remind me'));
+      await tester.pumpAndSettle();
+      expect(find.text('remind at 08:00'), findsOneWidget);
+      expect(
+        find.textContaining('heads-up the evening before'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Put it on the page'));
+      await tester.pumpAndSettle();
+
+      final e = (await db.select(db.events).get()).single;
+      expect(e.title, 'client meeting at Karaikal');
+      expect(e.timeMinutes, 9 * 60);
+      expect(e.remindMinutes, 8 * 60);
+
       await _drain(tester, db);
     });
 

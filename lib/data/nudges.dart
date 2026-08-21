@@ -9,14 +9,24 @@ import 'db.dart';
 import 'repos/recurring_repo.dart';
 import 'repos/settings_repo.dart';
 import 'repos/txn_repo.dart';
+import 'tonight.dart';
 
-typedef NudgeCopy = ({String title, String body});
+// Tonight's line is composed in `tonight.dart` because it is the one part of
+// the book's voice that must also run on the write path — see the note there.
+export 'tonight.dart'
+    show NudgeCopy, eveningNudgeCopy, spelledCount, tonightsLine;
 
 int _variant(DateTime day, int count) =>
     DateTime.utc(day.year, day.month, day.day).millisecondsSinceEpoch ~/
     Duration.millisecondsPerDay %
     count;
 
+/// The fortnight of fallbacks behind tonight's line: one per evening, worded
+/// so it never claims a total. Tonight's own line knows what the day wrote;
+/// these stand in for the evenings the book has not seen yet, and a stand-in
+/// that guessed at a figure would be exactly the lie this file exists to
+/// avoid.
+///
 /// Stable daily rotation: relaunching cannot change the sentence already
 /// scheduled for a date, while consecutive evenings do not sound copied.
 NudgeCopy standingNudgeCopy(DateTime day) {
@@ -41,53 +51,6 @@ NudgeCopy standingNudgeCopy(DateTime day) {
   return choices[_variant(day, choices.length)];
 }
 
-NudgeCopy eveningNudgeCopy(
-  DateTime day, {
-  required int expenseCount,
-  required int spentPaise,
-}) {
-  if (expenseCount == 0) {
-    const choices = <NudgeCopy>[
-      (
-        title: 'nothing written today',
-        body: 'was it truly ₹0? check once before closing',
-      ),
-      (
-        title: 'today’s page is empty',
-        body: 'if nothing was spent, the page is ready to close',
-      ),
-      (
-        title: 'a quiet money day?',
-        body: 'confirm the ₹0 day, then leave it complete',
-      ),
-    ];
-    return choices[_variant(day, choices.length)];
-  }
-  final count = Nudges.spelled(expenseCount);
-  final noun = expenseCount == 1 ? 'entry' : 'entries';
-  final amount = Inr.format(spentPaise);
-  final choices = <NudgeCopy>[
-    (
-      title: '$count $noun on today’s page',
-      body:
-          '$amount written — check that nothing is missing, then close the day',
-    ),
-    (
-      title: 'today holds $amount',
-      body: '$count $noun so far — one last look before the page closes',
-    ),
-    (
-      title: 'is today complete?',
-      body: '$amount across $count $noun — seal it when the total is true',
-    ),
-    (
-      title: 'the day has $count $noun',
-      body: '$amount recorded — add anything forgotten, or close the page',
-    ),
-  ];
-  return choices[_variant(day, choices.length)];
-}
-
 /// What the book says when the phone is face-down. [LedgerReminders] is the
 /// plumbing; this is the voice — it reads the day's actual state and writes
 /// tonight's line accordingly, plus the two mornings worth speaking on:
@@ -106,29 +69,29 @@ class Nudges {
   final TxnRepo _txns;
   final RecurringRepo _recurring;
 
-  /// Small counts in the book's hand: 'three', not '3'.
-  static String spelled(int n) {
-    const words = [
-      'two', 'three', 'four', 'five', 'six', 'seven', //
-      'eight', 'nine', 'ten', 'eleven', 'twelve',
-    ];
-    return n == 1
-        ? 'one'
-        : (n >= 2 && n <= 12)
-        ? words[n - 2]
-        : '$n';
-  }
+  /// Small counts in the book's hand: 'three', not '3'. Kept here as well as
+  /// in `tonight.dart` because half the book already says `Nudges.spelled`.
+  static String spelled(int n) => spelledCount(n);
 
   Future<void> resync() async {
     final now = DateTime.now();
-    // The book keeps its own evenings regardless of whether it may speak.
-    await _autoSeal(now);
     final at = await _settings.nudgeTime();
     if (at == null) {
       await LedgerReminders.quiet();
+      // The book still keeps its own evenings when it is not allowed to speak.
+      await _autoSeal(now);
       return;
     }
-    await _tonight(now, at.$1, at.$2);
+    // Tonight's line goes first, before the sixty-day sweep below it. This
+    // method is called as the app is being backgrounded, which on a modern
+    // phone is a race against the process being frozen — so the one piece
+    // with a deadline on it does not queue behind the one without.
+    //
+    // Nothing is lost by the order: [_autoSeal] can only seal *to-day* after
+    // ten at night, by which time tonight's nine o'clock has already gone and
+    // the schedule is a no-op either way.
+    await revoiceTonight(_db, now: now);
+    await _autoSeal(now);
     await LedgerReminders.scheduleStanding(at.$1, at.$2, [
       for (var i = 1; i <= 14; i++)
         switch (standingNudgeCopy(DateTime(now.year, now.month, now.day + i))) {
@@ -169,30 +132,6 @@ class Nudges {
     await _db.batch(
       (b) => b.insertAll(_db.daySeals, rows, mode: InsertMode.insertOrIgnore),
     );
-  }
-
-  /// Tonight's line carries the day as it stood the last time the app was
-  /// in hand. A sealed day cancels it — the ritual already happened.
-  Future<void> _tonight(DateTime now, int hour, int minute) async {
-    final sealed = await (_db.select(
-      _db.daySeals,
-    )..where((s) => s.date.equals(LedgerDates.dayKey(now)))).getSingleOrNull();
-    if (sealed != null) {
-      await LedgerReminders.cancelTonight();
-      return;
-    }
-    final dayStart = DateTime(now.year, now.month, now.day);
-    final txns = await _txns
-        .watchRange(dayStart, dayStart.add(const Duration(days: 1)))
-        .first;
-    final expenses = txns.where((t) => t.type == TxnType.expense).toList();
-    final paise = expenses.fold(0, (s, t) => s + t.amountPaise);
-    final copy = eveningNudgeCopy(
-      now,
-      expenseCount: expenses.length,
-      spentPaise: paise,
-    );
-    await LedgerReminders.scheduleTonight(copy.title, copy.body, hour, minute);
   }
 
   Future<void> _salary(DateTime now) async {

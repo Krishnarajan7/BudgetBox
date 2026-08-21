@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'dart:math' as math;
 
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
 import '../../core/holidays.dart';
+import '../../core/notifications.dart';
 import '../../core/occasions.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
@@ -120,25 +122,6 @@ String? monthSummary({
   return parts.isEmpty ? null : parts.join(' · ');
 }
 
-/// The one write the repo doesn't offer: rewriting an event in place.
-/// Editing is this page's own business, so the drift update lives here.
-Future<void> _rewriteEvent(
-  LedgerDb db,
-  int id, {
-  required String title,
-  required DateTime date,
-  required int? timeMinutes,
-  required EventRepeat repeat,
-}) {
-  return (db.update(db.events)..where((e) => e.id.equals(id))).write(
-    EventsCompanion(
-      title: drift.Value(title),
-      date: drift.Value(LedgerDates.dayKey(date)),
-      timeMinutes: drift.Value(timeMinutes),
-      repeat: drift.Value(repeat),
-    ),
-  );
-}
 
 /// The Calendar book as a running agenda: an ink spine down the left edge
 /// carries the days (to-day inverted onto paper) and the month written
@@ -1924,6 +1907,10 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
   final _title = TextEditingController();
   late DateTime _date;
   int? _timeMinutes;
+
+  /// The asked-for nudge: minute-of-day on the event's day, null = none.
+  /// Setting one also earns the quiet evening-before heads-up.
+  int? _remindMinutes;
   bool _yearly = false;
   bool _saving = false;
 
@@ -1937,10 +1924,11 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
   List<Account> _accounts = const [];
   int? _accountId;
 
-  /// The two inline pickers. Both stay shut for the common case — the day
-  /// the sheet opened on is nearly always the right one.
+  /// The inline pickers. All stay shut for the common case — the day the
+  /// sheet opened on is nearly always the right one.
   bool _pickingDate = false;
   bool _pickingTime = false;
+  bool _pickingRemind = false;
 
   @override
   void initState() {
@@ -1950,6 +1938,7 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
     if (e != null) {
       _title.text = e.title;
       _timeMinutes = e.timeMinutes;
+      _remindMinutes = e.remindMinutes;
       _yearly = e.repeat == EventRepeat.yearly;
     }
     _title.addListener(() => setState(() {}));
@@ -2041,20 +2030,26 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
             title: title,
             date: _date,
             timeMinutes: _timeMinutes,
+            remindMinutes: _remindMinutes,
             repeat: _yearly ? EventRepeat.yearly : EventRepeat.none,
           );
       // The bridge: "my birthday" written here reaches Settings (the
       // greeting, the confetti), and the day earns its notification.
       await Occasions(ref.read(dbProvider)).eventWritten(title, _date);
     } else {
-      await _rewriteEvent(
-        ref.read(dbProvider),
-        e.id,
-        title: title,
-        date: _date,
-        timeMinutes: _timeMinutes,
-        repeat: _yearly ? EventRepeat.yearly : EventRepeat.none,
-      );
+      // Through the repo, so the rewrite reaches the server like any
+      // other write — and the notifications restand for the new facts.
+      await ref
+          .read(eventRepoProvider)
+          .update(
+            e.id,
+            title: title,
+            date: _date,
+            timeMinutes: drift.Value(_timeMinutes),
+            remindMinutes: drift.Value(_remindMinutes),
+            repeat: _yearly ? EventRepeat.yearly : EventRepeat.none,
+          );
+      await Occasions(ref.read(dbProvider)).resyncNotifications();
     }
     if (!mounted) return;
     Navigator.of(context).pop(_date);
@@ -2067,6 +2062,8 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
     setState(() => _saving = true);
     HapticFeedback.mediumImpact();
     await ref.read(eventRepoProvider).archive(e.id);
+    // A plan taken off the page must take its notifications with it.
+    await LedgerReminders.cancelEvent(e.id);
     if (!mounted) return;
     Navigator.of(context).pop();
   }
@@ -2081,6 +2078,16 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
     return '${(t ~/ 60).toString().padLeft(2, '0')}:'
         '${(t % 60).toString().padLeft(2, '0')}';
   }
+
+  String get _remindLabelPlain {
+    final r = _remindMinutes;
+    if (r == null) return '';
+    return '${(r ~/ 60).toString().padLeft(2, '0')}:'
+        '${(r % 60).toString().padLeft(2, '0')}';
+  }
+
+  String get _remindLabel =>
+      _remindMinutes == null ? 'remind me' : 'remind at $_remindLabelPlain';
 
   @override
   Widget build(BuildContext context) {
@@ -2331,6 +2338,69 @@ class _AddEventSheetState extends ConsumerState<_AddEventSheet> {
                     )
                   : const SizedBox(width: double.infinity),
             ),
+            if (!_charge) ...[
+              const SizedBox(height: Gap.x3),
+              Text(
+                'should I remind you?',
+                style: LedgerType.label.copyWith(color: c.inkFaint),
+              ),
+              const SizedBox(height: Gap.x2),
+              Wrap(
+                spacing: Gap.x2,
+                runSpacing: Gap.x2,
+                children: [
+                  LedgerChip(
+                    'no need',
+                    selected: _remindMinutes == null,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        _remindMinutes = null;
+                        _pickingRemind = false;
+                      });
+                    },
+                  ),
+                  LedgerChip(
+                    _remindLabel,
+                    icon: Icons.notifications_none,
+                    selected: _remindMinutes != null,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        // An hour's grace before a timed plan; nine on the
+                        // day for one without an hour.
+                        _remindMinutes ??= _timeMinutes == null
+                            ? 9 * 60
+                            : math.max(0, _timeMinutes! - 60);
+                        _pickingRemind = !_pickingRemind;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              AnimatedSize(
+                duration: grow,
+                curve: Motion.curve,
+                alignment: Alignment.topCenter,
+                child: _pickingRemind && _remindMinutes != null
+                    ? _TimeDial(
+                        minutes: _remindMinutes!,
+                        onChanged: (m) => setState(() => _remindMinutes = m),
+                      )
+                    : const SizedBox(width: double.infinity),
+              ),
+              if (_remindMinutes != null) ...[
+                const SizedBox(height: Gap.x2),
+                Text(
+                  'a nudge at $_remindLabelPlain on the day — and a quiet '
+                  'heads-up the evening before',
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12,
+                    color: c.inkFaint,
+                  ),
+                ),
+              ],
+            ],
             const SizedBox(height: Gap.x6),
             Pressable(
               onTap: canSave ? _save : null,

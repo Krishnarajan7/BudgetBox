@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
+import '../../core/rain_watch.dart';
 import '../../core/weather.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
@@ -26,6 +27,15 @@ class WeatherPage extends ConsumerStatefulWidget {
 }
 
 class _WeatherPageState extends ConsumerState<WeatherPage> {
+  /// True while the book is out looking. The page never blanks for it — the
+  /// old reading stays on screen with the mark turning beside it, because a
+  /// spinner where a temperature was is a downgrade.
+  bool _looking = false;
+
+  /// Set when a look came back with nothing: no signal, no permission, or a
+  /// service having a bad morning. Cleared by the next successful one.
+  bool _failed = false;
+
   @override
   void initState() {
     super.initState();
@@ -35,19 +45,42 @@ class _WeatherPageState extends ConsumerState<WeatherPage> {
       final repo = ref.read(weatherRepoProvider);
       final sky = await repo.cached();
       if (sky != null && sky.days.length > 1) return;
-      if (await repo.refresh() != null && mounted) {
-        ref.invalidate(weatherProvider);
-      }
+      await _reread(haptic: false);
     });
   }
 
-  /// Double-tap the sky and the book goes and looks again — the numeral
-  /// re-counting is the whole confirmation.
-  Future<void> _reread() async {
-    HapticFeedback.mediumImpact();
-    if (await ref.read(weatherRepoProvider).refresh() != null && mounted) {
-      ref.invalidate(weatherProvider);
+  /// Go and look again. Reached three ways — the mark in the top bar, a
+  /// double-tap on the sky itself, and a pull down on the page — because the
+  /// one thing a person does on a weather screen is ask it to try again.
+  ///
+  /// The rain warning is re-laid from the same reading: a forecast that has
+  /// changed its mind should not leave last hour's warning standing.
+  Future<void> _reread({bool haptic = true}) async {
+    if (_looking) return;
+    if (haptic) HapticFeedback.mediumImpact();
+    setState(() => _looking = true);
+    final sky = await ref.read(weatherRepoProvider).refresh();
+    await ref.read(rainWatchProvider).lay(sky);
+    if (!mounted) return;
+    setState(() {
+      _looking = false;
+      _failed = sky == null;
+    });
+    if (sky != null) ref.invalidate(weatherProvider);
+  }
+
+  /// The one small line under the week, and whether it should be inked in
+  /// the warning colour. Ordered by what a person most needs to know: a
+  /// failed look first (the figures above may be old), then coming rain,
+  /// then the reading's plain age.
+  (String, bool)? _footnote(Weather sky, DateTime now) {
+    if (_looking) return ('reading the sky…', false);
+    if (_failed) return ('could not reach the sky — no signal, or no permission', true);
+    if (sky.rainLine case final coming?) {
+      return ('$coming — ${sky.staleness(now) ?? 'read just now'}', true);
     }
+    if (sky.staleness(now) case final stale?) return (stale, false);
+    return null;
   }
 
   static const _weekdays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -106,8 +139,28 @@ class _WeatherPageState extends ConsumerState<WeatherPage> {
                       style: LedgerType.label.copyWith(color: c.inkFaint),
                     ),
                   ),
-                  // Balances the chevron so the date sits truly centred.
-                  const SizedBox(width: 16),
+                  // Where a balancing spacer used to sit: the one control
+                  // this page has ever needed, in the one place a thumb
+                  // already goes.
+                  Pressable(
+                    key: const ValueKey('sky-refresh'),
+                    scale: 0.86,
+                    onTap: _reread,
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: _looking
+                          // The mark turns while the book looks — the same
+                          // weight of line as everything else on the page,
+                          // never a material spinner.
+                          ? _Turning(color: c.quill)
+                          : Icon(
+                              Icons.refresh,
+                              size: 16,
+                              color: _failed ? c.warn : c.inkFaint,
+                            ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -128,12 +181,27 @@ class _WeatherPageState extends ConsumerState<WeatherPage> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onDoubleTap: _reread,
-                  child: Center(
-                    // The hero scales down as one piece on a short screen
-                    // rather than letting any line squeeze or wrap.
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: _SkyHero(sky: sky, now: now),
+                  child: RefreshIndicator(
+                    onRefresh: _reread,
+                    edgeOffset: 0,
+                    displacement: 28,
+                    color: c.quill,
+                    backgroundColor: c.paperRaised,
+                    // The page is a single sculpture, not a list, so it needs
+                    // a scroll view purely to be pullable — one that always
+                    // accepts the gesture even when nothing overflows.
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        // The hero scales down as one piece on a short screen
+                        // rather than letting any line squeeze or wrap.
+                        Center(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: _SkyHero(sky: sky, now: now),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -143,15 +211,18 @@ class _WeatherPageState extends ConsumerState<WeatherPage> {
                   delay: const Duration(milliseconds: 340),
                   child: _WeekRow(days: sky.days, weekdays: _weekdays),
                 ),
-              if (sky.staleness(now) case final stale?)
+              // What the page cannot show in the sculpture: when this was
+              // read, whether the last look failed, and — the one line worth
+              // acting on — what is about to fall out of the sky.
+              if (_footnote(sky, now) case (final text, final warn)?)
                 Padding(
                   padding: const EdgeInsets.only(top: Gap.x2),
                   child: Text(
-                    stale,
+                    text,
                     textAlign: TextAlign.center,
                     style: LedgerType.bodyText.copyWith(
                       fontSize: 11,
-                      color: c.inkFaint,
+                      color: warn ? c.warn : c.inkFaint,
                     ),
                   ),
                 ),
@@ -161,6 +232,39 @@ class _WeatherPageState extends ConsumerState<WeatherPage> {
         ),
       ),
     );
+  }
+}
+
+/// The refresh mark, turning. A drawn line rotating at the pace of a hand,
+/// not a material spinner racing — this page has no other borrowed chrome on
+/// it and is not starting now.
+class _Turning extends StatefulWidget {
+  const _Turning({required this.color});
+
+  final Color color;
+
+  @override
+  State<_Turning> createState() => _TurningState();
+}
+
+class _TurningState extends State<_Turning>
+    with SingleTickerProviderStateMixin {
+  late final _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = Icon(Icons.refresh, size: 16, color: widget.color);
+    if (Motion.reduced(context)) return mark;
+    return RotationTransition(turns: _spin, child: mark);
   }
 }
 

@@ -37,6 +37,7 @@ class SettingsRepo {
   static const _serverUrl = 'serverUrl';
   static const _serverToken = 'serverToken';
   static const _waterBottleMl = 'waterBottleMl';
+  static const _worthVeiled = 'worthVeiled';
 
   /// The preferences worth keeping on the server, so a reinstall comes back
   /// as the same book rather than a blank one.
@@ -54,7 +55,16 @@ class SettingsRepo {
     _yearFrame,
     _birthday,
     _waterBottleMl,
+    // Not a preference so much as a schema: without the habit definitions a
+    // restored phone has every mark in `day_marks` and no idea that 'push'
+    // means fifty push-ups. They live here because they are one JSON string
+    // with no relationships — a table for them would carry nothing extra.
+    habitsKey,
   ];
+
+  /// Where [HabitRepo] keeps the checklist. Named here because the sync list
+  /// above has to reach it and this file must not import a repo.
+  static const habitsKey = 'habits';
 
   Future<String?> _get(String key) async {
     final row = await (_db.select(
@@ -143,6 +153,13 @@ class SettingsRepo {
       int.tryParse(await _get(_waterBottleMl) ?? '') ?? 750;
 
   Future<void> setWaterBottleMl(int ml) => _set(_waterBottleMl, '$ml');
+
+  /// Whether the Worth page keeps its figures behind the eye. A device
+  /// posture, like the PIN — deliberately not synced.
+  Future<bool> worthVeiled() async => await _get(_worthVeiled) == 'true';
+
+  Future<void> setWorthVeiled(bool veiled) =>
+      _set(_worthVeiled, '$veiled');
 
   Future<String?> kuralDay() => _get(_kuralDay);
 

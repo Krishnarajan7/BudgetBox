@@ -14,7 +14,8 @@ import 'package:timezone/timezone.dart' as tz;
 ///
 /// The id ledger: 1 = tonight's voiced nudge (one-shot, knows the day),
 /// 2 = the retired repeating evening nudge (kept only so upgrades cancel it),
-/// 3 = salary morning, 4 = the focus session's finish line, 20–33 = the next
+/// 3 = salary morning, 4 = the focus session's finish line, 5 = rain coming,
+/// 20–33 = the next
 /// fourteen standing evening nudges, 1000+ = calendar days
 /// ([scheduleEventDay]), 2000+ = recurring charges, 1000000+ = note reminders.
 class LedgerReminders {
@@ -28,6 +29,10 @@ class LedgerReminders {
   static const _idStanding = 2;
   static const _idSalary = 3;
   static const _idFocus = 4;
+
+  /// The sky's one voice. A single id, because there is only ever one piece
+  /// of weather news worth holding: the next rain. Re-scheduling replaces it.
+  static const _idRain = 5;
   static const _standingBase = 20;
   static const _standingDays = 14;
   static const _dueBase = 2000;
@@ -39,6 +44,16 @@ class LedgerReminders {
     importance: Importance.defaultImportance,
     priority: Priority.defaultPriority,
   );
+  /// Its own channel so it can be silenced on its own: a person who wants
+  /// the evening nudge and not the sky should not have to choose.
+  static const _skyChannel = AndroidNotificationDetails(
+    'the-sky',
+    'Rain coming',
+    channelDescription: 'One heads-up before rain, on the days there is rain',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+
   static const _noteChannel = AndroidNotificationDetails(
     'notes-and-reminders',
     'Notes and reminders',
@@ -228,6 +243,36 @@ class LedgerReminders {
     } catch (e) {
       debugPrint('reminder $id not scheduled: $e');
     }
+  }
+
+  // ————— the sky —————
+
+  /// One heads-up, [at], that rain is coming. Replaces whatever the sky was
+  /// last going to say, because a forecast that has moved makes the old
+  /// warning wrong rather than additional.
+  static Future<void> scheduleRain(
+    String title,
+    String body,
+    DateTime at,
+  ) async {
+    await cancelRain();
+    await _once(
+      _idRain,
+      title,
+      body,
+      at,
+      details: const NotificationDetails(
+        android: _skyChannel,
+        iOS: DarwinNotificationDetails(),
+      ),
+    );
+  }
+
+  static Future<void> cancelRain() async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(_idRain);
+    } catch (_) {}
   }
 
   // ————— alarms —————
@@ -578,13 +623,15 @@ class LedgerReminders {
     } catch (_) {}
   }
 
-  /// A calendar day's notification: 9 a.m. on the day, one-shot. Ids ride
-  /// at 1000+event so they never collide with the nudge.
+  /// A calendar day's notification, one-shot. Ids ride at 1000+event so
+  /// they never collide with the nudge. The default hour is 9 a.m.; an
+  /// asked-for reminder passes its own time and its own words.
   static Future<void> scheduleEventDay(
     int eventId,
     String title,
-    DateTime at,
-  ) async {
+    DateTime at, {
+    String body = "to-day, says the calendar",
+  }) async {
     if (!await _init()) return;
     try {
       final when = tz.TZDateTime(
@@ -599,7 +646,7 @@ class LedgerReminders {
       await _plugin.zonedSchedule(
         1000 + eventId,
         title,
-        "to-day, says the calendar",
+        body,
         when,
         const NotificationDetails(
           android: _channel,
@@ -612,10 +659,55 @@ class LedgerReminders {
     }
   }
 
+  /// The evening-before heads-up an asked-for reminder earns: its own id
+  /// lane at 500000+event, so the day-of line and this one never fight.
+  static const _eveBase = 500000;
+
+  static Future<void> scheduleEventEve(
+    int eventId,
+    String title,
+    String body,
+    DateTime at,
+  ) async {
+    if (!await _init()) return;
+    try {
+      final when = tz.TZDateTime(
+        tz.local,
+        at.year,
+        at.month,
+        at.day,
+        at.hour,
+        at.minute,
+      );
+      if (!when.isAfter(tz.TZDateTime.now(tz.local))) return;
+      await _plugin.zonedSchedule(
+        _eveBase + eventId,
+        title,
+        body,
+        when,
+        const NotificationDetails(
+          android: _channel,
+          iOS: DarwinNotificationDetails(),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    } catch (e) {
+      debugPrint('event eve reminder not scheduled: $e');
+    }
+  }
+
+  static Future<void> cancelEventEve(int eventId) async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(_eveBase + eventId);
+    } catch (_) {}
+  }
+
   static Future<void> cancelEvent(int eventId) async {
     if (!await _init()) return;
     try {
       await _plugin.cancel(1000 + eventId);
+      await _plugin.cancel(_eveBase + eventId);
     } catch (_) {}
   }
 }

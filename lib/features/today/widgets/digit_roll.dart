@@ -13,11 +13,17 @@ class DigitRoll extends StatefulWidget {
     super.key,
     required this.paise,
     required this.style,
+    this.text,
     this.duration = const Duration(milliseconds: 380),
     this.staggerPerDigit = const Duration(milliseconds: 24),
   });
 
   final int paise;
+
+  /// What to print, when the caller knows better than [Inr.format] — the
+  /// add keypad passes the figure exactly as typed so a fresh decimal
+  /// point shows up the moment it is pressed. Null formats [paise].
+  final String? text;
 
   /// Digit slots size themselves to each digit's own advance and animate
   /// between widths as the tape turns, so proportional figures (a narrow 1
@@ -45,7 +51,7 @@ class _DigitRollState extends State<DigitRoll> {
 
   @override
   Widget build(BuildContext context) {
-    final text = Inr.format(widget.paise);
+    final text = widget.text ?? Inr.format(widget.paise);
     if (Motion.reduced(context)) return Text(text, style: widget.style);
 
     final scaler = MediaQuery.textScalerOf(context);
@@ -61,12 +67,17 @@ class _DigitRollState extends State<DigitRoll> {
     });
     final c = LedgerColors.of(context);
 
-    // Cells are keyed by their distance from the units column, so when the
-    // figure grows a digit (₹999 → ₹1,000) the surviving digits keep their
-    // tapes and roll, while the new head simply takes its place.
+    // Cells are keyed by their distance from the units column — which sits
+    // just left of the decimal point when one exists. Keyed this way, the
+    // integer digits keep their tapes both when the figure grows a digit
+    // (₹999 → ₹1,000) and when a point lands behind them (₹120 → ₹120.):
+    // fractional slots take negative keys of their own.
     final n = text.length;
+    final dot = text.indexOf('.');
+    final units = dot < 0 ? n : dot;
     final cells = <Widget>[
-      for (var i = 0; i < n; i++) _cell(text[i], n - 1 - i, widths, h, c.paper),
+      for (var i = 0; i < n; i++)
+        _cell(text[i], units - 1 - i, widths, h, c.paper),
     ];
 
     return Semantics(
@@ -94,7 +105,7 @@ class _DigitRollState extends State<DigitRoll> {
         key: ValueKey('d$fromRight'),
         digit: code - 0x30,
         dir: _dir,
-        delay: widget.staggerPerDigit * fromRight,
+        delay: widget.staggerPerDigit * fromRight.abs(),
         duration: widget.duration,
         style: widget.style,
         widths: widths,

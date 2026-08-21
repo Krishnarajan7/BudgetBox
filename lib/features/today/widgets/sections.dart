@@ -18,6 +18,7 @@ import '../../../data/repos/budget_math.dart';
 import '../../../data/repos/goal_repo.dart';
 import '../../../data/repos/recurring_repo.dart';
 import '../../add/money_moves.dart' show quietDays, showCatchUpSheet;
+import '../../add/shortfall.dart' show settleShortfall;
 import '../../book/book_page.dart' show WhereSlice;
 import 'ledger_rows.dart';
 
@@ -1063,8 +1064,21 @@ class _PinTabState extends ConsumerState<_PinTab> {
 
   Future<void> _landed() async {
     // The seal has pressed down — now the entry goes into the book, so the
-    // fresh line inks in right behind the stamp.
-    await ref.read(pinnedRepoProvider).stamp(widget.pin);
+    // fresh line inks in right behind the stamp. Unless the pocket the pin
+    // names cannot cover it, in which case the book asks first: a one-tap
+    // habit is still not permission to write a balance that isn't true.
+    final accountId = await settleShortfall(
+      context,
+      ref,
+      accountId: widget.pin.accountId,
+      amountPaise: widget.pin.amountPaise,
+    );
+    if (!mounted) return;
+    if (accountId == null) {
+      setState(() => _stamping = false);
+      return;
+    }
+    await ref.read(pinnedRepoProvider).stamp(widget.pin, accountId: accountId);
     await Future<void>.delayed(const Duration(milliseconds: 280));
     if (mounted) setState(() => _stamping = false);
   }

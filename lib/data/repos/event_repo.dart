@@ -23,6 +23,7 @@ class EventRepo {
     required String title,
     required DateTime date,
     int? timeMinutes,
+    int? remindMinutes,
     EventRepeat repeat = EventRepeat.none,
     String? note,
   }) {
@@ -32,6 +33,7 @@ class EventRepo {
               title: title,
               date: LedgerDates.dayKey(date),
               timeMinutes: Value(timeMinutes),
+              remindMinutes: Value(remindMinutes),
               repeat: Value(repeat),
               note: Value(note),
             ),
@@ -48,6 +50,10 @@ class EventRepo {
     String? title,
     DateTime? date,
     EventRepeat? repeat,
+    // Values, so "clear it" and "leave it alone" both have a spelling:
+    // Value(null) clears, absent leaves.
+    Value<int?> timeMinutes = const Value.absent(),
+    Value<int?> remindMinutes = const Value.absent(),
   }) {
     return _db.transaction(() async {
       await (_db.update(_db.events)..where((e) => e.id.equals(id))).write(
@@ -57,6 +63,8 @@ class EventRepo {
               ? const Value.absent()
               : Value(LedgerDates.dayKey(date)),
           repeat: repeat == null ? const Value.absent() : Value(repeat),
+          timeMinutes: timeMinutes,
+          remindMinutes: remindMinutes,
         ),
       );
       await bbxSync.upsert(SyncKinds.event, id);

@@ -5894,6 +5894,17 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _remindMinutesMeta = const VerificationMeta(
+    'remindMinutes',
+  );
+  @override
+  late final GeneratedColumn<int> remindMinutes = GeneratedColumn<int>(
+    'remind_minutes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   late final GeneratedColumnWithTypeConverter<EventRepeat, int> repeat =
       GeneratedColumn<int>(
@@ -5938,6 +5949,7 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
     note,
     date,
     timeMinutes,
+    remindMinutes,
     repeat,
     createdAt,
     archived,
@@ -5988,6 +6000,15 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
         ),
       );
     }
+    if (data.containsKey('remind_minutes')) {
+      context.handle(
+        _remindMinutesMeta,
+        remindMinutes.isAcceptableOrUnknown(
+          data['remind_minutes']!,
+          _remindMinutesMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -6029,6 +6050,10 @@ class $EventsTable extends Events with TableInfo<$EventsTable, Event> {
         DriftSqlType.int,
         data['${effectivePrefix}time_minutes'],
       ),
+      remindMinutes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}remind_minutes'],
+      ),
       repeat: $EventsTable.$converterrepeat.fromSql(
         attachedDatabase.typeMapping.read(
           DriftSqlType.int,
@@ -6065,6 +6090,11 @@ class Event extends DataClass implements Insertable<Event> {
 
   /// Minutes past midnight; null = all-day.
   final int? timeMinutes;
+
+  /// Minute-of-day the owner asked to be reminded at, on the event's day.
+  /// Null = no asked-for reminder (the quiet 9 a.m. line still stands).
+  /// Setting this also earns the evening-before heads-up.
+  final int? remindMinutes;
   final EventRepeat repeat;
   final DateTime createdAt;
   final bool archived;
@@ -6074,6 +6104,7 @@ class Event extends DataClass implements Insertable<Event> {
     this.note,
     required this.date,
     this.timeMinutes,
+    this.remindMinutes,
     required this.repeat,
     required this.createdAt,
     required this.archived,
@@ -6089,6 +6120,9 @@ class Event extends DataClass implements Insertable<Event> {
     map['date'] = Variable<String>(date);
     if (!nullToAbsent || timeMinutes != null) {
       map['time_minutes'] = Variable<int>(timeMinutes);
+    }
+    if (!nullToAbsent || remindMinutes != null) {
+      map['remind_minutes'] = Variable<int>(remindMinutes);
     }
     {
       map['repeat'] = Variable<int>(
@@ -6109,6 +6143,9 @@ class Event extends DataClass implements Insertable<Event> {
       timeMinutes: timeMinutes == null && nullToAbsent
           ? const Value.absent()
           : Value(timeMinutes),
+      remindMinutes: remindMinutes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(remindMinutes),
       repeat: Value(repeat),
       createdAt: Value(createdAt),
       archived: Value(archived),
@@ -6126,6 +6163,7 @@ class Event extends DataClass implements Insertable<Event> {
       note: serializer.fromJson<String?>(json['note']),
       date: serializer.fromJson<String>(json['date']),
       timeMinutes: serializer.fromJson<int?>(json['timeMinutes']),
+      remindMinutes: serializer.fromJson<int?>(json['remindMinutes']),
       repeat: $EventsTable.$converterrepeat.fromJson(
         serializer.fromJson<int>(json['repeat']),
       ),
@@ -6142,6 +6180,7 @@ class Event extends DataClass implements Insertable<Event> {
       'note': serializer.toJson<String?>(note),
       'date': serializer.toJson<String>(date),
       'timeMinutes': serializer.toJson<int?>(timeMinutes),
+      'remindMinutes': serializer.toJson<int?>(remindMinutes),
       'repeat': serializer.toJson<int>(
         $EventsTable.$converterrepeat.toJson(repeat),
       ),
@@ -6156,6 +6195,7 @@ class Event extends DataClass implements Insertable<Event> {
     Value<String?> note = const Value.absent(),
     String? date,
     Value<int?> timeMinutes = const Value.absent(),
+    Value<int?> remindMinutes = const Value.absent(),
     EventRepeat? repeat,
     DateTime? createdAt,
     bool? archived,
@@ -6165,6 +6205,9 @@ class Event extends DataClass implements Insertable<Event> {
     note: note.present ? note.value : this.note,
     date: date ?? this.date,
     timeMinutes: timeMinutes.present ? timeMinutes.value : this.timeMinutes,
+    remindMinutes: remindMinutes.present
+        ? remindMinutes.value
+        : this.remindMinutes,
     repeat: repeat ?? this.repeat,
     createdAt: createdAt ?? this.createdAt,
     archived: archived ?? this.archived,
@@ -6178,6 +6221,9 @@ class Event extends DataClass implements Insertable<Event> {
       timeMinutes: data.timeMinutes.present
           ? data.timeMinutes.value
           : this.timeMinutes,
+      remindMinutes: data.remindMinutes.present
+          ? data.remindMinutes.value
+          : this.remindMinutes,
       repeat: data.repeat.present ? data.repeat.value : this.repeat,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       archived: data.archived.present ? data.archived.value : this.archived,
@@ -6192,6 +6238,7 @@ class Event extends DataClass implements Insertable<Event> {
           ..write('note: $note, ')
           ..write('date: $date, ')
           ..write('timeMinutes: $timeMinutes, ')
+          ..write('remindMinutes: $remindMinutes, ')
           ..write('repeat: $repeat, ')
           ..write('createdAt: $createdAt, ')
           ..write('archived: $archived')
@@ -6206,6 +6253,7 @@ class Event extends DataClass implements Insertable<Event> {
     note,
     date,
     timeMinutes,
+    remindMinutes,
     repeat,
     createdAt,
     archived,
@@ -6219,6 +6267,7 @@ class Event extends DataClass implements Insertable<Event> {
           other.note == this.note &&
           other.date == this.date &&
           other.timeMinutes == this.timeMinutes &&
+          other.remindMinutes == this.remindMinutes &&
           other.repeat == this.repeat &&
           other.createdAt == this.createdAt &&
           other.archived == this.archived);
@@ -6230,6 +6279,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
   final Value<String?> note;
   final Value<String> date;
   final Value<int?> timeMinutes;
+  final Value<int?> remindMinutes;
   final Value<EventRepeat> repeat;
   final Value<DateTime> createdAt;
   final Value<bool> archived;
@@ -6239,6 +6289,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     this.note = const Value.absent(),
     this.date = const Value.absent(),
     this.timeMinutes = const Value.absent(),
+    this.remindMinutes = const Value.absent(),
     this.repeat = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.archived = const Value.absent(),
@@ -6249,6 +6300,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     this.note = const Value.absent(),
     required String date,
     this.timeMinutes = const Value.absent(),
+    this.remindMinutes = const Value.absent(),
     this.repeat = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.archived = const Value.absent(),
@@ -6260,6 +6312,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     Expression<String>? note,
     Expression<String>? date,
     Expression<int>? timeMinutes,
+    Expression<int>? remindMinutes,
     Expression<int>? repeat,
     Expression<DateTime>? createdAt,
     Expression<bool>? archived,
@@ -6270,6 +6323,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
       if (note != null) 'note': note,
       if (date != null) 'date': date,
       if (timeMinutes != null) 'time_minutes': timeMinutes,
+      if (remindMinutes != null) 'remind_minutes': remindMinutes,
       if (repeat != null) 'repeat': repeat,
       if (createdAt != null) 'created_at': createdAt,
       if (archived != null) 'archived': archived,
@@ -6282,6 +6336,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
     Value<String?>? note,
     Value<String>? date,
     Value<int?>? timeMinutes,
+    Value<int?>? remindMinutes,
     Value<EventRepeat>? repeat,
     Value<DateTime>? createdAt,
     Value<bool>? archived,
@@ -6292,6 +6347,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
       note: note ?? this.note,
       date: date ?? this.date,
       timeMinutes: timeMinutes ?? this.timeMinutes,
+      remindMinutes: remindMinutes ?? this.remindMinutes,
       repeat: repeat ?? this.repeat,
       createdAt: createdAt ?? this.createdAt,
       archived: archived ?? this.archived,
@@ -6316,6 +6372,9 @@ class EventsCompanion extends UpdateCompanion<Event> {
     if (timeMinutes.present) {
       map['time_minutes'] = Variable<int>(timeMinutes.value);
     }
+    if (remindMinutes.present) {
+      map['remind_minutes'] = Variable<int>(remindMinutes.value);
+    }
     if (repeat.present) {
       map['repeat'] = Variable<int>(
         $EventsTable.$converterrepeat.toSql(repeat.value),
@@ -6338,6 +6397,7 @@ class EventsCompanion extends UpdateCompanion<Event> {
           ..write('note: $note, ')
           ..write('date: $date, ')
           ..write('timeMinutes: $timeMinutes, ')
+          ..write('remindMinutes: $remindMinutes, ')
           ..write('repeat: $repeat, ')
           ..write('createdAt: $createdAt, ')
           ..write('archived: $archived')
@@ -13592,6 +13652,7 @@ typedef $$EventsTableCreateCompanionBuilder =
       Value<String?> note,
       required String date,
       Value<int?> timeMinutes,
+      Value<int?> remindMinutes,
       Value<EventRepeat> repeat,
       Value<DateTime> createdAt,
       Value<bool> archived,
@@ -13603,6 +13664,7 @@ typedef $$EventsTableUpdateCompanionBuilder =
       Value<String?> note,
       Value<String> date,
       Value<int?> timeMinutes,
+      Value<int?> remindMinutes,
       Value<EventRepeat> repeat,
       Value<DateTime> createdAt,
       Value<bool> archived,
@@ -13638,6 +13700,11 @@ class $$EventsTableFilterComposer extends Composer<_$LedgerDb, $EventsTable> {
 
   ColumnFilters<int> get timeMinutes => $composableBuilder(
     column: $table.timeMinutes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get remindMinutes => $composableBuilder(
+    column: $table.remindMinutes,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13691,6 +13758,11 @@ class $$EventsTableOrderingComposer extends Composer<_$LedgerDb, $EventsTable> {
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get remindMinutes => $composableBuilder(
+    column: $table.remindMinutes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get repeat => $composableBuilder(
     column: $table.repeat,
     builder: (column) => ColumnOrderings(column),
@@ -13730,6 +13802,11 @@ class $$EventsTableAnnotationComposer
 
   GeneratedColumn<int> get timeMinutes => $composableBuilder(
     column: $table.timeMinutes,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get remindMinutes => $composableBuilder(
+    column: $table.remindMinutes,
     builder: (column) => column,
   );
 
@@ -13776,6 +13853,7 @@ class $$EventsTableTableManager
                 Value<String?> note = const Value.absent(),
                 Value<String> date = const Value.absent(),
                 Value<int?> timeMinutes = const Value.absent(),
+                Value<int?> remindMinutes = const Value.absent(),
                 Value<EventRepeat> repeat = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<bool> archived = const Value.absent(),
@@ -13785,6 +13863,7 @@ class $$EventsTableTableManager
                 note: note,
                 date: date,
                 timeMinutes: timeMinutes,
+                remindMinutes: remindMinutes,
                 repeat: repeat,
                 createdAt: createdAt,
                 archived: archived,
@@ -13796,6 +13875,7 @@ class $$EventsTableTableManager
                 Value<String?> note = const Value.absent(),
                 required String date,
                 Value<int?> timeMinutes = const Value.absent(),
+                Value<int?> remindMinutes = const Value.absent(),
                 Value<EventRepeat> repeat = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<bool> archived = const Value.absent(),
@@ -13805,6 +13885,7 @@ class $$EventsTableTableManager
                 note: note,
                 date: date,
                 timeMinutes: timeMinutes,
+                remindMinutes: remindMinutes,
                 repeat: repeat,
                 createdAt: createdAt,
                 archived: archived,

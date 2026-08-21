@@ -83,6 +83,14 @@ class LedgerAppBar extends ConsumerWidget {
 class SkyMarkChip extends ConsumerWidget {
   const SkyMarkChip({super.key});
 
+  /// "feels 38°", when that is worth saying. Null when the reading carries
+  /// no apparent temperature, or when it agrees with the real one.
+  static String? _feelsLine(Weather sky) {
+    final feels = sky.feelsC;
+    if (feels == null || (feels - sky.nowC).abs() < 2) return null;
+    return 'feels ${feels.round()}°';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = LedgerColors.of(context);
@@ -103,8 +111,14 @@ class SkyMarkChip extends ConsumerWidget {
       child: _Says(
         message: [
           Weather.describe(sky.code),
-          ?(sky.rainLater && !Weather.isWet(sky.code) ? 'rain later' : null),
+          // Now that the reading carries the hour, the tooltip names it:
+          // "rain by 6 pm" is something to act on, "rain later" is trivia.
+          ?(Weather.isWet(sky.code) ? null : sky.rainLine),
           '${sky.nowC.round()}° now',
+          // What it feels like, when that differs enough to matter — the
+          // number that decides whether you take the bike. Within a degree
+          // or two of the real one it is just noise, so it stays off.
+          ?_feelsLine(sky),
           sky.bracket,
           ?sky.sunLine(now),
           ?stale,

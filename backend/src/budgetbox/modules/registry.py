@@ -21,6 +21,8 @@ _MODEL_MODULES = [
     "budgetbox.modules.journal.models",
     "budgetbox.modules.events.models",
     "budgetbox.modules.vault.models",
+    "budgetbox.modules.marks.models",
+    "budgetbox.modules.alarms.models",
     "budgetbox.modules.changes.models",
     "budgetbox.modules.coaching.models",
 ]
@@ -44,6 +46,8 @@ _ROUTER_MODULES: list[str] = [
     "budgetbox.modules.journal.router",
     "budgetbox.modules.events.router",
     "budgetbox.modules.vault.router",
+    "budgetbox.modules.marks.router",
+    "budgetbox.modules.alarms.router",
     "budgetbox.modules.coaching.router",
 ]
 

@@ -126,3 +126,41 @@ def test_events_are_reported_by_the_changes_feed(client: TestClient) -> None:
     make_event(client, title="Tracked", date="2026-08-14")
     changed = client.get("/v1/changes").json()
     assert len([item for item in changed["items"] if item["resource"] == "events"]) == 1
+
+
+def test_remind_minutes_round_trips_and_clears(client: TestClient) -> None:
+    """The asked-for reminder time survives the wire, and a full upsert
+    without one clears it — the phone owns the truth, the row records it."""
+    event_id = new_id()
+    resp = client.put(
+        f"/v1/events/{event_id}",
+        json={
+            "title": "client meeting at Karaikal",
+            "date": "2026-08-19",
+            "time_minutes": 10 * 60,
+            "remind_minutes": 8 * 60 + 30,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    row = client.get("/v1/events/all").json()[0]
+    assert row["remind_minutes"] == 8 * 60 + 30
+
+    # PATCH moves only the reminder.
+    resp = client.patch(f"/v1/events/{event_id}", json={"remind_minutes": 9 * 60})
+    assert resp.status_code == 200, resp.text
+    assert client.get("/v1/events/all").json()[0]["remind_minutes"] == 9 * 60
+
+    # A full upsert without the field returns it to silence.
+    resp = client.put(
+        f"/v1/events/{event_id}",
+        json={"title": "client meeting at Karaikal", "date": "2026-08-19"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert client.get("/v1/events/all").json()[0]["remind_minutes"] is None
+
+    # Out-of-range reminders are refused at the door.
+    resp = client.put(
+        f"/v1/events/{new_id()}",
+        json={"title": "x", "date": "2026-08-19", "remind_minutes": 2000},
+    )
+    assert resp.status_code == 422

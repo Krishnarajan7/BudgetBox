@@ -21,6 +21,10 @@ class Event(Base, StampedMixin):
         CheckConstraint(
             "time_minutes IS NULL OR time_minutes BETWEEN 0 AND 1439", name="time_minutes_range"
         ),
+        CheckConstraint(
+            "remind_minutes IS NULL OR remind_minutes BETWEEN 0 AND 1439",
+            name="remind_minutes_range",
+        ),
     )
 
     id: Mapped[str] = pk_id()
@@ -28,6 +32,9 @@ class Event(Base, StampedMixin):
     note: Mapped[str | None] = mapped_column(Text, default=None)
     date: Mapped[dt.date] = mapped_column(DayKey())  # anchor
     time_minutes: Mapped[int | None] = mapped_column(default=None)  # null = all-day
+    # Minute-of-day the owner asked to be nudged at; null = no asked-for
+    # reminder. The phone owns the actual notification; this is the record.
+    remind_minutes: Mapped[int | None] = mapped_column(default=None)
     repeat: Mapped[EventRepeat] = mapped_column(
         str_enum(EventRepeat, "event_repeat"), default=EventRepeat.NONE
     )

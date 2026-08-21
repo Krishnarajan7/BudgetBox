@@ -175,6 +175,14 @@ class SyncPuller {
           await (_db.delete(
             _db.events,
           )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.mark:
+          await (_db.delete(
+            _db.dayMarks,
+          )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.alarm:
+          await (_db.delete(
+            _db.alarms,
+          )..where((x) => x.id.equals(localId))).go();
         default:
           // Accounts, categories, budgets, goals and recurrings use archive /
           // inactive states in the public API. Refuse to cascade an unexpected
@@ -195,6 +203,8 @@ class SyncPuller {
     'notes' => SyncKinds.note,
     'focus_sessions' => SyncKinds.focus,
     'events' => SyncKinds.event,
+    'day_marks' => SyncKinds.mark,
+    'alarms' => SyncKinds.alarm,
     _ => null,
   };
 
@@ -212,6 +222,8 @@ class SyncPuller {
     _Step('focus_sessions', _applyFocus),
     _Step('events', _applyEvents),
     _Step('vault_items', _applyVault),
+    _Step('day_marks', _applyMarks),
+    _Step('alarms', _applyAlarms),
   ];
 
   // ————— the shared shape of applying one remote row —————
@@ -690,6 +702,7 @@ class SyncPuller {
           note: Value(r['note'] as String?),
           date: Value('${r['date']}'),
           timeMinutes: Value(r['time_minutes'] as int?),
+          remindMinutes: Value(r['remind_minutes'] as int?),
           repeat: Value(
             _pick(EventRepeat.values, r['repeat'], EventRepeat.none),
           ),
@@ -727,6 +740,69 @@ class SyncPuller {
         }
         await (p._db.update(
           p._db.vaultItems,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  /// The day's marks. Unlike most lists this one is fetched whole: a mark is
+  /// four short columns, the whole record is what a restoring phone wants,
+  /// and there is no natural window to ask for — habits do not belong to the
+  /// current month the way a focus sitting does.
+  static Future<int> _applyMarks(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/marks');
+    var n = 0;
+    for (final r in rows) {
+      n += await p._absorb(SyncKinds.mark, '${r['id']}', (localId) async {
+        final companion = DayMarksCompanion(
+          date: Value('${r['date']}'),
+          kind: Value('${r['kind']}'),
+          note: Value(r['note'] as String?),
+          at: Value(_time(r['at']) ?? DateTime.now()),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.dayMarks).insert(companion);
+        }
+        await (p._db.update(
+          p._db.dayMarks,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  /// Alarms come down and are written, but the *ringing* is re-laid by
+  /// [AlarmRepo.resync] at the next launch rather than here — this layer
+  /// touches the database, never the notification service.
+  static Future<int> _applyAlarms(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/alarms');
+    var n = 0;
+    for (final r in rows) {
+      n += await p._absorb(SyncKinds.alarm, '${r['id']}', (localId) async {
+        final companion = AlarmsCompanion(
+          label: Value('${r['label'] ?? ''}'),
+          minuteOfDay: Value(_int(r['minute_of_day'])),
+          days: Value(_int(r['days'])),
+          enabled: Value(r['enabled'] != false),
+          snoozeMinutes: Value(_int(r['snooze_minutes'], 9)),
+          vibrate: Value(r['vibrate'] != false),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.alarms).insert(companion);
+        }
+        await (p._db.update(
+          p._db.alarms,
         )..where((x) => x.id.equals(localId))).write(companion);
         return localId;
       });

@@ -13,6 +13,8 @@ class EventIn(APIModel):
     date: dt.date
     # Minutes past midnight; null = all-day (sorts first on its day).
     time_minutes: int | None = Field(default=None, ge=0, le=1439)
+    # Minute-of-day the owner asked to be nudged at; null = no reminder.
+    remind_minutes: int | None = Field(default=None, ge=0, le=1439)
     repeat: EventRepeat = EventRepeat.NONE
 
 
@@ -21,6 +23,7 @@ class EventPatch(APIModel):
     note: str | None = None
     date: dt.date | None = None
     time_minutes: int | None = Field(default=None, ge=0, le=1439)
+    remind_minutes: int | None = Field(default=None, ge=0, le=1439)
     repeat: EventRepeat | None = None
     archived: bool | None = None
 
@@ -31,6 +34,7 @@ class EventOut(APIModel):
     note: str | None
     date: dt.date
     time_minutes: int | None
+    remind_minutes: int | None
     repeat: EventRepeat
     archived: bool
     created_at: dt.datetime

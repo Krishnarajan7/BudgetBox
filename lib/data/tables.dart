@@ -215,6 +215,11 @@ class Events extends Table {
 
   /// Minutes past midnight; null = all-day.
   IntColumn get timeMinutes => integer().nullable()();
+
+  /// Minute-of-day the owner asked to be reminded at, on the event's day.
+  /// Null = no asked-for reminder (the quiet 9 a.m. line still stands).
+  /// Setting this also earns the evening-before heads-up.
+  IntColumn get remindMinutes => integer().nullable()();
   IntColumn get repeat =>
       intEnum<EventRepeat>().withDefault(Constant(EventRepeat.none.index))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();

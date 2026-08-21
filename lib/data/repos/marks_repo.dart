@@ -2,6 +2,8 @@ import 'package:drift/drift.dart';
 
 import '../../core/dates.dart';
 import '../db.dart';
+import '../sync/ids.dart';
+import '../sync/seam.dart';
 import 'habit_repo.dart';
 
 /// The consecutive clean days ending at [today], given every slip date and
@@ -170,39 +172,27 @@ class MarksRepo {
   /// Tick or untick a habit for a day: at most one row per (day, kind).
   Future<void> toggle(DateTime day, String kind) async {
     final key = LedgerDates.dayKey(day);
-    final existing = await (_db.select(
-      _db.dayMarks,
-    )..where((m) => m.date.equals(key) & m.kind.equals(kind))).get();
-    if (existing.isNotEmpty) {
-      await (_db.delete(
+    await _db.transaction(() async {
+      final existing = await (_db.select(
         _db.dayMarks,
-      )..where((m) => m.date.equals(key) & m.kind.equals(kind))).go();
-    } else {
-      await _db
-          .into(_db.dayMarks)
-          .insert(
-            DayMarksCompanion.insert(
-              date: key,
-              kind: kind,
-              at: Value(stampFor(day)),
-            ),
-          );
-    }
+      )..where((m) => m.date.equals(key) & m.kind.equals(kind))).get();
+      if (existing.isNotEmpty) {
+        for (final row in existing) {
+          await _forget(row.id);
+        }
+      } else {
+        await _write(key, kind, stampFor(day));
+      }
+    });
   }
 
   /// One more toward a counted habit — a glass of water, a set. Counted
   /// habits stack rows instead of flipping one, so the day remembers when
   /// each came in and the history stays a record rather than a total.
-  Future<void> bump(DateTime day, String kind) async {
-    await _db
-        .into(_db.dayMarks)
-        .insert(
-          DayMarksCompanion.insert(
-            date: LedgerDates.dayKey(day),
-            kind: kind,
-            at: Value(stampFor(day)),
-          ),
-        );
+  Future<void> bump(DateTime day, String kind) {
+    return _db.transaction(
+      () => _write(LedgerDates.dayKey(day), kind, stampFor(day)),
+    );
   }
 
   /// Takes back the last one — the undo for a tap too many.
@@ -221,16 +211,14 @@ class MarksRepo {
   Future<void> addMeal(DateTime day, String food) async {
     final text = food.trim();
     if (text.isEmpty) return;
-    await _db
-        .into(_db.dayMarks)
-        .insert(
-          DayMarksCompanion.insert(
-            date: LedgerDates.dayKey(day),
-            kind: 'meal',
-            note: Value(text),
-            at: Value(stampFor(day)),
-          ),
-        );
+    await _db.transaction(
+      () => _write(
+        LedgerDates.dayKey(day),
+        'meal',
+        stampFor(day),
+        note: text,
+      ),
+    );
   }
 
   /// The foods that come back most often, newest-first among ties — the
@@ -276,26 +264,59 @@ class MarksRepo {
     return isToday ? now : DateTime(day.year, day.month, day.day, 12);
   }
 
-  Future<void> removeMark(int id) =>
-      (_db.delete(_db.dayMarks)..where((m) => m.id.equals(id))).go();
+  Future<void> removeMark(int id) => _db.transaction(() => _forget(id));
+
+  /// One mark down, and the promise to send it. Both commit together or
+  /// neither happened — the caller supplies the transaction.
+  Future<int> _write(
+    String date,
+    String kind,
+    DateTime at, {
+    String? note,
+  }) async {
+    final id = await _db
+        .into(_db.dayMarks)
+        .insert(
+          DayMarksCompanion.insert(
+            date: date,
+            kind: kind,
+            note: Value(note),
+            at: Value(at),
+          ),
+        );
+    await bbxSync.upsert(SyncKinds.mark, id);
+    return id;
+  }
+
+  /// Un-ticking is a real deletion upstream too: the streak must be able to
+  /// come back the way it went, on every phone.
+  Future<void> _forget(int id) async {
+    await (_db.delete(_db.dayMarks)..where((m) => m.id.equals(id))).go();
+    await bbxSync.remove(SyncKinds.mark, id);
+  }
 
   /// Marks to-day as slipped (idempotent), or takes it back — a wrong tap
   /// must never cost a real streak.
   Future<void> setSlipped(DateTime day, bool slipped) async {
     final key = LedgerDates.dayKey(day);
     if (slipped) {
-      final existing = await (_db.select(
-        _db.dayMarks,
-      )..where((m) => m.date.equals(key) & m.kind.equals('slip'))).get();
-      if (existing.isEmpty) {
-        await _db
-            .into(_db.dayMarks)
-            .insert(DayMarksCompanion.insert(date: key, kind: 'slip'));
-      }
+      await _db.transaction(() async {
+        final existing = await (_db.select(
+          _db.dayMarks,
+        )..where((m) => m.date.equals(key) & m.kind.equals('slip'))).get();
+        if (existing.isEmpty) {
+          await _write(key, 'slip', stampFor(day));
+        }
+      });
     } else {
-      await (_db.delete(
-        _db.dayMarks,
-      )..where((m) => m.date.equals(key) & m.kind.equals('slip'))).go();
+      await _db.transaction(() async {
+        final existing = await (_db.select(
+          _db.dayMarks,
+        )..where((m) => m.date.equals(key) & m.kind.equals('slip'))).get();
+        for (final row in existing) {
+          await _forget(row.id);
+        }
+      });
     }
   }
 }

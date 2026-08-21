@@ -14,7 +14,11 @@ void main() {
           e.backspace();
         default:
           for (final ch in k.split('')) {
-            e.digit(ch);
+            if (ch == '.') {
+              e.point();
+            } else {
+              e.digit(ch);
+            }
           }
       }
     }
@@ -83,5 +87,40 @@ void main() {
   test('caps runaway digit entry', () {
     final e = type('123456789012');
     expect(e.paise, lessThan(10000000000 * 100));
+  });
+
+  test('the display echoes the point the moment it is pressed', () {
+    final e = type('120');
+    expect(e.display, '₹120');
+    e.point();
+    expect(e.display, '₹120.', reason: 'a dead-looking key is a broken key');
+    e.digit('0');
+    expect(e.display, '₹120.0');
+    e.digit('5');
+    expect(e.display, '₹120.05');
+    expect(e.paise, 12005);
+  });
+
+  test('a bare point starts at zero and groups stay Indian', () {
+    final e = AmountEngine();
+    e.point();
+    expect(e.display, '₹0.');
+    e.digit('5');
+    expect(e.paise, 50);
+
+    final big = type('123456.7');
+    expect(big.display, '₹1,23,456.7');
+  });
+
+  test('paise stop at two decimals — the third key is refused', () {
+    final e = type('12.34');
+    e.digit('5');
+    expect(e.display, '₹12.34');
+    expect(e.paise, 1234);
+  });
+
+  test('once operators fold, the running total takes the display', () {
+    final e = type('120.5 + 60');
+    expect(e.display, '₹180.50');
   });
 }

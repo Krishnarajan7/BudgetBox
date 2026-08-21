@@ -20,6 +20,7 @@ import '../../data/repos/txn_repo.dart';
 import '../today/widgets/digit_roll.dart';
 import '../today/widgets/ledger_rows.dart';
 import 'amount_engine.dart';
+import 'shortfall.dart';
 
 /// The sacred flow. Keypad visible on open, amount is the only required
 /// field, and Save is a stamp: press, haptic, seal flash, done — the ledger
@@ -264,6 +265,23 @@ class _AddSheetState extends ConsumerState<AddSheet> {
 
   Future<void> _stamp({required bool andAnother}) async {
     if (_stamping || _engine.paise <= 0 || _accountId == null) return;
+
+    // Before the seal, not after: if this expense would take the pocket below
+    // zero, the book asks where the rest actually came from and writes that
+    // too. Money in never overdraws anything, so income skips the question.
+    var accountId = _accountId!;
+    if (!_moneyIn) {
+      final settled = await settleShortfall(
+        context,
+        ref,
+        accountId: accountId,
+        amountPaise: _engine.paise,
+        at: _at,
+      );
+      if (settled == null || !mounted) return;
+      accountId = settled;
+    }
+
     setState(() => _stamping = true);
     HapticFeedback.lightImpact();
 
@@ -276,7 +294,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     if (_moneyIn) {
       await repo.addIncome(
         amountPaise: _engine.paise,
-        accountId: _accountId!,
+        accountId: accountId,
         categoryId: _categoryId,
         title: title,
         note: note.isEmpty ? null : note,
@@ -285,7 +303,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     } else {
       await repo.addExpense(
         amountPaise: _engine.paise,
-        accountId: _accountId!,
+        accountId: accountId,
         categoryId: _categoryId,
         title: title,
         note: note.isEmpty ? null : note,
@@ -408,7 +426,10 @@ class _AddSheetState extends ConsumerState<AddSheet> {
           children: [
             Expanded(
               child: _PulseOnChange(
-                trigger: _engine.paise,
+                // The display string, not the paise: a pressed point moves
+                // the glyphs without moving the value, and it too deserves
+                // the pulse that says "the paper took it".
+                trigger: _engine.display.hashCode,
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Row(
@@ -428,6 +449,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                       // because typing must feel instant, just soft.
                       DigitRoll(
                         paise: _engine.paise,
+                        text: _engine.display,
                         duration: const Duration(milliseconds: 190),
                         staggerPerDigit: const Duration(milliseconds: 12),
                         style: LedgerType.heroAmount

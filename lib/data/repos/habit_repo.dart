@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 
 import '../db.dart';
 import '../providers.dart';
+import 'settings_repo.dart';
 
 final habitRepoProvider = Provider<HabitRepo>(
   (ref) => HabitRepo(ref.watch(dbProvider)),
@@ -102,7 +103,7 @@ const nonHabitKinds = {'slip', 'meal', 'pledge'};
 class HabitRepo {
   HabitRepo(this._db);
 
-  static const _key = 'habits';
+  static const _key = SettingsRepo.habitsKey;
 
   final LedgerDb _db;
 

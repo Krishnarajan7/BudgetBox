@@ -229,8 +229,11 @@ void main() {
       }
       // The seeded income lines live under their own header — past the fold
       // now that the spending list carries his whole shelf.
+      // Scroll to the first income *line*, not its header: stopping at the
+      // header leaves the line itself just below the fold, and how far below
+      // depends on how many spending categories the seed happens to carry.
       await tester.scrollUntilVisible(
-        find.text('income'),
+        find.text('Salary'),
         120,
         scrollable: find.byType(Scrollable).first,
       );

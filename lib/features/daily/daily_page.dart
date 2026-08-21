@@ -206,7 +206,8 @@ class _DailyPageState extends ConsumerState<DailyPage> {
         child: mood == null
             ? const CheckInRing(size: 26)
             : FeelBlob(
-                word: entry?.feelWord ??
+                word:
+                    entry?.feelWord ??
                     feelWordAt(from9(mood), from9(entry?.energy ?? 5)).word,
                 color: feelBubbleColor(from9(mood), from9(entry?.energy ?? 5)),
                 size: 24,
@@ -1008,7 +1009,9 @@ class _HabitRow extends StatelessWidget {
                 border: Border.all(color: done ? c.jama : c.rule, width: 1.4),
                 borderRadius: BorderRadius.circular(Corner.stamp),
               ),
-              child: done ? Center(child: PenTick(size: 15, color: c.jama)) : null,
+              child: done
+                  ? Center(child: PenTick(size: 15, color: c.jama))
+                  : null,
             ),
           ],
         ),
@@ -1261,11 +1264,7 @@ class _DayNumbers extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          HeroAmount(
-            caption: 'spent',
-            amount: Inr.format(spent),
-            size: 30,
-          ),
+          HeroAmount(caption: 'spent', amount: Inr.format(spent), size: 30),
           HeroAmount(caption: 'focus', amount: '${minutes}m', size: 30),
           if (water != null && glasses != null)
             HeroAmount(caption: 'water', amount: waterLine, size: 30),
@@ -1309,7 +1308,7 @@ class _PageLine extends StatelessWidget {
     final word = mood == null
         ? null
         : entry?.feelWord ??
-            feelWordAt(from9(mood), from9(entry?.energy ?? 5)).word;
+              feelWordAt(from9(mood), from9(entry?.energy ?? 5)).word;
     final written = (entry?.body ?? '').trim();
     return _Open(
       child: Column(
@@ -1343,8 +1342,10 @@ class _PageLine extends StatelessWidget {
                   const SizedBox(width: Gap.x3),
                   Text(
                     word,
-                    style:
-                        LedgerType.title.copyWith(fontSize: 22, color: c.ink),
+                    style: LedgerType.title.copyWith(
+                      fontSize: 22,
+                      color: c.ink,
+                    ),
                   ),
                   const Spacer(),
                   Text(
@@ -1439,14 +1440,33 @@ class _DayThread extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final names = {for (final h in habits) h.kind: h.name};
+    // A counted habit writes one mark per tap — sixteen glasses of water
+    // must not be sixteen lines. Same-kind marks fold into one counted
+    // line stamped with the latest time; meals and slips stay individual,
+    // because each of those carries its own words.
+    final folded = <String, List<DayMark>>{};
+    for (final m in marks) {
+      if (m.kind != 'meal' && m.kind != 'slip' && names.containsKey(m.kind)) {
+        folded.putIfAbsent(m.kind, () => []).add(m);
+      }
+    }
     final items = <({DateTime at, String title, String detail, String amount})>[
       for (final m in marks)
         if (m.kind == 'meal')
           (at: m.at, title: m.note ?? '', detail: 'ate', amount: '')
         else if (m.kind == 'slip')
-          (at: m.at, title: 'a slip, written down', detail: '', amount: '')
-        else if (names.containsKey(m.kind))
-          (at: m.at, title: names[m.kind]!, detail: 'kept', amount: ''),
+          (at: m.at, title: 'a slip, written down', detail: '', amount: ''),
+      for (final entry in folded.entries)
+        (
+          at: entry.value
+              .map((m) => m.at)
+              .reduce((a, b) => a.isAfter(b) ? a : b),
+          title: names[entry.key]!,
+          detail: entry.value.length == 1
+              ? 'kept'
+              : 'kept ×${entry.value.length}',
+          amount: '',
+        ),
       for (final f in focus)
         (
           at: f.startedAt,
@@ -1512,13 +1532,20 @@ class _DayThread extends StatelessWidget {
     for (final e in events) {
       if (e.archived) continue;
       var d = DateTime.parse(e.date);
-      if (e.repeat == EventRepeat.yearly) d = DateTime(day.year, d.month, d.day);
+      if (e.repeat == EventRepeat.yearly) {
+        d = DateTime(day.year, d.month, d.day);
+      }
       if (LedgerDates.dayKey(d) != LedgerDates.dayKey(day)) continue;
       final mins = e.timeMinutes;
       out.add((
         e,
-        DateTime(day.year, day.month, day.day, mins == null ? 8 : mins ~/ 60,
-            mins == null ? 0 : mins % 60),
+        DateTime(
+          day.year,
+          day.month,
+          day.day,
+          mins == null ? 8 : mins ~/ 60,
+          mins == null ? 0 : mins % 60,
+        ),
       ));
     }
     return out;
@@ -1552,9 +1579,7 @@ class _WeekTable extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final start = since == null ? null : DateTime.parse(since!);
-    final days = [
-      for (var i = 6; i >= 0; i--) end.subtract(Duration(days: i)),
-    ];
+    final days = [for (var i = 6; i >= 0; i--) end.subtract(Duration(days: i))];
 
     Widget cell(DateTime d, Habit? habit) {
       final key = LedgerDates.dayKey(d);
@@ -1614,7 +1639,9 @@ class _WeekTable extends StatelessWidget {
           ),
         ),
         for (final d in days)
-          Center(child: SizedBox(height: 16, child: Center(child: cell(d, habit)))),
+          Center(
+            child: SizedBox(height: 16, child: Center(child: cell(d, habit))),
+          ),
       ],
     );
 
@@ -1636,7 +1663,8 @@ class _WeekTable extends StatelessWidget {
                         LedgerDates.weekdays[d.weekday - 1][0],
                         style: LedgerType.label.copyWith(
                           fontSize: 9,
-                          color: LedgerDates.dayKey(d) == LedgerDates.dayKey(end)
+                          color:
+                              LedgerDates.dayKey(d) == LedgerDates.dayKey(end)
                               ? c.ink
                               : c.inkFaint,
                         ),
@@ -1651,7 +1679,10 @@ class _WeekTable extends StatelessWidget {
           const SizedBox(height: Gap.x2),
           Text(
             'tick = kept · hollow = part way · cross = missed',
-            style: LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 11,
+              color: c.inkFaint,
+            ),
           ),
         ],
       ),
@@ -1819,7 +1850,9 @@ class _RecordCell extends StatelessWidget {
               border: Border.all(
                 color: isSelected
                     ? c.quill
-                    : (!tracked || future ? c.rule.withValues(alpha: 0.4) : Colors.transparent),
+                    : (!tracked || future
+                          ? c.rule.withValues(alpha: 0.4)
+                          : Colors.transparent),
                 width: isSelected ? 1.4 : 1,
               ),
             ),
@@ -2081,7 +2114,8 @@ class _HabitEditorState extends State<_HabitEditor> {
                 ),
                 const SizedBox(width: Gap.x2),
                 Pressable(
-                  onTap: () => setState(() => _target = _target > 1 ? _target : 8),
+                  onTap: () =>
+                      setState(() => _target = _target > 1 ? _target : 8),
                   child: _Choice(label: 'a count', selected: _target > 1),
                 ),
               ],
