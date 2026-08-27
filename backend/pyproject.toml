@@ -13,6 +13,7 @@ dependencies = [
     "structlog>=24.4",
     "typer>=0.15",
     "uuid6>=2024.7.10",
+    "httpx>=0.28",
 ]
 
 [project.scripts]

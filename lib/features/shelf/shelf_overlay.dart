@@ -16,6 +16,8 @@ import '../calendar/calendar_page.dart';
 import '../daily/daily_page.dart';
 import '../focus/focus_page.dart';
 import '../journal/journal_page.dart';
+import '../music/music_page.dart';
+import '../slate/slate_page.dart';
 import '../notes/notes_page.dart';
 import '../vault/vault_page.dart';
 
@@ -171,12 +173,28 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
       : '${clockLabel(nextRow.minuteOfDay)} · '
             '${untilPhrase(nextAlarm!.difference(now))}';
 
+  // Music: the cached line the room writes on every visit — the shelf
+  // never makes a network call of its own.
+  final musicRow = await (db.select(
+    db.settings,
+  )..where((s) => s.key.equals('musicLine'))).getSingleOrNull();
+  final music = musicRow?.value ?? 'unheard';
+
+  // Slate: the same cached-line trick — what is out with people, without a
+  // network call from the shelf.
+  final slateRow = await (db.select(
+    db.settings,
+  )..where((s) => s.key.equals('slateLine'))).getSingleOrNull();
+  final slate = slateRow?.value ?? 'nothing out';
+
   return {
     'Alarms': alarms,
     'Calendar': calendar,
     'Notes': notesLine,
     'Focus': focus,
     'Journal': journal,
+    'Slate': slate,
+    'Music': music,
     'Daily': daily,
     'Vault': vault,
   };
@@ -213,6 +231,16 @@ class _Shelf extends ConsumerWidget {
       'Journal',
       Icons.menu_book_outlined,
       builder: (_) => const JournalPage(),
+    ),
+    _Spine(
+      'Slate',
+      Icons.handshake_outlined,
+      builder: (_) => const SlatePage(),
+    ),
+    _Spine(
+      'Music',
+      Icons.graphic_eq,
+      builder: (_) => const MusicPage(),
     ),
     _Spine('Daily', Icons.task_alt, builder: (_) => const DailyPage()),
     _Spine('Vault', Icons.lock_outline, builder: (_) => const VaultPage()),

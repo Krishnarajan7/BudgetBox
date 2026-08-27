@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # Spotify (music module). PKCE flow: a client id and the exact
+    # redirect URI registered on the Spotify app — no secret to keep.
+    spotify_client_id: str = ""
+    spotify_redirect_uri: str = ""
+
     @property
     def db_url(self) -> str:
         return f"sqlite:///{self.db_path}"

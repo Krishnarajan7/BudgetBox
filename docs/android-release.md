@@ -38,8 +38,12 @@ Mac.
 ```bash
 git pull                      # or however the code arrives
 flutter pub get
-flutter build apk --release --build-number=$(date +%s)
+flutter build apk --release --target-platform=android-arm64 --build-number=$(date +%s)
 ```
+
+`--target-platform=android-arm64` builds only the phone's own architecture instead
+of a universal APK carrying three — roughly 70MB down to ~25MB, same install flow.
+(Check once with `adb shell getprop ro.product.cpu.abi` — it will say `arm64-v8a`.)
 
 `--build-number=$(date +%s)` stamps each build with the current time, so every APK is
 "newer" than the last — Android never refuses an install for a stale version number,

@@ -311,6 +311,69 @@
         "title": "ActivityOut",
         "type": "object"
       },
+      "AdoptIn": {
+        "additionalProperties": false,
+        "description": "An expense already in the book that was really a loan. The txn is\nconverted into a transfer onto the slate rather than a second line being\nwritten beside it \u2014 no double count, and the old month gets more honest.",
+        "properties": {
+          "txn_id": {
+            "title": "Txn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "txn_id"
+        ],
+        "title": "AdoptIn",
+        "type": "object"
+      },
+      "AdoptableOut": {
+        "additionalProperties": false,
+        "description": "An expense that looks like it might have been a loan.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "txn_id": {
+            "title": "Txn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "txn_id",
+          "title",
+          "amount_paise",
+          "at",
+          "account_id",
+          "category"
+        ],
+        "title": "AdoptableOut",
+        "type": "object"
+      },
       "AlarmIn": {
         "additionalProperties": false,
         "properties": {
@@ -1160,6 +1223,49 @@
         "title": "ChangesOut",
         "type": "object"
       },
+      "CloseIn": {
+        "additionalProperties": false,
+        "description": "Let it go (a lend that will not return) or accept a write-off (a borrow\nthe other side forgave). Amount defaults to the whole standing balance.",
+        "properties": {
+          "amount_paise": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Paise"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "CloseIn",
+        "type": "object"
+      },
       "CoachingInsightOut": {
         "additionalProperties": false,
         "properties": {
@@ -1319,47 +1425,18 @@
         "title": "CoachingPreferences",
         "type": "object"
       },
-      "ContributeIn": {
+      "ConnectOut": {
         "additionalProperties": false,
         "properties": {
-          "account_id": {
-            "title": "Account Id",
+          "url": {
+            "title": "Url",
             "type": "string"
-          },
-          "amount_paise": {
-            "exclusiveMinimum": 0.0,
-            "title": "Amount Paise",
-            "type": "integer"
-          },
-          "at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "At"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
           }
         },
         "required": [
-          "amount_paise",
-          "account_id"
+          "url"
         ],
-        "title": "ContributeIn",
+        "title": "ConnectOut",
         "type": "object"
       },
       "DayAmount": {
@@ -2009,6 +2086,308 @@
           "streak_days"
         ],
         "title": "FocusRecord",
+        "type": "object"
+      },
+      "FolioEntryKind": {
+        "description": "SIP and LUMPSUM both buy; they differ only in the rhythm that produced\nthem, which is worth keeping because 'what do my SIPs add up to' is a real\nquestion. REDEEM sells back.",
+        "enum": [
+          "sip",
+          "lumpsum",
+          "redeem"
+        ],
+        "title": "FolioEntryKind",
+        "type": "string"
+      },
+      "FolioPoint": {
+        "additionalProperties": false,
+        "description": "One day of the folio's two lines. `cost` is a staircase that only steps\nwhen money went in; `value` wanders. The gap between them is the gain, and\ndrawing both is the whole point of the chart.",
+        "properties": {
+          "cost_paise": {
+            "title": "Cost Paise",
+            "type": "integer"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "value_paise": {
+            "title": "Value Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "cost_paise",
+          "value_paise"
+        ],
+        "title": "FolioPoint",
+        "type": "object"
+      },
+      "FundIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "scheme_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme Code"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FundIn",
+        "type": "object"
+      },
+      "FundOut": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "cost_paise": {
+            "title": "Cost Paise",
+            "type": "integer"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "first_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First At"
+          },
+          "gain_paise": {
+            "title": "Gain Paise",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last At"
+          },
+          "manual_value_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Value At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nav": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav"
+          },
+          "nav_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "priced": {
+            "title": "Priced",
+            "type": "boolean"
+          },
+          "return_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ratio"
+          },
+          "scheme_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme Code"
+          },
+          "sip_count": {
+            "title": "Sip Count",
+            "type": "integer"
+          },
+          "sip_paise": {
+            "title": "Sip Paise",
+            "type": "integer"
+          },
+          "units": {
+            "title": "Units",
+            "type": "number"
+          },
+          "value_paise": {
+            "title": "Value Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "scheme_code",
+          "note",
+          "archived",
+          "cost_paise",
+          "value_paise",
+          "gain_paise",
+          "return_ratio",
+          "units",
+          "nav",
+          "nav_date",
+          "priced",
+          "manual_value_at",
+          "entries",
+          "sip_count",
+          "sip_paise",
+          "first_at",
+          "last_at"
+        ],
+        "title": "FundOut",
+        "type": "object"
+      },
+      "FundPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "scheme_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme Code"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          }
+        },
+        "title": "FundPatch",
         "type": "object"
       },
       "GoalIn": {
@@ -2716,6 +3095,50 @@
         "title": "JournalOut",
         "type": "object"
       },
+      "LendIn": {
+        "additionalProperties": false,
+        "description": "Money out. `account_id` is the pocket it leaves \u2014 GPay, cash, bank.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "account_id"
+        ],
+        "title": "LendIn",
+        "type": "object"
+      },
       "MarkIn": {
         "additionalProperties": false,
         "properties": {
@@ -2927,6 +3350,94 @@
           }
         },
         "title": "MerchantRulePatch",
+        "type": "object"
+      },
+      "MonthDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/TopEntryOut"
+            },
+            "title": "Artists",
+            "type": "array"
+          },
+          "month": {
+            "pattern": "^\\d{4}-\\d{2}$",
+            "title": "Month",
+            "type": "string"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "integer"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/TopEntryOut"
+            },
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "month",
+          "plays",
+          "ms",
+          "tracks",
+          "artists"
+        ],
+        "title": "MonthDetailOut",
+        "type": "object"
+      },
+      "MonthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "month": {
+            "pattern": "^\\d{4}-\\d{2}$",
+            "title": "Month",
+            "type": "string"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "integer"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          },
+          "top_artist": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MonthTopOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "top_track": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MonthTopOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "month",
+          "plays",
+          "ms",
+          "top_track",
+          "top_artist"
+        ],
+        "title": "MonthOut",
         "type": "object"
       },
       "MonthSpend": {
@@ -3198,6 +3709,49 @@
         "title": "MonthSummary",
         "type": "object"
       },
+      "MonthTopOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "artist",
+          "image_url",
+          "plays"
+        ],
+        "title": "MonthTopOut",
+        "type": "object"
+      },
       "MoodMoneyOut": {
         "additionalProperties": false,
         "description": "Whether rough days or bright ones cost more. Null on the month view when\nthere isn't enough to say \u2014 the book would rather stay quiet than guess.",
@@ -3461,6 +4015,75 @@
         "title": "NotePatch",
         "type": "object"
       },
+      "NowOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "playing": {
+            "title": "Playing",
+            "type": "boolean"
+          },
+          "progress_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress Ms"
+          },
+          "track": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track"
+          }
+        },
+        "required": [
+          "playing"
+        ],
+        "title": "NowOut",
+        "type": "object"
+      },
       "OccurrenceOut": {
         "additionalProperties": false,
         "description": "One concrete observance of an event inside a queried window: the stored row\nplus the resolved calendar date (a yearly event yields one per year).",
@@ -3554,6 +4177,216 @@
           "projected_overspend_paise"
         ],
         "title": "PaceOut",
+        "type": "object"
+      },
+      "PersonIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PersonIn",
+        "type": "object"
+      },
+      "PersonOut": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "balance_paise": {
+            "title": "Balance Paise",
+            "type": "integer"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last At"
+          },
+          "lent_paise": {
+            "title": "Lent Paise",
+            "type": "integer"
+          },
+          "loops_closed": {
+            "title": "Loops Closed",
+            "type": "integer"
+          },
+          "loops_total": {
+            "title": "Loops Total",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "outstanding_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outstanding Since"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation"
+          },
+          "returned_paise": {
+            "title": "Returned Paise",
+            "type": "integer"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "relation",
+          "note",
+          "archived",
+          "balance_paise",
+          "lent_paise",
+          "returned_paise",
+          "entries",
+          "loops_closed",
+          "loops_total",
+          "since",
+          "last_at",
+          "outstanding_since"
+        ],
+        "title": "PersonOut",
+        "type": "object"
+      },
+      "PersonPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation"
+          }
+        },
+        "title": "PersonPatch",
         "type": "object"
       },
       "PinnedBoard": {
@@ -4126,6 +4959,135 @@
         "title": "RecurringPaymentIn",
         "type": "object"
       },
+      "RedeemIn": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "nav": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "account_id"
+        ],
+        "title": "RedeemIn",
+        "type": "object"
+      },
+      "RepayIn": {
+        "additionalProperties": false,
+        "description": "Money back. `account_id` is where it lands \u2014 usually where it left.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "account_id"
+        ],
+        "title": "RepayIn",
+        "type": "object"
+      },
+      "SchemeOut": {
+        "additionalProperties": false,
+        "description": "A row of AMFI's file, for the search field.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "nav": {
+            "title": "Nav",
+            "type": "number"
+          },
+          "nav_date": {
+            "format": "date",
+            "title": "Nav Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label",
+          "nav",
+          "nav_date"
+        ],
+        "title": "SchemeOut",
+        "type": "object"
+      },
       "SealOut": {
         "additionalProperties": false,
         "properties": {
@@ -4282,6 +5244,19 @@
         ],
         "title": "SettingIn",
         "type": "object"
+      },
+      "SlateKind": {
+        "description": "Direction, from the book-keeper's side.\n\nLENT/REPAID are one loop: money out, money back. BORROWED/SETTLED are the\nmirror, for when Krish is the one who owes. FORGIVEN closes a lend that is\nnever coming back; WRITTEN_OFF closes a borrow the other side let go.",
+        "enum": [
+          "lent",
+          "repaid",
+          "borrowed",
+          "settled",
+          "forgiven",
+          "written_off"
+        ],
+        "title": "SlateKind",
+        "type": "string"
       },
       "SpendingClass": {
         "enum": [
@@ -4510,6 +5485,59 @@
           "upcoming"
         ],
         "title": "TodaySummary",
+        "type": "object"
+      },
+      "TopEntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "ms": {
+            "title": "Ms",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plays": {
+            "title": "Plays",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rank",
+          "name",
+          "artist",
+          "image_url",
+          "plays",
+          "ms"
+        ],
+        "title": "TopEntryOut",
         "type": "object"
       },
       "TxnIn": {
@@ -4958,6 +5986,34 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "ValueIn": {
+        "additionalProperties": false,
+        "description": "The hand-given worth of a fund AMFI does not price.",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "value_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "value_paise"
+        ],
+        "title": "ValueIn",
+        "type": "object"
+      },
       "VaultItemIn": {
         "additionalProperties": false,
         "properties": {
@@ -5046,6 +6102,438 @@
           "verdict"
         ],
         "title": "VsLastMonth",
+        "type": "object"
+      },
+      "budgetbox__modules__folio__schemas__ContributeIn": {
+        "additionalProperties": false,
+        "description": "Money in. `account_id` is the pocket it leaves \u2014 the bank, usually.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FolioEntryKind",
+            "default": "sip"
+          },
+          "nav": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "account_id"
+        ],
+        "title": "ContributeIn",
+        "type": "object"
+      },
+      "budgetbox__modules__folio__schemas__EntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "fund_id": {
+            "title": "Fund Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FolioEntryKind"
+          },
+          "nav": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "txn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txn Id"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          }
+        },
+        "required": [
+          "id",
+          "fund_id",
+          "kind",
+          "amount_paise",
+          "units",
+          "nav",
+          "at",
+          "note",
+          "txn_id"
+        ],
+        "title": "EntryOut",
+        "type": "object"
+      },
+      "budgetbox__modules__folio__schemas__OverviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_paise": {
+            "title": "Cost Paise",
+            "type": "integer"
+          },
+          "funds": {
+            "title": "Funds",
+            "type": "integer"
+          },
+          "gain_paise": {
+            "title": "Gain Paise",
+            "type": "integer"
+          },
+          "month_paise": {
+            "title": "Month Paise",
+            "type": "integer"
+          },
+          "priced_upto": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priced Upto"
+          },
+          "return_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Ratio"
+          },
+          "unpriced_funds": {
+            "title": "Unpriced Funds",
+            "type": "integer"
+          },
+          "value_paise": {
+            "title": "Value Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cost_paise",
+          "value_paise",
+          "gain_paise",
+          "return_ratio",
+          "funds",
+          "month_paise",
+          "priced_upto",
+          "unpriced_funds"
+        ],
+        "title": "OverviewOut",
+        "type": "object"
+      },
+      "budgetbox__modules__goals__schemas__ContributeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "amount_paise": {
+            "exclusiveMinimum": 0.0,
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "amount_paise",
+          "account_id"
+        ],
+        "title": "ContributeIn",
+        "type": "object"
+      },
+      "budgetbox__modules__music__schemas__OverviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "distinct_artists": {
+            "title": "Distinct Artists",
+            "type": "integer"
+          },
+          "distinct_tracks": {
+            "title": "Distinct Tracks",
+            "type": "integer"
+          },
+          "recording_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Since"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "this_month_ms": {
+            "title": "This Month Ms",
+            "type": "integer"
+          },
+          "this_month_plays": {
+            "title": "This Month Plays",
+            "type": "integer"
+          },
+          "total_ms": {
+            "title": "Total Ms",
+            "type": "integer"
+          },
+          "total_plays": {
+            "title": "Total Plays",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connected",
+          "since",
+          "recording_since",
+          "total_plays",
+          "total_ms",
+          "distinct_tracks",
+          "distinct_artists",
+          "this_month_plays",
+          "this_month_ms"
+        ],
+        "title": "OverviewOut",
+        "type": "object"
+      },
+      "budgetbox__modules__slate__schemas__EntryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_paise": {
+            "title": "Amount Paise",
+            "type": "integer"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SlateKind"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "person_id": {
+            "title": "Person Id",
+            "type": "string"
+          },
+          "txn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txn Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "person_id",
+          "kind",
+          "amount_paise",
+          "at",
+          "note",
+          "txn_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "EntryOut",
+        "type": "object"
+      },
+      "budgetbox__modules__slate__schemas__OverviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "balanced": {
+            "title": "Balanced",
+            "type": "boolean"
+          },
+          "net_paise": {
+            "title": "Net Paise",
+            "type": "integer"
+          },
+          "owed_to_you_paise": {
+            "title": "Owed To You Paise",
+            "type": "integer"
+          },
+          "people_in_debt": {
+            "title": "People In Debt",
+            "type": "integer"
+          },
+          "people_you_owe": {
+            "title": "People You Owe",
+            "type": "integer"
+          },
+          "slate_account_paise": {
+            "title": "Slate Account Paise",
+            "type": "integer"
+          },
+          "you_owe_paise": {
+            "title": "You Owe Paise",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "owed_to_you_paise",
+          "you_owe_paise",
+          "net_paise",
+          "people_in_debt",
+          "people_you_owe",
+          "slate_account_paise",
+          "balanced"
+        ],
+        "title": "OverviewOut",
         "type": "object"
       }
     },
@@ -7250,6 +8738,646 @@
         ]
       }
     },
+    "/v1/folio/funds": {
+      "get": {
+        "operationId": "list_funds_v1_folio_funds_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FundOut"
+                  },
+                  "title": "Response List Funds V1 Folio Funds Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Funds",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/funds/{fund_id}": {
+      "delete": {
+        "operationId": "delete_fund_v1_folio_funds__fund_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Fund",
+        "tags": [
+          "folio"
+        ]
+      },
+      "get": {
+        "operationId": "get_fund_v1_folio_funds__fund_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Fund",
+        "tags": [
+          "folio"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_fund_v1_folio_funds__fund_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Fund",
+        "tags": [
+          "folio"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_fund_v1_folio_funds__fund_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert Fund",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/funds/{fund_id}/contribute": {
+      "post": {
+        "operationId": "contribute_v1_folio_funds__fund_id__contribute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/budgetbox__modules__folio__schemas__ContributeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__folio__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Contribute",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/funds/{fund_id}/entries": {
+      "get": {
+        "operationId": "list_entries_v1_folio_funds__fund_id__entries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/budgetbox__modules__folio__schemas__EntryOut"
+                  },
+                  "title": "Response List Entries V1 Folio Funds  Fund Id  Entries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Entries",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/funds/{fund_id}/redeem": {
+      "post": {
+        "operationId": "redeem_v1_folio_funds__fund_id__redeem_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__folio__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Redeem",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/funds/{fund_id}/value": {
+      "post": {
+        "operationId": "set_value_v1_folio_funds__fund_id__value_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fund_id",
+            "required": true,
+            "schema": {
+              "title": "Fund Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValueIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Value",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/overview": {
+      "get": {
+        "operationId": "overview_v1_folio_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__folio__schemas__OverviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overview",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/refresh": {
+      "post": {
+        "description": "Pull today's NAVs now rather than waiting for the nightly job.",
+        "operationId": "refresh_v1_folio_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__folio__schemas__OverviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/schemes": {
+      "get": {
+        "description": "Search AMFI's daily file. Live, because it is used a handful of times\nin a lifetime and a cache would be machinery guarding nothing.",
+        "operationId": "schemes_v1_folio_schemes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SchemeOut"
+                  },
+                  "title": "Response Schemes V1 Folio Schemes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Schemes",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
+    "/v1/folio/series": {
+      "get": {
+        "operationId": "series_v1_folio_series_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 180,
+              "maximum": 1825,
+              "minimum": 7,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FolioPoint"
+                  },
+                  "title": "Response Series V1 Folio Series Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Series",
+        "tags": [
+          "folio"
+        ]
+      }
+    },
     "/v1/goals": {
       "get": {
         "operationId": "list_goals_v1_goals_get",
@@ -7477,7 +9605,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ContributeIn"
+                "$ref": "#/components/schemas/budgetbox__modules__goals__schemas__ContributeIn"
               }
             }
           },
@@ -8047,6 +10175,235 @@
         "summary": "Upsert Mark",
         "tags": [
           "marks"
+        ]
+      }
+    },
+    "/v1/music/months": {
+      "get": {
+        "operationId": "months_v1_music_months_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MonthOut"
+                  },
+                  "title": "Response Months V1 Music Months Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Months",
+        "tags": [
+          "music"
+        ]
+      }
+    },
+    "/v1/music/months/{month}": {
+      "get": {
+        "operationId": "month_detail_v1_music_months__month__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "month",
+            "required": true,
+            "schema": {
+              "title": "Month",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Month Detail",
+        "tags": [
+          "music"
+        ]
+      }
+    },
+    "/v1/music/now": {
+      "get": {
+        "operationId": "now_v1_music_now_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NowOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Now",
+        "tags": [
+          "music"
+        ]
+      }
+    },
+    "/v1/music/overview": {
+      "get": {
+        "operationId": "overview_v1_music_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__music__schemas__OverviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overview",
+        "tags": [
+          "music"
+        ]
+      }
+    },
+    "/v1/music/spotify/connect": {
+      "post": {
+        "operationId": "connect_v1_music_spotify_connect_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Connect",
+        "tags": [
+          "music"
+        ]
+      }
+    },
+    "/v1/music/top": {
+      "get": {
+        "operationId": "top_v1_music_top_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "tracks",
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Range",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopEntryOut"
+                  },
+                  "title": "Response Top V1 Music Top Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Top",
+        "tags": [
+          "music"
         ]
       }
     },
@@ -9179,6 +11536,669 @@
         "summary": "Set Setting",
         "tags": [
           "settings"
+        ]
+      }
+    },
+    "/v1/slate/adoptable": {
+      "get": {
+        "operationId": "adoptable_v1_slate_adoptable_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 40,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AdoptableOut"
+                  },
+                  "title": "Response Adoptable V1 Slate Adoptable Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Adoptable",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/overview": {
+      "get": {
+        "operationId": "overview_v1_slate_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__OverviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overview",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people": {
+      "get": {
+        "operationId": "list_people_v1_slate_people_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PersonOut"
+                  },
+                  "title": "Response List People V1 Slate People Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List People",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}": {
+      "delete": {
+        "operationId": "delete_person_v1_slate_people__person_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Person",
+        "tags": [
+          "slate"
+        ]
+      },
+      "get": {
+        "operationId": "get_person_v1_slate_people__person_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Person",
+        "tags": [
+          "slate"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_person_v1_slate_people__person_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Person",
+        "tags": [
+          "slate"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_person_v1_slate_people__person_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert Person",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}/adopt": {
+      "post": {
+        "operationId": "adopt_v1_slate_people__person_id__adopt_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdoptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Adopt",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}/borrow": {
+      "post": {
+        "operationId": "borrow_v1_slate_people__person_id__borrow_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LendIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Borrow",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}/close": {
+      "post": {
+        "operationId": "close_v1_slate_people__person_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Close",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}/entries": {
+      "get": {
+        "operationId": "list_entries_v1_slate_people__person_id__entries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__EntryOut"
+                  },
+                  "title": "Response List Entries V1 Slate People  Person Id  Entries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Entries",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}/lend": {
+      "post": {
+        "operationId": "lend_v1_slate_people__person_id__lend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LendIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Lend",
+        "tags": [
+          "slate"
+        ]
+      }
+    },
+    "/v1/slate/people/{person_id}/repay": {
+      "post": {
+        "operationId": "repay_v1_slate_people__person_id__repay_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "person_id",
+            "required": true,
+            "schema": {
+              "title": "Person Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepayIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/budgetbox__modules__slate__schemas__EntryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Repay",
+        "tags": [
+          "slate"
         ]
       }
     },

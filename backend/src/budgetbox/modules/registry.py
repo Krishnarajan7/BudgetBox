@@ -25,6 +25,9 @@ _MODEL_MODULES = [
     "budgetbox.modules.alarms.models",
     "budgetbox.modules.changes.models",
     "budgetbox.modules.coaching.models",
+    "budgetbox.modules.music.models",
+    "budgetbox.modules.slate.models",
+    "budgetbox.modules.folio.models",
 ]
 
 _ROUTER_MODULES: list[str] = [
@@ -49,6 +52,9 @@ _ROUTER_MODULES: list[str] = [
     "budgetbox.modules.marks.router",
     "budgetbox.modules.alarms.router",
     "budgetbox.modules.coaching.router",
+    "budgetbox.modules.music.router",
+    "budgetbox.modules.slate.router",
+    "budgetbox.modules.folio.router",
 ]
 
 

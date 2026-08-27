@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 
 import '../db.dart';
+import '../felt_nudge.dart';
 import '../providers.dart';
 import '../sync/ids.dart';
 import '../sync/seam.dart';
@@ -72,6 +73,10 @@ class JournalRepo {
       // the id — no uuid7 involved.
       await bbxSync.upsertDay(SyncKinds.journal, date);
     });
+    // A felt write is the only kind that can answer the day, so it is the
+    // only kind that re-lays the check-in. Body edits are frequent and
+    // change nothing about whether the day was named.
+    if (mood != null) await bbxFeltVoice(_db);
   }
 
   /// One day's page, or null while it's still blank.

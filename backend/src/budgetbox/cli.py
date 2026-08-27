@@ -15,9 +15,13 @@ app = typer.Typer(help="BudgetBox backend.", no_args_is_help=True, add_completio
 db_app = typer.Typer(help="Database migrations.", no_args_is_help=True)
 token_app = typer.Typer(help="Device tokens.", no_args_is_help=True)
 jobs_app = typer.Typer(help="Scheduled jobs.", no_args_is_help=True)
+music_app = typer.Typer(
+    help="The music book: Spotify connection, poll, import.", no_args_is_help=True
+)
 app.add_typer(db_app, name="db")
 app.add_typer(token_app, name="token")
 app.add_typer(jobs_app, name="jobs")
+app.add_typer(music_app, name="music")
 
 
 @app.command()
@@ -55,6 +59,39 @@ def upgrade() -> None:
 def revision(message: Annotated[str, typer.Argument(help="Migration message.")]) -> None:
     """Autogenerate a migration. Hand-review the diff before it lands."""
     make_revision(settings().db_url, message)
+
+
+@music_app.command("connect-url")
+def music_connect_url() -> None:
+    """Print the Spotify consent URL. Open it in any browser, approve, done."""
+    from budgetbox.modules.music import service as music_service
+
+    with _session_factory()() as session:
+        out = music_service.connect_begin(session, settings())
+    typer.echo(out.url)
+
+
+@music_app.command("poll")
+def music_poll() -> None:
+    """Record everything Spotify still remembers (the last 50 plays).
+    The systemd timer runs this every half hour; by hand it is a no-op
+    when there is nothing new."""
+    from budgetbox.jobs.music import run_music
+
+    upgrade_to_head(settings().db_url)
+    ok = run_music(_session_factory())
+    raise typer.Exit(0 if ok else 1)
+
+
+@music_app.command("import")
+def music_import(
+    directory: Annotated[Path, typer.Argument(help="Folder of Streaming_History_Audio_*.json.")],
+) -> None:
+    """One-time backfill from Spotify's extended streaming history export."""
+    from budgetbox.modules.music.importer import import_directory
+
+    with _session_factory()() as session:
+        typer.echo(import_directory(session, directory))
 
 
 def _session_factory() -> sessionmaker[Session]:

@@ -84,4 +84,10 @@ def create_app(cfg: Settings | None = None) -> FastAPI:
         v1.include_router(router)
     app.include_router(v1)
 
+    # The one route a plain browser must reach: Spotify's OAuth callback.
+    # It cannot carry the device token; its guard is the PKCE state.
+    from budgetbox.modules.music.router import public_router as spotify_public
+
+    app.include_router(spotify_public)
+
     return app

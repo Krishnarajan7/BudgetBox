@@ -38,6 +38,11 @@ class SettingsRepo {
   static const _serverToken = 'serverToken';
   static const _waterBottleMl = 'waterBottleMl';
   static const _worthVeiled = 'worthVeiled';
+  // The music shelf line — a cache of the server's overview, so the shelf
+  // can speak ("412 hrs · 8,140 plays") without a network call.
+  static const _musicLine = 'musicLine';
+  // The slate's shelf line — same trick, same reason.
+  static const _slateLine = 'slateLine';
 
   /// The preferences worth keeping on the server, so a reinstall comes back
   /// as the same book rather than a blank one.
@@ -157,6 +162,12 @@ class SettingsRepo {
   /// Whether the Worth page keeps its figures behind the eye. A device
   /// posture, like the PIN — deliberately not synced.
   Future<bool> worthVeiled() async => await _get(_worthVeiled) == 'true';
+
+  Future<String?> slateLine() => _get(_slateLine);
+  Future<void> setSlateLine(String value) => _set(_slateLine, value);
+
+  Future<String?> musicLine() => _get(_musicLine);
+  Future<void> setMusicLine(String value) => _set(_musicLine, value);
 
   Future<void> setWorthVeiled(bool veiled) =>
       _set(_worthVeiled, '$veiled');

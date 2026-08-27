@@ -9,6 +9,7 @@ import 'db.dart';
 import 'repos/recurring_repo.dart';
 import 'repos/settings_repo.dart';
 import 'repos/txn_repo.dart';
+import 'felt_nudge.dart';
 import 'tonight.dart';
 
 // Tonight's line is composed in `tonight.dart` because it is the one part of
@@ -91,6 +92,10 @@ class Nudges {
     // ten at night, by which time tonight's nine o'clock has already gone and
     // the schedule is a no-op either way.
     await revoiceTonight(_db, now: now);
+    // The check-in keeps its own hour and its own channel, but not its own
+    // switch: this book has one voice, and silencing the evening silences
+    // all of it (see [LedgerReminders.quiet]).
+    await revoiceFelt(_db, now: now);
     await _autoSeal(now);
     await LedgerReminders.scheduleStanding(at.$1, at.$2, [
       for (var i = 1; i <= 14; i++)

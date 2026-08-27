@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from budgetbox.jobs.runner import run_jobs
 from budgetbox.modules.coaching import service as coaching_service
+from budgetbox.modules.folio import service as folio_service
 from budgetbox.modules.networth import service as networth_service
 from budgetbox.modules.recurring import service as recurring_service
 
@@ -28,5 +29,23 @@ def generate_coaching(session: Session) -> str:
     return f"created {created} coaching insight(s)"
 
 
+def price_funds(session: Session) -> str:
+    """AMFI first, then the anchor — the snapshot below reads the anchor, so a
+    fund that moved today lands in today's net worth rather than tomorrow's.
+    A market holiday or an unreachable AMFI is not a failure: yesterday's NAV
+    is still the truest number available."""
+    from budgetbox.modules.folio import amfi
+
+    try:
+        priced = folio_service.refresh_navs(session)
+    except amfi.AmfiError as exc:
+        return f"navs unavailable ({exc.detail[:60]})"
+    return f"priced {priced} fund(s); {folio_service.anchor_worth(session)}"
+
+
 def run_daily(factory: sessionmaker[Session]) -> bool:
-    return run_jobs(factory, DAILY, [materialize_recurrings, snapshot_balances, generate_coaching])
+    return run_jobs(
+        factory,
+        DAILY,
+        [materialize_recurrings, price_funds, snapshot_balances, generate_coaching],
+    )

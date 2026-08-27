@@ -35,6 +35,14 @@ class LedgerReminders {
   static const _idRain = 5;
   static const _standingBase = 20;
   static const _standingDays = 14;
+
+  /// The felt field's own voice: to-day's one-shot, then a rolling fortnight
+  /// of them. One per day rather than a repeating platform alarm, for the
+  /// same reason the evening nudge works this way — a repeating alarm cannot
+  /// be told to skip the days the word was already written.
+  static const _idFelt = 6;
+  static const _feltBase = 40;
+  static const _feltDays = 14;
   static const _dueBase = 2000;
   static const _noteBase = 1000000;
   static const _channel = AndroidNotificationDetails(
@@ -52,6 +60,16 @@ class LedgerReminders {
     channelDescription: 'One heads-up before rain, on the days there is rain',
     importance: Importance.high,
     priority: Priority.high,
+  );
+
+  /// Its own channel, so the check-in can be silenced without silencing the
+  /// evening nudge — they ask for different things half an hour apart.
+  static const _feltChannel = AndroidNotificationDetails(
+    'felt-field',
+    'Mood check-in',
+    channelDescription: 'One reminder to name the day, on days it went unnamed',
+    importance: Importance.defaultImportance,
+    priority: Priority.defaultPriority,
   );
 
   static const _noteChannel = AndroidNotificationDetails(
@@ -191,6 +209,11 @@ class LedgerReminders {
 
   static const _details = NotificationDetails(
     android: _channel,
+    iOS: DarwinNotificationDetails(),
+  );
+
+  static const _feltDetails = NotificationDetails(
+    android: _feltChannel,
     iOS: DarwinNotificationDetails(),
   );
 
@@ -526,6 +549,78 @@ class LedgerReminders {
     }
   }
 
+  // ————— the felt field —————
+
+  /// To-day's check-in, at [hour]:[minute]. Replaces itself, so calling this
+  /// after every write is safe and is exactly how the reminder stays honest.
+  static Future<void> scheduleFelt(
+    String title,
+    String body,
+    int hour,
+    int minute,
+  ) async {
+    final now = DateTime.now();
+    await _once(
+      _idFelt,
+      title,
+      body,
+      DateTime(now.year, now.month, now.day, hour, minute),
+      details: _feltDetails,
+    );
+  }
+
+  /// Silence to-day's check-in. Called the moment a word is written, which is
+  /// the whole of "do not ask me for what I have already given".
+  static Future<void> cancelFelt() async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(_idFelt);
+    } catch (_) {}
+  }
+
+  /// The rolling fortnight, starting to-morrow, so the reminder keeps coming
+  /// on a phone that never opens the app. Each day is its own one-shot and
+  /// each is replaced wholesale on the next resync — which is how a day that
+  /// gets its word written can have its alert dropped while the rest stand.
+  static Future<void> scheduleFeltStanding(
+    String title,
+    String body,
+    int hour,
+    int minute,
+  ) async {
+    if (!await _init()) return;
+    try {
+      for (var i = 0; i < _feltDays; i++) {
+        await _plugin.cancel(_feltBase + i);
+      }
+      final now = tz.TZDateTime.now(tz.local);
+      for (var i = 0; i < _feltDays; i++) {
+        final day = now.add(Duration(days: i + 1));
+        await _plugin.zonedSchedule(
+          _feltBase + i,
+          title,
+          body,
+          tz.TZDateTime(tz.local, day.year, day.month, day.day, hour, minute),
+          _feltDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        );
+      }
+    } catch (e) {
+      debugPrint('felt reminder not scheduled: $e');
+    }
+  }
+
+  /// Every trace of the check-in — to-day's and the whole horizon.
+  static Future<void> quietFelt() async {
+    if (!await _init()) return;
+    try {
+      await _plugin.cancel(_idFelt);
+      for (var i = 0; i < _feltDays; i++) {
+        await _plugin.cancel(_feltBase + i);
+      }
+    } catch (_) {}
+  }
+
   /// Salary morning, one-shot.
   static Future<void> scheduleSalary(String title, String body, DateTime at) =>
       _once(_idSalary, title, body, at);
@@ -613,6 +708,11 @@ class LedgerReminders {
       await _plugin.cancel(_idSalary);
       for (var i = 0; i < _standingDays; i++) {
         await _plugin.cancel(_standingBase + i);
+      }
+      // The felt check-in is part of the same voice: no hour set, no talking.
+      await _plugin.cancel(_idFelt);
+      for (var i = 0; i < _feltDays; i++) {
+        await _plugin.cancel(_feltBase + i);
       }
       final pending = await _plugin.pendingNotificationRequests();
       for (final p in pending) {

@@ -1,0 +1,17 @@
+# /etc/systemd/system/budgetbox-music.service
+[Unit]
+Description=BudgetBox music poll (Spotify keeps 50 plays; we keep all of them)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=budgetbox
+Group=budgetbox
+WorkingDirectory=/opt/budgetbox/backend
+EnvironmentFile=/etc/budgetbox/env
+ExecStart=/usr/local/bin/uv run budgetbox music poll
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/budgetbox
+PrivateTmp=true

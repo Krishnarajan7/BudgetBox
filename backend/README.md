@@ -105,6 +105,33 @@ curl -H "Authorization: Bearer bbx_..." localhost:8000/v1/ping
    `age -d -i key.txt backup.age > restored.db`, then point `BBX_DB_PATH` at it
    and check `/healthz` + a few reads.
 
+## Music (Spotify)
+
+Spotify's API only exposes the **last 50 plays** — a rolling window, not a
+history. The music module records the present and recovers the past:
+
+- `budgetbox music connect-url` prints the consent URL (PKCE, no client
+  secret). Open it in any browser once; the public `/spotify/callback` route
+  finishes the handshake, guarded by the PKCE state.
+- `budgetbox music poll` records everything new; the
+  `budgetbox-music.timer` unit runs it every 30 minutes (50 plays ≈ 3 hours
+  of listening, so the cadence has ~6x headroom).
+- `budgetbox music import <dir>` backfills from Spotify's GDPR *extended
+  streaming history* export (request it at Privacy Settings → Download your
+  data; takes up to 30 days to arrive). Idempotent; under-30s plays,
+  podcasts, and anything at/after the first polled play are skipped.
+
+Env: `BBX_SPOTIFY_CLIENT_ID` and `BBX_SPOTIFY_REDIRECT_URI` (the exact URI
+registered on the Spotify app, e.g. `https://<domain>/spotify/callback`).
+
+On the VPS these live in `/etc/budgetbox/env`, which is a systemd
+`EnvironmentFile` — loaded for the units and nothing else. Run every CLI
+command through `deploy/bbx.sh`, which sources it and refuses to open a
+default-path database; calling the CLI directly would silently write to a new
+`./budgetbox.db`. Full walkthrough: `docs/spotify-connect.md`.
+Operational note: Development Mode apps **require the owner to keep Spotify
+Premium** — if it lapses, the poll stops with auth errors until reactivated.
+
 ## Migrations
 
 `uv run budgetbox db revision "message"` autogenerates into

@@ -1,0 +1,13 @@
+# /etc/systemd/system/budgetbox-music.timer
+# Every half hour. 50 plays is ~3 hours of continuous listening, so this
+# cadence has ~6x headroom before the window can roll anything away.
+[Unit]
+Description=Poll Spotify for new plays
+
+[Timer]
+OnCalendar=*:00/30
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

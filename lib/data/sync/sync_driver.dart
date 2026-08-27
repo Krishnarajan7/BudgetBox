@@ -12,6 +12,7 @@ import '../db.dart';
 import '../providers.dart';
 import '../repos/alarm_repo.dart';
 import '../tonight.dart';
+import '../felt_nudge.dart';
 import 'sync_engine.dart';
 
 /// Decides *when* the book talks to the server. It draws nothing: it wraps
@@ -54,6 +55,9 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // From now on every stroke in the ledger re-says tonight's nine o'clock
     // line, so it cannot arrive describing a morning that has been overtaken.
     installEveningVoice(revoiceTonight);
+    // The felt field's voice, on the same terms: naming the day silences
+    // that evening's check-in the instant the word is written.
+    installFeltVoice(revoiceFelt);
     // Reading the provider is what installs the repo seam, so it must happen
     // before any screen can write.
     final engine = ref.read(syncEngineProvider);

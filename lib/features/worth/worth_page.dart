@@ -22,6 +22,8 @@ import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/goal_repo.dart';
 import '../add/money_moves.dart' show showTransferSheet;
+import '../folio/folio_page.dart';
+import '../folio/folio_providers.dart';
 import '../plans/plans_page.dart' show AmountSheet;
 import '../story/story_page.dart';
 import '../today/widgets/digit_roll.dart';
@@ -682,6 +684,7 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   last: i == owed.length - 1,
                 ),
             ],
+            const _FundsSection(),
             const _GoalsSection(),
             const SizedBox(height: Gap.x6),
           ],
@@ -690,6 +693,159 @@ class _WorthPageState extends ConsumerState<WorthPage> {
     );
   }
 }
+
+/// Funds on the Worth page.
+///
+/// Everything else on this page is a balance: one number that is simply what
+/// is there. A fund is not that — it is what you *put in* and what it is
+/// *worth*, and the whole reason the folio exists is that those two drift
+/// apart. So this section refuses to render as one more account row: it
+/// carries both figures and the distance between them, and hands off to the
+/// folio for the rest.
+///
+/// It stays out of the way entirely until there is a fund, so a book that
+/// invests in nothing never grows a section about investing.
+class _FundsSection extends ConsumerWidget {
+  const _FundsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = LedgerColors.of(context);
+    final summary = ref.watch(folioSummaryProvider).value;
+    if (summary == null || summary.funds == 0) return const SizedBox.shrink();
+    final up = summary.up;
+    final tone = up ? c.jama : c.seal;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        RuleHeader(
+          'funds',
+          trailing: Text(
+            summary.funds == 1 ? '1 holding' : '${summary.funds} holdings',
+            style: LedgerType.label.copyWith(color: c.inkFaint),
+          ),
+        ),
+        Pressable(
+          scale: 0.99,
+          onTap: () => Navigator.of(context).push(
+            LedgerRoute<void>(builder: (_) => const FolioPage()),
+          ),
+          child: LedgerCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: Gap.x3),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'worth to-day',
+                            style: LedgerType.label.copyWith(
+                              color: c.inkFaint,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            Inr.format(summary.valuePaise),
+                            style: LedgerType.heroAmount.copyWith(
+                              fontSize: 30,
+                              color: c.ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${up ? '+' : '−'}${Inr.format(summary.gainPaise.abs())}',
+                          style: LedgerType.amountTotal.copyWith(color: tone),
+                        ),
+                        if (summary.returnRatio != null)
+                          Text(
+                            '${up ? '+' : '−'}'
+                            '${(summary.returnRatio!.abs() * 100).toStringAsFixed(1)}%',
+                            style: LedgerType.label.copyWith(color: tone),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Gap.x3),
+                // Put-in as the floor, worth as the bar that runs past it.
+                // The overshoot is the gain, at a glance and without a word.
+                _WorthBar(
+                  cost: summary.costPaise,
+                  value: summary.valuePaise,
+                  tone: tone,
+                  rule: c.rule,
+                ),
+                const SizedBox(height: Gap.x2),
+                Text(
+                  '${Inr.format(summary.costPaise)} put in'
+                  '${summary.monthPaise > 0 ? ' · ${Inr.format(summary.monthPaise)} this month' : ''}',
+                  style: LedgerType.label.copyWith(color: c.inkFaint),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WorthBar extends StatelessWidget {
+  const _WorthBar({
+    required this.cost,
+    required this.value,
+    required this.tone,
+    required this.rule,
+  });
+
+  final int cost;
+  final int value;
+  final Color tone;
+  final Color rule;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = value > cost ? value : cost;
+    if (top <= 0) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, box) => SizedBox(
+        height: 4,
+        child: Stack(
+          children: [
+            Container(
+              width: box.maxWidth * (cost / top),
+              decoration: BoxDecoration(
+                color: rule,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            InkIn(
+              child: Container(
+                width: box.maxWidth * (value / top),
+                height: 4,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
 /// One strip, every asset's share laid end to end in its own ink, a 2px
 /// breath of the card between neighbours. It draws itself in left to right
