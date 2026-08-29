@@ -150,23 +150,40 @@ class MarksRepo {
     return ({for (final s in slips) s.date}, since);
   }
 
-  /// The day the Daily page first opened — stored once, in the settings
-  /// table, so a streak never claims days the book wasn't watching.
+  /// The day the book started watching — so a streak never claims days it
+  /// wasn't there for.
+  ///
+  /// Self-healing, because the stamp has a race a reinstall always loses:
+  /// the Daily page opens, finds no row, and stamps *to-day* — while the
+  /// real history is still on its way down from the server. A mark is proof
+  /// the book was watching on that day, so any mark older than the stamp
+  /// pulls the stamp back to it, and the healed value is written down (and
+  /// synced) so every reader — this page, the shelf line — agrees.
   Future<String> _since() async {
     final row = await (_db.select(
       _db.settings,
     )..where((s) => s.key.equals('marksSince'))).getSingleOrNull();
-    if (row != null) return row.value;
-    final today = LedgerDates.dayKey(DateTime.now());
-    await _db
-        .into(_db.settings)
-        .insertOnConflictUpdate(
-          SettingsCompanion(
-            key: const Value('marksSince'),
-            value: Value(today),
-          ),
-        );
-    return today;
+    final earliest =
+        await (_db.selectOnly(_db.dayMarks)
+              ..addColumns([_db.dayMarks.date.min()]))
+            .map((r) => r.read(_db.dayMarks.date.min()))
+            .getSingle();
+    var since = row?.value;
+    if (earliest != null && (since == null || earliest.compareTo(since) < 0)) {
+      since = earliest;
+    }
+    since ??= LedgerDates.dayKey(DateTime.now());
+    if (row?.value != since) {
+      await _db
+          .into(_db.settings)
+          .insertOnConflictUpdate(
+            SettingsCompanion(
+              key: const Value('marksSince'),
+              value: Value(since),
+            ),
+          );
+    }
+    return since;
   }
 
   /// Tick or untick a habit for a day: at most one row per (day, kind).

@@ -12,10 +12,11 @@ import '../repos/settings_repo.dart';
 ///
 /// The rule is deliberately blunt, because a single person with a phone has
 /// no real conflicts to arbitrate: **the phone is the author, the server is
-/// the copy.** Local values go up on every round. They only ever come *down*
-/// onto a book that has never set them — a fresh install, restoring itself.
-/// That way reinstalling gives Krish his name, his salary day and his theme
-/// back, and no round trip can quietly overwrite a preference he just changed.
+/// the copy.** Local values go up on every round. A value only ever comes
+/// *down* onto a key this phone has never set — so reinstalling gives Krish
+/// his name, his salary day, his theme, his place in the kural and his
+/// evening hour back, and no round trip can quietly overwrite a preference
+/// he just changed.
 class SettingsSync {
   SettingsSync(LedgerDb db) : _repo = SettingsRepo(db);
 
@@ -28,13 +29,19 @@ class SettingsSync {
     final local = await _repo.syncableValues();
     final remote = await _fetch(client);
 
-    // A book that has set nothing is a book being restored: take what the
-    // server kept for it.
-    if (local.isEmpty && remote.isNotEmpty) {
-      for (final e in remote.entries) {
-        await _repo.adoptRemote(e.key, e.value);
-      }
-      return;
+    // Restoring is decided **per key, not per book**. The old rule only took
+    // the server's copy when the phone had set nothing at all, which meant a
+    // book wired up from Settings — after the setup ritual had already
+    // written a name and a theme — silently kept none of what the server was
+    // holding. It also meant a preference added to this list later could
+    // never come down to a phone that predated it.
+    //
+    // A key the phone has never set is not a preference being overwritten,
+    // so taking it is safe; a key the phone *has* set still wins and is
+    // pushed up. The phone remains the author, the server the copy.
+    for (final e in remote.entries) {
+      if (local.containsKey(e.key)) continue;
+      await _repo.adoptRemote(e.key, e.value);
     }
 
     for (final e in local.entries) {

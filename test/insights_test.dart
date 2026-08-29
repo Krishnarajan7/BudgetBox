@@ -3,6 +3,7 @@ import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
 import 'package:budgetbox/data/repos/txn_repo.dart';
+import 'package:budgetbox/features/insights/insight_math.dart';
 import 'package:budgetbox/features/insights/insights_page.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -86,10 +87,14 @@ void main() {
       expect(find.text('where it went'), findsOneWidget);
       expect(find.text('Food & chai'), findsWidgets);
 
-      // The movement, named and signed.
-      expect(find.text('versus last month'), findsOneWidget);
-      expect(find.text('−₹200'), findsOneWidget);
-      expect(find.textContaining('new this month'), findsOneWidget);
+      // The ranking, each line judged against its own past: food ran
+      // ₹200 under its ₹500 usual; the unfiled entry has no past to
+      // judge by and says so instead of guessing.
+      expect(find.text('what holds the most'), findsOneWidget);
+      expect(find.textContaining('under its usual'), findsOneWidget);
+      expect(find.textContaining('first seen'), findsOneWidget);
+      // And the share, so the heaviest is tellable at a glance.
+      expect(find.text('71%'), findsOneWidget);
 
       // The heaviest single line — below the wheel, so scroll to it.
       await tester.scrollUntilVisible(find.text('heaviest lines'), 200,
@@ -142,6 +147,101 @@ void main() {
       final cats = await db.select(db.categories).get();
       expect(cats.map((c) => c.name), contains('Food & chai'));
       expect(cats.length, greaterThanOrEqualTo(8));
+    });
+  });
+
+  group('categoryStories — every judgement against its own past', () {
+    // (category, paise, title) rows; category 1 is food, 2 is tickets.
+    List<SpendRow> month(List<(int?, int, String)> rows) => rows;
+
+    test('ranked heaviest first, with honest shares', () {
+      final stories = categoryStories(
+        month([(1, 60_000, 'meals'), (2, 40_000, 'bus')]),
+        const [],
+      );
+      expect(stories.map((s) => s.categoryId), [1, 2]);
+      expect(stories.first.share, 0.6);
+      expect(stories.last.share, 0.4);
+    });
+
+    test('running hot means past its own median, not any yardstick', () {
+      final stories = categoryStories(
+        month([(1, 90_000, 'meals')]),
+        [
+          month([(1, 50_000, 'meals')]),
+          month([(1, 60_000, 'meals')]),
+          month([(1, 40_000, 'meals')]),
+        ],
+      );
+      final food = stories.single;
+      // Median of 40/50/60k is 50k; 90k is 40k past it.
+      expect(food.usualPaise, 50_000);
+      expect(food.verdict, CategoryVerdict.runningHot);
+      expect(food.overPaise, 40_000);
+    });
+
+    test('a small swing is not news', () {
+      // ₹120 over a ₹500 usual: over the band by ratio, but under the
+      // rupee floor — chai does not make headlines.
+      final stories = categoryStories(
+        month([(1, 62_000, 'meals')]),
+        [month([(1, 50_000, 'meals')])],
+      );
+      expect(stories.single.verdict, CategoryVerdict.steady);
+    });
+
+    test('months that never knew a category are not counted as zero', () {
+      // Tickets appear once in history. If the two quiet months counted
+      // as ₹0, the median would be 0 and any ticket would read as "hot".
+      final stories = categoryStories(
+        month([(2, 80_000, 'bus to Madurai')]),
+        [
+          month([(1, 50_000, 'meals')]),
+          month([(1, 50_000, 'meals'), (2, 80_000, 'flight')]),
+          month([(1, 50_000, 'meals')]),
+        ],
+      );
+      final tickets = stories.singleWhere((s) => s.categoryId == 2);
+      expect(tickets.usualPaise, 80_000);
+      expect(tickets.verdict, CategoryVerdict.steady);
+    });
+
+    test('one line holding a category is named as the story', () {
+      final stories = categoryStories(
+        month([(2, 4_50_000, 'flight home'), (2, 30_000, 'auto')]),
+        [month([(2, 40_000, 'bus')])],
+      );
+      expect(stories.single.verdict, CategoryVerdict.oneBigLine);
+      expect(stories.single.biggestTitle, 'flight home');
+    });
+
+    test('a category with no history says so instead of guessing', () {
+      final stories = categoryStories(
+        month([(3, 25_000, 'cake')]),
+        [month([(1, 50_000, 'meals')])],
+      );
+      expect(stories.single.verdict, CategoryVerdict.firstMonth);
+      expect(stories.single.usualPaise, isNull);
+    });
+
+    test('the headline names the hottest runner, or stays calm', () {
+      final hot = categoryStories(
+        month([(1, 90_000, 'meals'), (2, 10_000, 'bus')]),
+        [month([(1, 40_000, 'meals'), (2, 10_000, 'bus')])],
+      );
+      final (story, calm) = headline(hot)!;
+      expect(calm, isFalse);
+      expect(story.categoryId, 1);
+
+      final quiet = categoryStories(
+        month([(1, 42_000, 'meals')]),
+        [month([(1, 40_000, 'meals')])],
+      );
+      final (lead, isCalm) = headline(quiet)!;
+      expect(isCalm, isTrue);
+      expect(lead.categoryId, 1);
+
+      expect(headline(const []), isNull);
     });
   });
 }

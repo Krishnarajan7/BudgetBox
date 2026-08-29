@@ -60,6 +60,27 @@ class SettingsRepo {
     _yearFrame,
     _birthday,
     _waterBottleMl,
+    _worthVeiled,
+    // The evening voice's hour, and whether it speaks at all. Losing it on a
+    // reinstall turns a silenced book back on by itself, which is the one
+    // way a preference can be wrong loudly.
+    _nudgeTime,
+    // Where he had reached in the 1330, and the streak behind it. Position
+    // is the important half: without it a restored book starts the couplets
+    // over and hands him ones he has already read.
+    _kuralDay,
+    _kuralPosition,
+    _kuralSeed,
+    _kuralIndex,
+    _kuralStreak,
+    // The once-a-year markers. Without them a reinstall lets a ceremony
+    // that has already happened happen again.
+    _birthdayBurstYear,
+    _birthdaySurpriseYear,
+    // The day the Daily page started watching — the clean streak's floor.
+    // MarksRepo owns the key (it predates this repo knowing about it);
+    // named here so it survives a reinstall like the marks themselves do.
+    'marksSince',
     // Not a preference so much as a schema: without the habit definitions a
     // restored phone has every mark in `day_marks` and no idea that 'push'
     // means fifty push-ups. They live here because they are one JSON string
@@ -159,8 +180,9 @@ class SettingsRepo {
 
   Future<void> setWaterBottleMl(int ml) => _set(_waterBottleMl, '$ml');
 
-  /// Whether the Worth page keeps its figures behind the eye. A device
-  /// posture, like the PIN — deliberately not synced.
+  /// Whether the Worth page keeps its figures behind the eye. Synced since
+  /// the restore audit: a book that was veiled should come back veiled —
+  /// a reinstall is exactly the wrong moment to put the figures on show.
   Future<bool> worthVeiled() async => await _get(_worthVeiled) == 'true';
 
   Future<String?> slateLine() => _get(_slateLine);

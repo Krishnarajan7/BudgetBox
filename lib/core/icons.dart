@@ -33,6 +33,8 @@ abstract final class LedgerIcons {
     'gym': Icons.fitness_center_outlined,
     'pet': Icons.pets_outlined,
     'travel': Icons.flight_takeoff_outlined,
+    'ticket': Icons.confirmation_number_outlined,
+    'cake': Icons.cake_outlined,
     'people': Icons.group_outlined,
     'school': Icons.school_outlined,
     'tools': Icons.build_outlined,

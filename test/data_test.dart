@@ -38,10 +38,12 @@ void main() {
 
   test('seeds his categories on create', () async {
     final cats = await db.select(db.categories).get();
-    expect(cats.length, 19);
+    expect(cats.length, 21);
     expect(cats.where((c) => c.kind == CategoryKind.income).length, 2);
     // His own shelf, not just the household's — soap and shampoo included,
-    // which have their own word rather than a corner of grooming.
+    // which have their own word rather than a corner of grooming; and from
+    // v15, the cake and the bus ticket, which are treats and journeys
+    // rather than meals and commutes.
     expect(
       cats.map((c) => c.name),
       containsAll([
@@ -49,6 +51,8 @@ void main() {
         'Grooming & care',
         'Bike & fuel',
         'Bath & toiletries',
+        'Snacks & treats',
+        'Tickets & travel',
       ]),
     );
   });

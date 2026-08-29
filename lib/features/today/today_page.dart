@@ -389,40 +389,54 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                 const SizedBox(height: 2),
                 // The hero and its answer, side by side: the figure is the
                 // object, "spent today · N entries" is the caption.
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    DigitRoll(
-                      paise: todayPaise,
-                      style: LedgerType.heroAmount
-                          .copyWith(fontSize: 64, color: c.ink)
-                          .copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                    ),
-                    const SizedBox(width: Gap.x4),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'spent today',
-                            style: LedgerType.bodyText.copyWith(
-                              fontSize: 13,
-                              color: c.inkFaint,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          _reactiveSubline(
-                            c,
-                            today.length,
-                            todayPaise,
-                            yesterdayPaise,
-                          ),
-                        ],
+                LayoutBuilder(
+                  builder: (context, box) => Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // The figure may take three-fifths of the row and no
+                      // more: DigitRoll's FittedBox scales a paise-wide
+                      // figure down inside that bound. Unbounded (as it
+                      // was), ₹1,234.56 at 64pt swallowed the whole row and
+                      // crushed the caption beside it to nothing.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: box.maxWidth * 0.60,
+                        ),
+                        child: DigitRoll(
+                          paise: todayPaise,
+                          style: LedgerType.heroAmount
+                              .copyWith(fontSize: 64, color: c.ink)
+                              .copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: Gap.x4),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'spent today',
+                              style: LedgerType.bodyText.copyWith(
+                                fontSize: 13,
+                                color: c.inkFaint,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            _reactiveSubline(
+                              c,
+                              today.length,
+                              todayPaise,
+                              yesterdayPaise,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: Gap.x2),
                 Align(alignment: Alignment.centerLeft, child: underline),

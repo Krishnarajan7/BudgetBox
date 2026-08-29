@@ -38,7 +38,7 @@ class LedgerDb extends _$LedgerDb {
   LedgerDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -47,6 +47,13 @@ class LedgerDb extends _$LedgerDb {
       await _seedCategories();
     },
     onUpgrade: (m, from, to) async {
+      if (from < 15) {
+        // v15: the cake and the bus ticket. A bakery run was landing in
+        // "Food & chai" (which is meals) and a Chennai bus ticket in
+        // "Getting around" (which is the daily commute) — both reading as
+        // ordinary days when they were treats and journeys.
+        await _addMissingCategories(_snacksAndTicketsSeed);
+      }
       if (from < 14) {
         // v14: soap, shampoo, paste, razor blades — the weekly basket that
         // was landing in "Kirana & home" or, worse, "Fun & extras".
@@ -147,6 +154,7 @@ class LedgerDb extends _$LedgerDb {
     ('gift', 'Family & gifts'),
     ..._ownShelfSeed,
     ..._bathSeed,
+    ..._snacksAndTicketsSeed,
   ];
 
   /// The rest of his own shelf, added in v8: the money that used to get
@@ -168,6 +176,16 @@ class LedgerDb extends _$LedgerDb {
   /// they belong to different months and reading them together tells you
   /// nothing about either.
   static const _bathSeed = [('care', 'Bath & toiletries')];
+
+  /// Added in v15, both by request after real money had nowhere honest to
+  /// go. Snacks are not meals: a cake, chips, the bakery — treats, bought
+  /// on impulse, worth seeing apart from what feeds the week. And a ticket
+  /// is not the commute: bus to Madurai, a flight, a train home — the
+  /// occasional journey, not the daily getting-around.
+  static const _snacksAndTicketsSeed = [
+    ('cake', 'Snacks & treats'),
+    ('ticket', 'Tickets & travel'),
+  ];
 
   static const _incomeSeed = [('work', 'Salary'), ('up', 'Extra income')];
 

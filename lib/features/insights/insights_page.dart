@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'insight_math.dart';
+
 import '../../core/dates.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
@@ -14,7 +16,7 @@ import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
-import '../book/book_page.dart' show whereItWent, bookMonthShift;
+import '../book/book_page.dart';
 
 /// Where the money went, said plainly.
 ///
@@ -98,6 +100,7 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
     final txns = ref.watch(txnRepoProvider);
     final db = ref.watch(dbProvider);
     final prev = bookMonthShift(_month, -1);
+    final furthest = bookMonthShift(_month, -3);
     final onNow = _month == LedgerDates.monthStart(DateTime.now());
 
     return ModuleScaffold(
@@ -135,18 +138,24 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
         stream: txns.watchRange(_month, LedgerDates.monthEnd(_month)),
         builder: (context, nowSnap) {
           return StreamBuilder<List<Txn>>(
-            stream: txns.watchRange(prev, LedgerDates.monthEnd(prev)),
-            builder: (context, prevSnap) {
+            // Three months back in one stream: the history every category
+            // is judged against.
+            stream: txns.watchRange(furthest, LedgerDates.monthEnd(prev)),
+            builder: (context, pastSnap) {
               return StreamBuilder<List<Category>>(
                 stream: db.select(db.categories).watch(),
                 builder: (context, catSnap) {
                   final nowAll = nowSnap.data ?? const <Txn>[];
-                  final thenAll = prevSnap.data ?? const <Txn>[];
+                  final pastAll = pastSnap.data ?? const <Txn>[];
+                  final thenAll = [
+                    for (final t in pastAll)
+                      if (!t.at.isBefore(prev)) t,
+                  ];
                   final cats = {
                     for (final cat in catSnap.data ?? const <Category>[])
                       cat.id: cat,
                   };
-                  return _body(c, nowAll, thenAll, cats);
+                  return _body(c, nowAll, thenAll, pastAll, cats);
                 },
               );
             },
@@ -160,6 +169,7 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
     LedgerColors c,
     List<Txn> nowAll,
     List<Txn> thenAll,
+    List<Txn> pastAll,
     Map<int, Category> cats,
   ) {
     List<(int?, int)> spend(List<Txn> all) => [
@@ -174,9 +184,36 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
 
     // Four slices at most — one per ink in the drawer; the rest folds.
     final slices = whereItWent(nowSpend, top: 4);
-    final shifts = categoryShifts(nowSpend, thenSpend);
     final heaviest = nowAll.where((t) => t.type == TxnType.expense).toList()
       ..sort((a, b) => b.amountPaise.compareTo(a.amountPaise));
+
+    // Every category judged against its own last three months. A month
+    // still being lived is compared through the same day-of-month, so
+    // "running hot" on the 12th means hot *for a 12th*, not against a
+    // whole month it hasn't had yet.
+    final onNow = _month == LedgerDates.monthStart(DateTime.now());
+    final cutDay = onNow ? DateTime.now().day : 32;
+    List<SpendRow> monthRows(List<Txn> all, DateTime start) => [
+      for (final t in all.where(
+        (t) =>
+            t.type == TxnType.expense &&
+            !t.at.isBefore(start) &&
+            t.at.isBefore(LedgerDates.monthEnd(start)) &&
+            t.at.day <= cutDay,
+      ))
+        (t.categoryId, t.amountPaise, t.title),
+    ];
+    final stories = categoryStories(
+      [
+        for (final t in nowAll.where((t) => t.type == TxnType.expense))
+          (t.categoryId, t.amountPaise, t.title),
+      ],
+      [
+        for (var back = 1; back <= 3; back++)
+          monthRows(pastAll, bookMonthShift(_month, -back)),
+      ],
+    );
+    final lead = headline(stories);
 
     String catName(int? id) =>
         id == null ? 'unfiled' : (cats[id]?.name ?? 'unfiled');
@@ -221,6 +258,19 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
               ),
             ],
           ),
+
+        // ————— the one sentence worth reading first —————
+        if (lead != null) ...[
+          const SizedBox(height: Gap.x3),
+          Text(
+            _headlineLine(lead, catName),
+            style: LedgerType.bodyText.copyWith(
+              fontSize: 13,
+              height: 1.45,
+              color: lead.$2 ? c.inkFaint : c.warn,
+            ),
+          ),
+        ],
 
         // ————— where it went —————
         if (slices.isNotEmpty)
@@ -274,28 +324,36 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
             ),
           ),
 
-        // ————— what moved —————
-        if (shifts.isNotEmpty)
+        // ————— what holds the most —————
+        //
+        // The whole month, ranked — no fold, no "everything else" hiding
+        // two-thirds of the money. Each category carries its share, a bar
+        // against the heaviest, and one line of judgement against its own
+        // last three months. Tap a row and the book opens already turned
+        // to this month and narrowed to that category.
+        if (stories.isNotEmpty)
           LedgerCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const RuleHeader('versus last month'),
-                for (final (i, s) in shifts.indexed)
-                  LedgerLine(
-                    mark: CatMark(catIcon(s.categoryId), size: 14),
-                    title: catName(s.categoryId),
-                    detail: s.isNew
-                        ? 'new this month'
-                        : s.wentQuiet
-                        ? 'went quiet'
-                        : s.deltaPaise > 0
-                        ? 'more than last month'
-                        : 'less than last month',
-                    amount:
-                        '${s.deltaPaise > 0 ? '+' : '−'}${Inr.format(s.deltaPaise.abs())}',
-                    amountColor: s.deltaPaise > 0 ? c.warn : c.jama,
-                    last: i == shifts.length - 1,
+                const RuleHeader('what holds the most'),
+                const SizedBox(height: Gap.x2),
+                for (final (i, story) in stories.indexed)
+                  _StoryRow(
+                    story: story,
+                    name: catName(story.categoryId),
+                    iconKey: catIcon(story.categoryId),
+                    topPaise: stories.first.paise,
+                    ink: i < c.chartInks.length ? c.chartInks[i] : c.inkFaint,
+                    last: i == stories.length - 1,
+                    onTap: () => Navigator.of(context).push(
+                      LedgerRoute<void>(
+                        builder: (_) => BookPage(
+                          initialMonth: _month,
+                          initialCategory: story.categoryId,
+                        ),
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -423,4 +481,148 @@ class _WheelPainter extends CustomPainter {
   @override
   bool shouldRepaint(_WheelPainter old) =>
       old.sweep != sweep || old.fractions != fractions || old.inks != inks;
+}
+
+
+/// The lead sentence: the hottest runner named plainly, or the calm verdict.
+String _headlineLine(
+  (CategoryStory, bool) lead,
+  String Function(int?) catName,
+) {
+  final (story, calm) = lead;
+  if (calm) {
+    return '${catName(story.categoryId)} holds the most — '
+        'nothing is running past its usual.';
+  }
+  return '${catName(story.categoryId)} is '
+      '${Inr.format(story.overPaise)} past its usual pace — '
+      'the rest of the month is ordinary.';
+}
+
+/// One category's line in the ranking: mark, name, judgement, figure and
+/// share — and beneath them, its bar against the heaviest category.
+class _StoryRow extends StatelessWidget {
+  const _StoryRow({
+    required this.story,
+    required this.name,
+    required this.iconKey,
+    required this.topPaise,
+    required this.ink,
+    required this.last,
+    required this.onTap,
+  });
+
+  final CategoryStory story;
+  final String name;
+  final String? iconKey;
+  final int topPaise;
+  final Color ink;
+  final bool last;
+  final VoidCallback onTap;
+
+  /// The judgement, in the book's voice. Every line is earned from this
+  /// category's own history — never a generic caption.
+  String get _verdictLine {
+    final s = story;
+    switch (s.verdict) {
+      case CategoryVerdict.oneBigLine:
+        return 'mostly one line — ${s.biggestTitle}';
+      case CategoryVerdict.runningHot:
+        return '${Inr.format(s.overPaise)} past its usual';
+      case CategoryVerdict.runningCool:
+        return '${Inr.format(-s.overPaise)} under its usual';
+      case CategoryVerdict.firstMonth:
+        return s.count == 1 ? 'one entry, first seen' : 'first month with this';
+      case CategoryVerdict.steady:
+        return s.count == 1 ? '1 entry · about usual' : '${s.count} entries · about usual';
+    }
+  }
+
+  Color _verdictColor(LedgerColors c) => switch (story.verdict) {
+    CategoryVerdict.runningHot => c.warn,
+    CategoryVerdict.runningCool => c.jama,
+    _ => c.inkFaint,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Pressable(
+      scale: 0.99,
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.only(top: Gap.x2, bottom: last ? Gap.x1 : Gap.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CatMark(iconKey, size: 14),
+                const SizedBox(width: Gap.x2),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: LedgerType.bodyStrong.copyWith(
+                          fontSize: 14,
+                          color: c.ink,
+                        ),
+                      ),
+                      Text(
+                        _verdictLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: LedgerType.label.copyWith(
+                          color: _verdictColor(c),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Gap.x3),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      Inr.format(story.paise),
+                      style: LedgerType.amount.copyWith(color: c.ink),
+                    ),
+                    Text(
+                      '${(story.share * 100).round()}%',
+                      style: LedgerType.label.copyWith(color: c.inkFaint),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            // Its length against the heaviest — the differentiation at a
+            // glance the wheel's four slices could not give.
+            Padding(
+              padding: const EdgeInsets.only(left: 22),
+              child: DrawIn(
+                duration: const Duration(milliseconds: 500),
+                builder: (context, t) => FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor:
+                      (topPaise <= 0 ? 0.0 : story.paise / topPaise) * t,
+                  child: Container(
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: ink.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(1.5),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

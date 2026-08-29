@@ -656,7 +656,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   'Run the setup ritual',
                   'preview the first-launch flow',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const SetupFlow()),
+                    LedgerRoute<void>(builder: (_) => const SetupFlow()),
                   ),
                 ),
                 _Row(

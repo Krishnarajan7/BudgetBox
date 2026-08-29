@@ -299,7 +299,57 @@ class SyncPuller {
         return localId;
       });
     }
+    await _seedSnapshots(p, wire);
     return n;
+  }
+
+  /// The readings behind every line the Worth page draws.
+  ///
+  /// `balance_snapshots` is written locally only as a side effect of a txn
+  /// moving through an account, and only ever for *to-day* — so a restored
+  /// book had accounts, balances and history, and a chart with nothing to
+  /// draw. Worse quietly: [AccountRepo.shortfall] treats "no reading ever"
+  /// as "never counted" and stops warning about overdrawing at all, so the
+  /// guard went missing without a symptom.
+  ///
+  /// The server has kept these all along (`account_snapshots`, rebuilt
+  /// nightly), so restoring them is a read, not a reconstruction. Seeded
+  /// after the accounts land, because the rows are keyed by local account id.
+  static Future<void> _seedSnapshots(SyncPuller p, SyncWire wire) async {
+    final List<dynamic> rows;
+    try {
+      rows = await wire.list('/v1/networth/accounts', {'points': 365});
+    } on Object {
+      // History is a nicety; a round that restored the ledger and not the
+      // sparklines is still a round that worked.
+      return;
+    }
+    for (final r in rows) {
+      final localId = await p._ids.localFor(
+        SyncKinds.account,
+        '${r['account_id']}',
+      );
+      if (localId == null) continue;
+      final points = r['points'];
+      if (points is! List) continue;
+      await p._db.batch((b) {
+        for (final point in points) {
+          if (point is! Map) continue;
+          final date = point['date'];
+          final value = point['value_paise'];
+          if (date is! String || value is! int) continue;
+          b.insert(
+            p._db.balanceSnapshots,
+            BalanceSnapshotsCompanion(
+              accountId: Value(localId),
+              date: Value(date),
+              balancePaise: Value(value),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+        }
+      });
+    }
   }
 
   static Future<int> _applyCategories(

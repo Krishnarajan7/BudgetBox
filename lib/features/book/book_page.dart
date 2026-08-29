@@ -181,7 +181,13 @@ class _Strike {
 /// view where quiet days stay pale, and pages that turn back through the
 /// months of the book.
 class BookPage extends ConsumerStatefulWidget {
-  const BookPage({super.key});
+  const BookPage({super.key, this.initialMonth, this.initialCategory});
+
+  /// Where to open the book — an Insights row pushes the page already
+  /// turned to its month and narrowed to its category. Null opens on the
+  /// current month, unfiltered, exactly as the spine's tab always has.
+  final DateTime? initialMonth;
+  final int? initialCategory;
 
   @override
   ConsumerState<BookPage> createState() => _BookPageState();
@@ -189,12 +195,14 @@ class BookPage extends ConsumerStatefulWidget {
 
 class _BookPageState extends ConsumerState<BookPage> {
   bool _heat = false;
-  int? _categoryFilter;
+  late int? _categoryFilter = widget.initialCategory;
   String _query = '';
   final _searchFocus = FocusNode();
 
   /// The month being read — always the first of a month.
-  DateTime _month = LedgerDates.monthStart(DateTime.now());
+  late DateTime _month = LedgerDates.monthStart(
+    widget.initialMonth ?? DateTime.now(),
+  );
   Stream<List<Txn>>? _txnStream;
   Stream<List<DaySeal>>? _sealStream;
   DateTime? _streamMonth;

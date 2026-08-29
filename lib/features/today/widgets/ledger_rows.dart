@@ -140,7 +140,8 @@ class LeaderRow extends StatelessWidget {
   const LeaderRow({
     super.key,
     required this.label,
-    required this.amount,
+    this.amount = '',
+    this.amountWidget,
     this.detail,
     this.amountColor,
     this.emphasized = false,
@@ -149,6 +150,11 @@ class LeaderRow extends StatelessWidget {
 
   final String label;
   final String amount;
+
+  /// Replaces the amount text when the figure needs to carry more than
+  /// plain ink — a veil, a settling count. Same arrangement as
+  /// [LedgerLine.amountWidget].
+  final Widget? amountWidget;
   final String? detail;
   final Color? amountColor;
 
@@ -198,11 +204,13 @@ class LeaderRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: Gap.x2),
-          Text(
-            amount,
-            style: (emphasized ? LedgerType.amountTotal : LedgerType.amount)
-                .copyWith(color: amountColor ?? c.ink),
-          ),
+          amountWidget ??
+              Text(
+                amount,
+                style:
+                    (emphasized ? LedgerType.amountTotal : LedgerType.amount)
+                        .copyWith(color: amountColor ?? c.ink),
+              ),
         ],
       ),
     );

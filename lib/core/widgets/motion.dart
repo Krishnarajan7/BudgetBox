@@ -19,29 +19,155 @@ abstract final class Motion {
       MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 }
 
-/// Pushes the next screen like a page turning, not a Material zoom: the new
-/// page fades in and rises a hair on the book's one spring.
+/// Pushes the next screen the way this book actually works: a new page is a
+/// **leaf laid over the current one**.
+///
+/// The old transition was a 1.5% nudge under a crossfade — two pages
+/// blurring through each other, with the page beneath simply vanishing.
+/// Now the incoming leaf slides in from the right and *settles* (a third of
+/// the width, not a shove), carrying a soft ink shadow down its leading
+/// edge — lifted paper over paper. The page beneath stays where pages stay:
+/// underneath — receding a fraction and dimming until the leaf above lifts
+/// off again. Popping runs the same move backwards, so leaving a page reads
+/// as picking the leaf back up.
+///
+/// A [fullscreenDialog] is not a page of the book but a slip tucked into
+/// it: it rises from the foot of the page, and the page beneath holds
+/// still under its shade.
 class LedgerRoute<T> extends PageRouteBuilder<T> {
   LedgerRoute({required WidgetBuilder builder, super.fullscreenDialog})
       : super(
-          transitionDuration: Motion.spring,
-          reverseTransitionDuration: Motion.quick,
+          transitionDuration: const Duration(milliseconds: 320),
+          reverseTransitionDuration: const Duration(milliseconds: 260),
           pageBuilder: (context, anim, secondary) => builder(context),
-          transitionsBuilder: (context, anim, _, child) {
-            final eased =
-                CurvedAnimation(parent: anim, curve: Motion.curve);
-            return FadeTransition(
-              opacity: eased,
-              child: SlideTransition(
-                position: Tween(
-                  begin: const Offset(0, 0.015),
-                  end: Offset.zero,
-                ).animate(eased),
-                child: child,
-              ),
+          transitionsBuilder: (context, anim, secondary, child) {
+            if (Motion.reduced(context)) {
+              return FadeTransition(opacity: anim, child: child);
+            }
+            final entering = CurvedAnimation(
+              parent: anim,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic.flipped,
+            );
+            final covered = CurvedAnimation(
+              parent: secondary,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic.flipped,
+            );
+
+            final leaf = fullscreenDialog
+                ? _SlipIn(t: entering, child: child)
+                : _LeafIn(t: entering, child: child);
+
+            // While a further leaf lies on top, this page recedes beneath
+            // it — never disappears. The slip shades but does not move it.
+            return AnimatedBuilder(
+              animation: covered,
+              child: leaf,
+              builder: (context, page) {
+                final t = covered.value;
+                if (t == 0) return page!;
+                return Stack(
+                  fit: StackFit.passthrough,
+                  children: [
+                    fullscreenDialog
+                        ? page!
+                        : FractionalTranslation(
+                            translation: Offset(-0.06 * t, 0),
+                            child: page,
+                          ),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: ColoredBox(
+                          color: Colors.black.withValues(alpha: 0.10 * t),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
+}
+
+/// The incoming leaf: a settle from the right under a leading-edge shadow
+/// that melts away as the paper lies flat.
+class _LeafIn extends StatelessWidget {
+  const _LeafIn({required this.t, required this.child});
+
+  final Animation<double> t;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: t,
+      child: child,
+      builder: (context, page) {
+        final v = t.value;
+        return FractionalTranslation(
+          translation: Offset(0.32 * (1 - v), 0),
+          child: DecoratedBox(
+            // The lifted edge: strongest mid-flight, gone once settled, so
+            // a resting page carries no permanent smudge.
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22 * (1 - v)),
+                  blurRadius: 18,
+                  offset: const Offset(-6, 0),
+                ),
+              ],
+            ),
+            child: Opacity(
+              // Fades only through the first stretch: past that the leaf
+              // is solid paper sliding, not a ghost.
+              opacity: (v * 2.4).clamp(0.0, 1.0),
+              child: page,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The slip: rises from the foot of the page.
+class _SlipIn extends StatelessWidget {
+  const _SlipIn({required this.t, required this.child});
+
+  final Animation<double> t;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: t,
+      child: child,
+      builder: (context, page) {
+        final v = t.value;
+        return FractionalTranslation(
+          translation: Offset(0, 0.10 * (1 - v)),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.20 * (1 - v)),
+                  blurRadius: 18,
+                  offset: const Offset(0, -6),
+                ),
+              ],
+            ),
+            child: Opacity(
+              opacity: (v * 2.4).clamp(0.0, 1.0),
+              child: page,
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// Universal press affordance: anything tappable visibly gives.

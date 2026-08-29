@@ -1,3 +1,4 @@
+import 'package:budgetbox/core/dates.dart';
 import 'package:budgetbox/core/holidays.dart';
 import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/core/widgets/motion.dart';
@@ -350,7 +351,15 @@ void main() {
       // Whatever the next named day happens to be from wherever "now" lands
       // — Independence Day, Deepavali, Pongal — the agenda has to say it,
       // with no plan of his own on that date to carry it.
-      final next = book.next(DateTime.now(), within: days60);
+      //
+      // Inside the month on show, though: the page is deliberately the
+      // month's business (see the countdown's note beside it), so a holiday
+      // that falls after month end is not this page's to name. Scanning a
+      // flat sixty days made this pass or fail on where in the month the
+      // calendar happened to be run.
+      final now = DateTime.now();
+      final daysLeftInMonth = LedgerDates.monthEnd(now).difference(now).inDays;
+      final next = book.next(now, within: daysLeftInMonth);
 
       await _pumpCalendar(tester, db);
 

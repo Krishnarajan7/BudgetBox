@@ -111,6 +111,34 @@ void main() {
     setUp(() => db = LedgerDb.forTesting(NativeDatabase.memory()));
     tearDown(() => db.close());
 
+    test('the streak floor heals when older history lands', () async {
+      // The race a reinstall always loses: the Daily page opens first and
+      // stamps to-day as the start of tracking — then the real marks come
+      // down from the server, older than the stamp. A mark is proof the
+      // book was watching that day, so the floor pulls back to the
+      // earliest one and the healed value is written down for every
+      // other reader of the key.
+      final repo = MarksRepo(db);
+      final (_, stamped) = await repo.slipRecord();
+
+      // History arrives, older than the stamp — the shape of a sync pull.
+      await db
+          .into(db.dayMarks)
+          .insert(
+            DayMarksCompanion.insert(date: '2026-08-14', kind: 'bath'),
+          );
+
+      final (_, healed) = await repo.slipRecord();
+      expect(healed, '2026-08-14');
+      expect(healed.compareTo(stamped) < 0, isTrue);
+
+      // And the settings row agrees, so the shelf's line says the same.
+      final row = await (db.select(
+        db.settings,
+      )..where((s) => s.key.equals('marksSince'))).getSingle();
+      expect(row.value, '2026-08-14');
+    });
+
     test('a habit toggles on and off, one row at most', () async {
       final repo = MarksRepo(db);
       final day = DateTime(2026, 8, 13);

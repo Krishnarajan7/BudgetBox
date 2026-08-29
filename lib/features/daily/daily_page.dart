@@ -1760,7 +1760,7 @@ class _RecordGrid extends StatelessWidget {
           const SizedBox(height: 4),
           for (var week = 0; week < 5; week++)
             Padding(
-              padding: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.only(bottom: 2),
               child: Row(
                 children: [
                   for (var dow = 0; dow < 7; dow++)
@@ -1827,38 +1827,57 @@ class _RecordCell extends StatelessWidget {
     final future = day.isAfter(today);
     final tracked = trackedFrom != null && !day.isBefore(trackedFrom!);
     final isSelected = LedgerDates.dayKey(day) == LedgerDates.dayKey(selected);
-    final fill = !tracked || future
-        ? Colors.transparent
-        : slipped
-        ? c.seal.withValues(alpha: 0.22)
-        : weight <= 0
-        ? c.rule.withValues(alpha: 0.45)
-        : c.heat.withValues(alpha: 0.18 + 0.62 * weight);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Pressable(
-        haptic: false,
-        scale: 0.9,
-        onTap: future ? null : () => onPick(day),
-        child: AspectRatio(
-          aspectRatio: 1,
+    // A day is a *stamp*, not a tile. The old cells were full-width squares
+    // — five rows of ~50px heat blocks, a wall of colour that outweighed
+    // the checklist it was meant to trail. The record is now dots in the
+    // book's own hand: kept days deepen in ink, a slip wears the seal's
+    // ring, and the chosen day is circled the way a pen circles a date.
+    final Widget stamp;
+    if (slipped) {
+      stamp = SealOutline(size: 11, color: c.seal);
+    } else if (!tracked || future) {
+      // Before the record, or yet to come: a pinprick, not a box.
+      stamp = Container(
+        width: 3.5,
+        height: 3.5,
+        decoration: BoxDecoration(
+          color: c.rule.withValues(alpha: future ? 0.55 : 0.8),
+          shape: BoxShape.circle,
+        ),
+      );
+    } else {
+      stamp = Container(
+        width: weight <= 0 ? 5.5 : 8,
+        height: weight <= 0 ? 5.5 : 8,
+        decoration: BoxDecoration(
+          color: weight <= 0
+              ? c.rule
+              : c.heat.withValues(alpha: 0.35 + 0.65 * weight),
+          shape: BoxShape.circle,
+        ),
+      );
+    }
+
+    // The tap target stays a finger wide; only the ink is small.
+    return Pressable(
+      haptic: false,
+      scale: 0.9,
+      onTap: future ? null : () => onPick(day),
+      child: SizedBox(
+        height: 26,
+        child: Center(
           child: Container(
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: BorderRadius.circular(2),
-              border: Border.all(
-                color: isSelected
-                    ? c.quill
-                    : (!tracked || future
-                          ? c.rule.withValues(alpha: 0.4)
-                          : Colors.transparent),
-                width: isSelected ? 1.4 : 1,
-              ),
-            ),
-            child: slipped
-                ? Center(child: SealOutline(size: 9, color: c.seal))
+            width: 18,
+            height: 18,
+            alignment: Alignment.center,
+            decoration: isSelected
+                ? BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: c.quill, width: 1.2),
+                  )
                 : null,
+            child: stamp,
           ),
         ),
       ),

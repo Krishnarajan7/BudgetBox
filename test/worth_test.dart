@@ -105,24 +105,33 @@ void main() {
     await tester.pumpWidget(host(const WorthPage()));
     await tester.pumpAndSettle();
 
-    // Open-eyed: the figure stands in plain ink.
-    expect(find.bySemanticsLabel('₹1,23,456'), findsOneWidget);
+    // Open-eyed: the figure stands in plain ink — the hero and the
+    // account's own row both speak it.
+    expect(find.bySemanticsLabel('₹1,23,456'), findsWidgets);
     expect(find.textContaining('₹1,23,456'), findsWidgets);
     expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
 
-    // One tap: the hero and the shelf both step behind the dots.
+    // One tap: the pen blacks every figure out, cascading down the page —
+    // so the settle needs the cascade's full clock, not one frame.
     await tester.tap(find.byKey(const ValueKey('worth-veil')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.visibility_off_outlined), findsOneWidget);
-    expect(find.bySemanticsLabel('₹••••'), findsOneWidget);
+    // Struck out means *gone*: no digits in the tree, and a screen reader
+    // hears 'hidden' — never the number the eye can't see.
     expect(find.textContaining('1,23,456'), findsNothing);
+    expect(find.bySemanticsLabel('hidden'), findsWidgets);
     expect(await SettingsRepo(db).worthVeiled(), isTrue,
         reason: 'a shut eye stays shut across opens');
 
-    // And back.
+    // And back: the strokes un-draw and the figures return whole.
     await tester.tap(find.byKey(const ValueKey('worth-veil')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
     expect(find.textContaining('₹1,23,456'), findsWidgets);
+    expect(find.bySemanticsLabel('hidden'), findsNothing);
     expect(await SettingsRepo(db).worthVeiled(), isFalse);
 
     await settleAndUnmount(tester);

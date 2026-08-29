@@ -77,11 +77,15 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
     if (d.isBefore(DateTime(now.year, now.month, now.day))) continue;
     if (next == null || d.isBefore(next)) next = d;
   }
+  // A yearly day just past rolls to next year — and must say so, or
+  // "next · 18 Aug" on the 29th reads as a page nobody turned.
   final calendar = next == null
       ? 'clear ahead'
       : (LedgerDates.dayKey(next) == LedgerDates.dayKey(now)
             ? 'something to-day'
-            : 'next · ${LedgerDates.ddMmm(next)}');
+            : next.year == now.year
+            ? 'next · ${LedgerDates.ddMmm(next)}'
+            : "next · ${LedgerDates.ddMmm(next)} '${next.year % 100}");
 
   // Notes: how many thoughts are held.
   final notes = await (db.select(

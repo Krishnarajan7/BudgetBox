@@ -23,6 +23,7 @@ import '../../data/providers.dart';
 import '../../data/repos/goal_repo.dart';
 import '../add/money_moves.dart' show showTransferSheet;
 import '../folio/folio_page.dart';
+import 'ink_veil.dart';
 import '../folio/folio_providers.dart';
 import '../plans/plans_page.dart' show AmountSheet;
 import '../story/story_page.dart';
@@ -80,11 +81,6 @@ class WorthVeilNotifier extends Notifier<bool> {
     ref.read(settingsRepoProvider).setWorthVeiled(state);
   }
 }
-
-/// A figure behind the veil: the ₹ stays, the magnitude goes — always four
-/// dots, so the mask itself says nothing about the number under it.
-String veilMoney(bool veiled, String formatted) =>
-    veiled ? '₹••••' : formatted;
 
 class WorthPage extends ConsumerStatefulWidget {
   const WorthPage({super.key});
@@ -261,7 +257,6 @@ class _WorthPageState extends ConsumerState<WorthPage> {
         final owedTotal = owed.fold<int>(0, (s, a) => s + a.balancePaise);
         final net = assetTotal - owedTotal;
         final veiled = ref.watch(worthVeilProvider);
-        String veil(String figure) => veilMoney(veiled, figure);
 
         // Each account keeps its ink for as long as it sits on the shelf —
         // colour follows the entity, never this month's ranking. Beyond the
@@ -353,30 +348,30 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                       horizontal: Gap.x2,
                       vertical: 2,
                     ),
-                    child: AnimatedSwitcher(
-                      duration: Motion.reduced(context)
-                          ? Duration.zero
-                          : Motion.quick,
-                      child: Icon(
-                        veiled
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        key: ValueKey('veil-$veiled'),
-                        size: 19,
-                        color: veiled ? c.quill : c.inkFaint,
-                      ),
+                    child: BlinkingEye(
+                      veiled: veiled,
+                      color: veiled ? c.quill : c.inkFaint,
                     ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 2),
-            DigitRoll(
-              paise: net,
-              text: veil(Inr.format(net)),
+            InkVeil(
+              veiled: veiled,
+              order: 0,
+              text: Inr.format(net),
               style: LedgerType.heroAmount
                   .copyWith(fontSize: 40, color: c.ink)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+              child: DigitRoll(
+                paise: net,
+                style: LedgerType.heroAmount
+                    .copyWith(fontSize: 40, color: c.ink)
+                    .copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+              ),
             ),
             const SizedBox(height: 4),
             // The delta inks in once the chart has mostly drawn, and is
@@ -390,14 +385,27 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                     TextSpan(
                       text: delta == 0
                           ? 'level'
-                          : '${delta > 0 ? 'up' : 'down'} '
-                                '${veil(Inr.format(delta.abs()))}',
+                          : '${delta > 0 ? 'up' : 'down'} ',
                       style: LedgerType.bodyText.copyWith(
                         fontSize: 13,
                         // Falling isn't a verdict — only a rise gets a mark.
                         color: delta > 0 ? c.jama : c.ink,
                       ),
                     ),
+                    if (delta != 0)
+                      WidgetSpan(
+                        alignment: PlaceholderAlignment.baseline,
+                        baseline: TextBaseline.alphabetic,
+                        child: InkVeil(
+                          veiled: veiled,
+                          order: 1,
+                          text: Inr.format(delta.abs()),
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 13,
+                            color: delta > 0 ? c.jama : c.ink,
+                          ),
+                        ),
+                      ),
                     TextSpan(
                       text: hasLine
                           ? ' ${_range.phrase(now)}'
@@ -412,18 +420,28 @@ class _WorthPageState extends ConsumerState<WorthPage> {
               ),
             ),
             // The milestone ladder brackets the figure too tightly to
-            // survive the veil — it steps off the page with it.
-            if (_nextMilestone(net) case final int m when !veiled) ...[
-              const SizedBox(height: 2),
-              Text(
-                'next milestone ${Inr.compact(m)} · '
-                '${Inr.compact(m - net)} to go',
-                style: LedgerType.bodyText.copyWith(
-                  fontSize: 12,
-                  color: c.inkFaint,
+            // survive the veil — it steps off the page with it. *Steps*:
+            // sliding away on the same clock as the strokes, never popping
+            // out between frames (which jolted the whole column below it).
+            AnimatedSize(
+              duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
+              curve: Motion.curve,
+              alignment: Alignment.topLeft,
+              child: switch (_nextMilestone(net)) {
+                final int m when !veiled => Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    'next milestone ${Inr.compact(m)} · '
+                    '${Inr.compact(m - net)} to go',
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                _ => const SizedBox(width: double.infinity),
+              },
+            ),
             if (all.where((a) => DateTime.now().difference(a.asOf).inDays >= 30)
                 case final stale when stale.isNotEmpty) ...[
               const SizedBox(height: 2),
@@ -542,20 +560,37 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   ),
                 )
               else
-                for (final (a, d) in movers.take(3))
+                for (final (i, (a, d)) in movers.take(3).indexed)
                   LeaderRow(
                     label: a.name,
-                    amount: d > 0
-                        ? '+${veil(Inr.format(d))}'
-                        : '−${veil(Inr.format(-d))}',
-                    amountColor: d > 0 ? c.jama : c.ink,
+                    amountWidget: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          d > 0 ? '+' : '−',
+                          style: LedgerType.amount.copyWith(
+                            color: d > 0 ? c.jama : c.ink,
+                          ),
+                        ),
+                        InkVeil(
+                          veiled: veiled,
+                          order: 2 + i,
+                          text: Inr.format(d.abs()),
+                          style: LedgerType.amount.copyWith(
+                            color: d > 0 ? c.jama : c.ink,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
             ],
             // ————— the shelf: everything owned, and how reachable —————
             SectionHead(
               'the shelf',
-              trailing: Text(
-                veil(Inr.compact(assetTotal)),
+              trailing: InkVeil(
+                veiled: veiled,
+                order: 5,
+                text: Inr.compact(assetTotal),
                 style: LedgerType.amount.copyWith(
                   fontSize: 12,
                   color: c.inkFaint,
@@ -574,22 +609,28 @@ class _WorthPageState extends ConsumerState<WorthPage> {
               if (assets.any((a) => a.keptAside)) ...[
                 LeaderRow(
                   label: 'in reach',
-                  amount: veil(
-                    Inr.format(
+                  amountWidget: InkVeil(
+                    veiled: veiled,
+                    order: 6,
+                    text: Inr.format(
                       assets
                           .where((a) => !a.keptAside)
                           .fold<int>(0, (t, a) => t + a.balancePaise),
                     ),
+                    style: LedgerType.amount.copyWith(color: c.ink),
                   ),
                 ),
                 LeaderRow(
                   label: 'kept aside',
-                  amount: veil(
-                    Inr.format(
+                  amountWidget: InkVeil(
+                    veiled: veiled,
+                    order: 7,
+                    text: Inr.format(
                       assets
                           .where((a) => a.keptAside)
                           .fold<int>(0, (t, a) => t + a.balancePaise),
                     ),
+                    style: LedgerType.amount.copyWith(color: c.ink),
                   ),
                 ),
                 const SizedBox(height: Gap.x1),
@@ -668,12 +709,26 @@ class _WorthPageState extends ConsumerState<WorthPage> {
             if (owed.isNotEmpty) ...[
               SectionHead(
                 'owed',
-                trailing: Text(
-                  '− ${veil(Inr.compact(owedTotal))}',
-                  style: LedgerType.amount.copyWith(
-                    fontSize: 12,
-                    color: c.inkFaint,
-                  ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '− ',
+                      style: LedgerType.amount.copyWith(
+                        fontSize: 12,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                    InkVeil(
+                      veiled: veiled,
+                      order: 12,
+                      text: Inr.compact(owedTotal),
+                      style: LedgerType.amount.copyWith(
+                        fontSize: 12,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               for (final (i, a) in owed.indexed)
@@ -713,6 +768,7 @@ class _FundsSection extends ConsumerWidget {
     final c = LedgerColors.of(context);
     final summary = ref.watch(folioSummaryProvider).value;
     if (summary == null || summary.funds == 0) return const SizedBox.shrink();
+    final veiled = ref.watch(worthVeilProvider);
     final up = summary.up;
     final tone = up ? c.jama : c.seal;
     return Column(
@@ -749,8 +805,10 @@ class _FundsSection extends ConsumerWidget {
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Text(
-                            Inr.format(summary.valuePaise),
+                          InkVeil(
+                            veiled: veiled,
+                            order: 13,
+                            text: Inr.format(summary.valuePaise),
                             style: LedgerType.heroAmount.copyWith(
                               fontSize: 30,
                               color: c.ink,
@@ -762,8 +820,15 @@ class _FundsSection extends ConsumerWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text(
-                          '${up ? '+' : '−'}${Inr.format(summary.gainPaise.abs())}',
+                        // The percentage below stays in the open: a ratio
+                        // says how it is going without saying how much
+                        // there is.
+                        InkVeil(
+                          veiled: veiled,
+                          order: 13,
+                          text:
+                              '${up ? '+' : '−'}'
+                              '${Inr.format(summary.gainPaise.abs())}',
                           style: LedgerType.amountTotal.copyWith(color: tone),
                         ),
                         if (summary.returnRatio != null)
@@ -786,10 +851,20 @@ class _FundsSection extends ConsumerWidget {
                   rule: c.rule,
                 ),
                 const SizedBox(height: Gap.x2),
-                Text(
-                  '${Inr.format(summary.costPaise)} put in'
-                  '${summary.monthPaise > 0 ? ' · ${Inr.format(summary.monthPaise)} this month' : ''}',
-                  style: LedgerType.label.copyWith(color: c.inkFaint),
+                Row(
+                  children: [
+                    InkVeil(
+                      veiled: veiled,
+                      order: 13,
+                      text: Inr.format(summary.costPaise),
+                      style: LedgerType.label.copyWith(color: c.inkFaint),
+                    ),
+                    Text(
+                      ' put in'
+                      '${summary.monthPaise > 0 ? ' · ${Inr.format(summary.monthPaise)} this month' : ''}',
+                      style: LedgerType.label.copyWith(color: c.inkFaint),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -962,13 +1037,26 @@ class _GoalsSection extends ConsumerWidget {
           children: [
             SectionHead(
               'being built',
-              trailing: Text(
-                '${veilMoney(veiled, Inr.compact(put))} '
-                'put away',
-                style: LedgerType.amount.copyWith(
-                  fontSize: 12,
-                  color: c.inkFaint,
-                ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkVeil(
+                    veiled: veiled,
+                    order: 14,
+                    text: Inr.compact(put),
+                    style: LedgerType.amount.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                  Text(
+                    ' put away',
+                    style: LedgerType.amount.copyWith(
+                      fontSize: 12,
+                      color: c.inkFaint,
+                    ),
+                  ),
+                ],
               ),
             ),
             for (final (i, g) in goals.indexed)
@@ -995,13 +1083,35 @@ class _GoalsSection extends ConsumerWidget {
                               ),
                             ),
                           ),
-                          Text(
-                            '${veilMoney(veiled, Inr.compact(g.donePaise))} of '
-                            '${veilMoney(veiled, Inr.compact(g.goal.targetPaise))}',
-                            style: LedgerType.amount.copyWith(
-                              fontSize: 12,
-                              color: c.inkFaint,
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              InkVeil(
+                                veiled: veiled,
+                                order: 15 + i,
+                                text: Inr.compact(g.donePaise),
+                                style: LedgerType.amount.copyWith(
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                ),
+                              ),
+                              Text(
+                                ' of ',
+                                style: LedgerType.amount.copyWith(
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                ),
+                              ),
+                              InkVeil(
+                                veiled: veiled,
+                                order: 15 + i,
+                                text: Inr.compact(g.goal.targetPaise),
+                                style: LedgerType.amount.copyWith(
+                                  fontSize: 12,
+                                  color: c.inkFaint,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(width: Gap.x3),
                           Text(
@@ -1141,14 +1251,21 @@ class _AccountRow extends ConsumerWidget {
             ),
             const SizedBox(width: Gap.x3),
             // Settles to the new figure after an update, never snaps —
-            // unless the eye is shut, in which case it says nothing at all.
-            CountUp(
-              value: account.balancePaise,
-              format: (p) {
-                final figure = veilMoney(veiled, Inr.format(p));
-                return negative ? '− $figure' : figure;
-              },
+            // and behind the veil it is struck out, not rewritten, so its
+            // width never jolts the row.
+            InkVeil(
+              veiled: veiled,
+              order: 8 + stagger,
+              text: negative
+                  ? '− ${Inr.format(account.balancePaise)}'
+                  : Inr.format(account.balancePaise),
               style: LedgerType.amount.copyWith(color: c.ink),
+              child: CountUp(
+                value: account.balancePaise,
+                format: (p) =>
+                    negative ? '− ${Inr.format(p)}' : Inr.format(p),
+                style: LedgerType.amount.copyWith(color: c.ink),
+              ),
             ),
           ],
         ),

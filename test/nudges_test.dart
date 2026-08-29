@@ -74,10 +74,22 @@ void main() {
       await db.close();
     });
 
+  /// What an empty day should say *on this day*.
+  ///
+  /// [eveningNudgeCopy] rotates through three empty-day wordings by date, and
+  /// only two of them spell '₹0' — the third says the page is empty in
+  /// words. Asserting the glyph therefore passed two days in three and failed
+  /// on the the third, which is a test with a calendar in it rather than a
+  /// rule. Comparing against the copy for the same day is exact either way.
+  NudgeCopy emptyCopyForToday() =>
+      eveningNudgeCopy(DateTime.now(), expenseCount: 0, spentPaise: 0);
+
     test('an empty page says so', () async {
       final line = await tonightsLine(db);
       expect(line, isNotNull);
-      expect('${line!.title} ${line.body}', contains('₹0'));
+      expect(line, emptyCopyForToday());
+      // Whichever wording the day drew, it must never invent a total.
+      expect('${line!.title} ${line.body}', isNot(contains('₹1')));
     });
 
     test('a written page never claims ₹0', () async {
@@ -107,7 +119,7 @@ void main() {
       );
       final line = (await tonightsLine(db))!;
       // Money in is not a written page, and yesterday is yesterday.
-      expect('${line.title} ${line.body}', contains('₹0'));
+      expect(line, emptyCopyForToday());
     });
 
     test('a sealed day has nothing left to say', () async {
@@ -153,7 +165,7 @@ void main() {
       );
       await txns.deleteTxn(id);
       // Struck out, so the page really is empty again — and says so.
-      expect('${said.last!.title} ${said.last!.body}', contains('₹0'));
+      expect(said.last, emptyCopyForToday());
     });
 
     test('editing an amount re-says the total', () async {
