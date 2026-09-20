@@ -48,6 +48,11 @@ class SyncWire {
     SyncKinds.vault => '/v1/vault/$remoteId',
     SyncKinds.mark => '/v1/marks/$remoteId',
     SyncKinds.alarm => '/v1/alarms/$remoteId',
+    SyncKinds.meal => '/v1/meals/$remoteId',
+    SyncKinds.client => '/v1/clients/$remoteId',
+    SyncKinds.project => '/v1/projects/$remoteId',
+    SyncKinds.quote => '/v1/quotes/$remoteId',
+    SyncKinds.plink => '/v1/project-links/$remoteId',
     _ => throw BbxProblem(
       status: 400,
       slug: 'unknown-kind',

@@ -191,6 +191,24 @@ class AccountRepo {
     return series.isEmpty ? [await netWorthPaise()] : series;
   }
 
+  /// The most the book has ever held: the all-time high of the daily
+  /// net-worth series, and the morning it stood there. Ties go to the
+  /// earlier day, matching the backend's reading of the same history.
+  /// Null while the book holds a single reading — one morning has no
+  /// "ever" to speak of.
+  Future<(int paise, DateTime on)?> netWorthPeak() async {
+    final series = await netWorthHistory(days: 36500);
+    if (series.length < 2) return null;
+    var peak = 0;
+    for (var i = 1; i < series.length; i++) {
+      if (series[i] > series[peak]) peak = i;
+    }
+    final on = DateTime.now().subtract(
+      Duration(days: series.length - 1 - peak),
+    );
+    return (series[peak], on);
+  }
+
   /// Per-account change over the trailing [days]: today's figure minus the
   /// reading that stood when the window opened (carried forward, same rule
   /// as [netWorthHistory]). Liabilities are signed so paying one down counts

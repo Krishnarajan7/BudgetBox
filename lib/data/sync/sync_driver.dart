@@ -7,12 +7,14 @@ import '../../core/notifications.dart';
 import '../../core/note_reminders.dart';
 import '../../core/occasions.dart';
 import '../../core/rain_watch.dart';
+import '../rain_context.dart';
 import '../../core/weather.dart';
 import '../db.dart';
 import '../providers.dart';
 import '../repos/alarm_repo.dart';
 import '../tonight.dart';
 import '../felt_nudge.dart';
+import '../meal_voice.dart';
 import 'sync_engine.dart';
 
 /// Decides *when* the book talks to the server. It draws nothing: it wraps
@@ -58,6 +60,9 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // The felt field's voice, on the same terms: naming the day silences
     // that evening's check-in the instant the word is written.
     installFeltVoice(revoiceFelt);
+    // The diet book's voice: every dish written, every skip, every food
+    // expense re-says which sittings are still missing to-day.
+    installMealVoice(revoiceMeals);
     // Reading the provider is what installs the repo seam, so it must happen
     // before any screen can write.
     final engine = ref.read(syncEngineProvider);
@@ -110,9 +115,7 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     unawaited(AlarmRepo(ref.read(dbProvider)).resync());
     // The sky, and the one warning it can earn. Opening the book is what
     // subscribes to it — there is no background worker and none is claimed.
-    unawaited(
-      ref.read(rainWatchProvider).resync(ref.read(weatherRepoProvider)),
-    );
+    unawaited(_watchTheSky());
     final stored = await settings.serverConfig();
     if (!mounted) return;
     _engine?.reconfigure(stored);
@@ -135,16 +138,25 @@ class _SyncDriverState extends ConsumerState<SyncDriver>
     // The sky moves faster than anything else in this book, so every return
     // to the front is a chance to re-read it and re-lay the rain warning.
     unawaited(
-      ref
-          .read(rainWatchProvider)
-          .resync(ref.read(weatherRepoProvider))
-          .then((_) => mounted ? ref.invalidate(weatherProvider) : null),
+      _watchTheSky().then((_) => mounted ? ref.invalidate(weatherProvider) : null),
     );
     final last = _lastRun;
     if (last != null && DateTime.now().difference(last) < _resumeQuietPeriod) {
       return;
     }
     unawaited(_run());
+  }
+
+  /// The sky, read with what the book knows about the day — when he
+  /// usually leaves, when the alarm is — so the rain line can be about
+  /// his morning rather than the weather's.
+  Future<void> _watchTheSky() async {
+    final db = ref.read(dbProvider);
+    final context = await readRainContext(db, DateTime.now());
+    if (!mounted) return;
+    await ref
+        .read(rainWatchProvider)
+        .resync(ref.read(weatherRepoProvider), context: context);
   }
 
   Future<void> _run() async {

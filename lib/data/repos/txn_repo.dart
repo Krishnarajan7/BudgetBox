@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import '../db.dart';
 import '../sync/ids.dart';
 import '../sync/seam.dart';
+import '../meal_voice.dart';
 import '../tonight.dart';
 
 /// A title suggestion carrying the category it was last filed under —
@@ -15,6 +16,22 @@ class TitleSuggestion {
   final String title;
   final int? categoryId;
   final int? accountId;
+}
+
+/// One month of the book's cash flow: what came in, what went out.
+class MonthFlow {
+  const MonthFlow({
+    required this.month,
+    required this.inPaise,
+    required this.outPaise,
+  });
+
+  /// The first of the month.
+  final DateTime month;
+  final int inPaise;
+  final int outPaise;
+
+  int get keptPaise => inPaise - outPaise;
 }
 
 /// All writes to the ledger go through here: every mutation adjusts account
@@ -122,7 +139,12 @@ class TxnRepo {
   /// reads and one platform call, it happens at the pace a person stamps
   /// entries, and the alternative — letting it race the app being closed — is
   /// precisely the failure it exists to fix.
-  Future<void> _revoice() => bbxEveningVoice(_db);
+  Future<void> _revoice() async {
+    await bbxEveningVoice(_db);
+    // A food expense is evidence the diet book's reminders read — "₹180 at
+    // lunch, nothing written" — so a stamp re-says those lines too.
+    await bbxMealVoice(_db);
+  }
 
   Future<void> deleteTxn(int id) async {
     await _db.transaction(() async {
@@ -176,6 +198,26 @@ class TxnRepo {
       await _log(fresh, ActivityAction.edited);
       await bbxSync.upsert(SyncKinds.txn, id);
     }).then((_) => _revoice());
+  }
+
+  /// Moves entries to another category, nothing else touched — balances
+  /// don't care where a line is filed. Each move is logged and synced like
+  /// any other edit.
+  Future<void> refile(List<int> ids, int categoryId) async {
+    if (ids.isEmpty) return;
+    await _db.transaction(() async {
+      for (final id in ids) {
+        await (_db.update(_db.txns)..where((t) => t.id.equals(id))).write(
+          TxnsCompanion(categoryId: Value(categoryId)),
+        );
+        final row = await (_db.select(
+          _db.txns,
+        )..where((t) => t.id.equals(id))).getSingleOrNull();
+        if (row == null) continue;
+        await _log(row, ActivityAction.edited);
+        await bbxSync.upsert(SyncKinds.txn, id);
+      }
+    });
   }
 
   /// Restores the most recently deleted transaction. Fearless correction.
@@ -319,6 +361,43 @@ class TxnRepo {
       );
     final row = await q.getSingle();
     return row.read(sum) ?? 0;
+  }
+
+  /// Money in and money out, one row per calendar month, oldest first, for
+  /// the [months] months ending with the current one. Months with nothing
+  /// written still get a row (a zero is a fact on an income page, not a
+  /// gap), and transfers are left out of both columns — a pocket-to-pocket
+  /// move is neither earned nor spent.
+  Future<List<MonthFlow>> monthlyFlow({int months = 12}) async {
+    final now = DateTime.now();
+    final from = DateTime(now.year, now.month - (months - 1), 1);
+    final rows = await (_db.select(_db.txns)..where(
+          (t) =>
+              t.at.isBiggerOrEqualValue(from) &
+              t.type.isNotInValues([TxnType.transfer]),
+        ))
+        .get();
+    final flows = <String, ({int inP, int outP})>{};
+    for (var i = 0; i < months; i++) {
+      final m = DateTime(from.year, from.month + i, 1);
+      flows['${m.year}-${m.month}'] = (inP: 0, outP: 0);
+    }
+    for (final t in rows) {
+      final key = '${t.at.year}-${t.at.month}';
+      final cur = flows[key];
+      if (cur == null) continue;
+      flows[key] = t.type == TxnType.income
+          ? (inP: cur.inP + t.amountPaise, outP: cur.outP)
+          : (inP: cur.inP, outP: cur.outP + t.amountPaise);
+    }
+    return [
+      for (var i = 0; i < months; i++)
+        () {
+          final m = DateTime(from.year, from.month + i, 1);
+          final f = flows['${m.year}-${m.month}']!;
+          return MonthFlow(month: m, inPaise: f.inP, outPaise: f.outP);
+        }(),
+    ];
   }
 
   /// Titles matching [prefix] (recent first), each carrying the category and

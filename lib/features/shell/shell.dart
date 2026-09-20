@@ -185,7 +185,20 @@ class _PageTurnState extends State<_PageTurn>
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
-        final t = Motion.curve.transform(_c.value);
+        // A fade-through, not a cross-fade: the leaving page is fully off
+        // the paper before the arriving one reaches half ink, so two dense
+        // pages of text never blend at mid-opacity — the doubled-text
+        // shimmer every turn used to carry, worst heading back down the
+        // bar, where the old page painted on top of the new. (The Book's
+        // own list↔month switch learned this first.) The arriving page
+        // still slides in from the side you're heading.
+        final t = _c.value;
+        const outEnd = 0.5;
+        const inStart = 0.35;
+        final tOut = Curves.easeIn.transform((t / outEnd).clamp(0.0, 1.0));
+        final tIn = Curves.easeOutCubic.transform(
+          ((t - inStart) / (1 - inStart)).clamp(0.0, 1.0),
+        );
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -203,21 +216,26 @@ class _PageTurnState extends State<_PageTurn>
                   child: IgnorePointer(
                     ignoring: i != widget.index,
                     child: Opacity(
-                      // The new page arrives from the side you're heading —
-                      // a page turned, not a scene swapped. The old one
-                      // drifts the other way underneath as it fades. An
-                      // opacity of exactly 1 costs nothing, so only the two
-                      // pages mid-turn ever pay for a layer.
+                      // An opacity of exactly 1 costs nothing, and at 0 the
+                      // page skips painting entirely — so the spent half of
+                      // the turn composites one page, not two.
                       opacity: i == widget.index
-                          ? t
+                          ? tIn
                           : i == _leaving
-                          ? 1 - t
+                          ? 1 - tOut
                           : 1,
                       child: Transform.translate(
+                        // Whole pixels only: a page's raster composited at
+                        // fractional offsets resamples its glyphs into a
+                        // blur each frame. Snapped, the text stays crisp
+                        // for the whole ride.
                         offset: i == widget.index
-                            ? Offset(28 * (1 - t) * _dir, 0)
+                            ? Offset(
+                                (28 * (1 - tIn) * _dir).roundToDouble(),
+                                0,
+                              )
                             : i == _leaving
-                            ? Offset(-16 * t * _dir, 0)
+                            ? Offset((-16 * tOut * _dir).roundToDouble(), 0)
                             : Offset.zero,
                         child: RepaintBoundary(child: page),
                       ),
@@ -376,11 +394,14 @@ class _LedgerNav extends StatelessWidget {
           child: AnimatedDefaultTextStyle(
             duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
             curve: Motion.curve,
-            style: (selected ? LedgerType.bodyStrong : LedgerType.bodyText)
-                .copyWith(
-                  fontSize: 13.5,
-                  color: selected ? c.quill : c.inkFaint,
-                ),
+            // Colour alone carries the change. Lerping between two font
+            // weights steps through the intermediate weights and shifts
+            // the word's width as it goes — every switch made the labels
+            // jitter on the glass. One weight, and only the ink moves.
+            style: LedgerType.bodyStrong.copyWith(
+              fontSize: 13.5,
+              color: selected ? c.quill : c.inkFaint,
+            ),
             child: Text(_items[i]),
           ),
         ),

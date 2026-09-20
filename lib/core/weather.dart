@@ -61,6 +61,8 @@ class Weather {
     this.humidity,
     this.rainFrom,
     this.rainChance,
+    this.rainUntil,
+    this.rainMm,
     this.sunrise,
     this.sunset,
     this.days = const [],
@@ -99,6 +101,14 @@ class Weather {
   /// How likely, at [rainFrom], as a percentage. Null when the service did
   /// not send probabilities.
   final int? rainChance;
+
+  /// When the wet stretch that starts at [rainFrom] lets up — the first dry
+  /// hour after it, inside the window. Null when it runs past the window.
+  final DateTime? rainUntil;
+
+  /// How much falls across that stretch, in millimetres. What turns "rain"
+  /// into "a shower" or "a wet afternoon".
+  final double? rainMm;
 
   /// True when rain shows up later but isn't falling now — the only forecast
   /// worth acting on before leaving the house.
@@ -191,6 +201,8 @@ class Weather {
     if (humidity != null) 'humidity': humidity,
     if (rainFrom != null) 'rainFrom': rainFrom!.toIso8601String(),
     if (rainChance != null) 'rainChance': rainChance,
+    if (rainUntil != null) 'rainUntil': rainUntil!.toIso8601String(),
+    if (rainMm != null) 'rainMm': rainMm,
     if (sunrise != null) 'sunrise': sunrise!.toIso8601String(),
     if (sunset != null) 'sunset': sunset!.toIso8601String(),
     'days': ?(days.isEmpty ? null : [for (final d in days) d.toJson()]),
@@ -217,6 +229,8 @@ class Weather {
       humidity: humidity is num ? humidity.toInt() : null,
       rainFrom: DateTime.tryParse('${raw['rainFrom']}'),
       rainChance: chance is num ? chance.toInt() : null,
+      rainUntil: DateTime.tryParse('${raw['rainUntil']}'),
+      rainMm: raw['rainMm'] is num ? (raw['rainMm'] as num).toDouble() : null,
       sunrise: DateTime.tryParse('${raw['sunrise']}'),
       sunset: DateTime.tryParse('${raw['sunset']}'),
       days: raw['days'] is List
@@ -457,11 +471,14 @@ class WeatherRepo {
     // travelling and most want to know whether to pack a jacket.
     DateTime? rainFrom;
     int? rainChance;
+    DateTime? rainUntil;
+    double? rainMm;
     final hourly = raw['hourly'];
     if (!Weather.isWet(nowCode) && hourly is Map) {
       final times = hourly['time'];
       final codes = hourly['weather_code'];
       final chances = hourly['precipitation_probability'];
+      final amounts = hourly['precipitation'];
       if (times is List && codes is List) {
         for (var i = 0; i < times.length && i < codes.length; i++) {
           final hour = DateTime.tryParse('${times[i]}');
@@ -476,6 +493,27 @@ class WeatherRepo {
               ? chances[i]
               : null;
           rainChance = chance is num ? chance.toInt() : null;
+          // Walk the wet stretch: how long it lasts and how much falls.
+          // A single dry hour inside it is still the same rain.
+          var mm = 0.0;
+          var dryRun = 0;
+          var lastWet = hour;
+          for (var j = i; j < times.length && j < codes.length; j++) {
+            final h = DateTime.tryParse('${times[j]}');
+            final cj = codes[j];
+            if (h == null || h.difference(at) > _rainWindow) break;
+            final wet = cj is num && Weather.isWet(cj.toInt());
+            if (wet) {
+              dryRun = 0;
+              lastWet = h;
+            } else if (++dryRun > 1) {
+              break;
+            }
+            final a = amounts is List && j < amounts.length ? amounts[j] : null;
+            if (wet && a is num) mm += a.toDouble();
+          }
+          rainUntil = lastWet.add(const Duration(hours: 1));
+          rainMm = mm;
           break;
         }
       } else if (codes is List) {
@@ -538,6 +576,8 @@ class WeatherRepo {
       humidity: damp is num ? damp.toInt() : null,
       rainFrom: rainFrom,
       rainChance: rainChance,
+      rainUntil: rainUntil,
+      rainMm: rainMm,
       sunrise: sunUp,
       sunset: sunDown,
       days: days,

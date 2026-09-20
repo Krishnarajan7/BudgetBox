@@ -72,8 +72,14 @@ class LedgerRoute<T> extends PageRouteBuilder<T> {
                   children: [
                     fullscreenDialog
                         ? page!
-                        : FractionalTranslation(
-                            translation: Offset(-0.06 * t, 0),
+                        : Transform.translate(
+                            // Whole pixels: a page carried at fractional
+                            // offsets resamples its text into a shimmer.
+                            offset: Offset(
+                              -(MediaQuery.sizeOf(context).width * 0.06 * t)
+                                  .roundToDouble(),
+                              0,
+                            ),
                             child: page,
                           ),
                     Positioned.fill(
@@ -103,11 +109,20 @@ class _LeafIn extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: t,
-      child: child,
+      // The page's raster is drawn once behind this boundary and merely
+      // carried. Without it the whole page re-painted every frame of the
+      // slide — its text re-laid at subpixel positions, which is both the
+      // shimmer and the dropped frames a heavy page arrived with.
+      child: RepaintBoundary(child: child),
       builder: (context, page) {
         final v = t.value;
-        return FractionalTranslation(
-          translation: Offset(0.32 * (1 - v), 0),
+        return Transform.translate(
+          // Whole pixels only — see the boundary note above.
+          offset: Offset(
+            (MediaQuery.sizeOf(context).width * 0.32 * (1 - v))
+                .roundToDouble(),
+            0,
+          ),
           child: DecoratedBox(
             // The lifted edge: strongest mid-flight, gone once settled, so
             // a resting page carries no permanent smudge.
@@ -144,11 +159,16 @@ class _SlipIn extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: t,
-      child: child,
+      // Same boundary-and-whole-pixels discipline as _LeafIn.
+      child: RepaintBoundary(child: child),
       builder: (context, page) {
         final v = t.value;
-        return FractionalTranslation(
-          translation: Offset(0, 0.10 * (1 - v)),
+        return Transform.translate(
+          offset: Offset(
+            0,
+            (MediaQuery.sizeOf(context).height * 0.10 * (1 - v))
+                .roundToDouble(),
+          ),
           child: DecoratedBox(
             decoration: BoxDecoration(
               boxShadow: [

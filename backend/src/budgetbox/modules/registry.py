@@ -28,6 +28,8 @@ _MODEL_MODULES = [
     "budgetbox.modules.music.models",
     "budgetbox.modules.slate.models",
     "budgetbox.modules.folio.models",
+    "budgetbox.modules.diet.models",
+    "budgetbox.modules.work.models",
 ]
 
 _ROUTER_MODULES: list[str] = [
@@ -55,6 +57,8 @@ _ROUTER_MODULES: list[str] = [
     "budgetbox.modules.music.router",
     "budgetbox.modules.slate.router",
     "budgetbox.modules.folio.router",
+    "budgetbox.modules.diet.router",
+    "budgetbox.modules.work.router",
 ]
 
 

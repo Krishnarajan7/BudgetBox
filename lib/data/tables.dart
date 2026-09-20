@@ -261,6 +261,98 @@ class DayMarks extends Table {
   DateTimeColumn get at => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// Which sitting of the day a meal belongs to.
+enum MealSlot { breakfast, lunch, snack, dinner }
+
+/// What was eaten: one row per dish, measured when the catalogue knows the
+/// dish and unmeasured when it doesn't. The nutrients are copied onto the
+/// row at write time ([facts]) so a catalogue revision never rewrites the
+/// past. A [skipped] row is a deliberate empty sitting — "no breakfast,
+/// and that was the choice" — which is a different fact from a sitting the
+/// book never heard about.
+class Meals extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get date => text()(); // yyyy-MM-dd
+  IntColumn get slot => intEnum<MealSlot>()();
+
+  /// The catalogue key, or null for a dish written in his own words.
+  TextColumn get foodKey => text().nullable()();
+  TextColumn get name => text().withLength(min: 1, max: 120)();
+
+  /// How many ordinary servings; grams when he said grams instead.
+  RealColumn get servings => real().withDefault(const Constant(1))();
+  RealColumn get grams => real().nullable()();
+
+  /// JSON of the serving's nutrients (see `Nutrients.toJson`). Null =
+  /// unmeasured.
+  TextColumn get facts => text().nullable()();
+  BoolColumn get skipped => boolean().withDefault(const Constant(false))();
+  TextColumn get note => text().nullable()();
+  DateTimeColumn get at => dateTime()();
+}
+
+// ————— the work: clients, projects, quotes, and every rupee they touch —————
+
+/// How a project is paid: once, against a quote, or every month.
+enum ProjectKind { oneTime, monthly }
+
+enum ProjectStatus { quoted, active, done, dropped }
+
+/// What a linked line is to a project: money the client paid, or a cost
+/// the project ran up (server, domain, mail).
+enum LinkRole { received, cost }
+
+class Clients extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get name => text().withLength(min: 1, max: 60)();
+  TextColumn get note => text().nullable()();
+  BoolColumn get archived => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// One piece of work for one client. [quotePaise] is the quote as it
+/// stands now (for a retainer, the monthly figure); every change to it is
+/// a row in [QuoteRevisions], so "quoted 50k, then 40k" is a history, not
+/// an overwrite.
+class Projects extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get clientId => integer().references(Clients, #id)();
+  TextColumn get name => text().withLength(min: 1, max: 80)();
+  IntColumn get kind => intEnum<ProjectKind>()();
+  IntColumn get quotePaise => integer()();
+
+  /// The day of the month a retainer falls due; null for one-time work.
+  IntColumn get billingDay => integer().nullable()();
+  IntColumn get status => intEnum<ProjectStatus>().withDefault(
+    Constant(ProjectStatus.active.index),
+  )();
+  DateTimeColumn get startedAt => dateTime()();
+  TextColumn get note => text().nullable()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+class QuoteRevisions extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get projectId => integer().references(Projects, #id)();
+  IntColumn get paise => integer()();
+  TextColumn get reason => text().nullable()();
+  DateTimeColumn get at => dateTime()();
+}
+
+/// A ledger line claimed by a project. A received line is income the
+/// client paid; a cost line is an expense the project caused. [billable]
+/// on a cost means it was NOT inside the quote and should be passed on —
+/// the line the book keeps so nothing is forgotten at invoice time.
+class ProjectLinks extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get projectId => integer().references(Projects, #id)();
+  IntColumn get txnId => integer().references(Txns, #id)();
+  IntColumn get role => intEnum<LinkRole>()();
+  BoolColumn get billable => boolean().withDefault(const Constant(false))();
+  TextColumn get note => text().nullable()();
+  DateTimeColumn get at => dateTime().withDefault(currentDateAndTime)();
+}
+
 // ————— the wire —————
 //
 // The phone keeps its own row numbers because every screen is built on them.
@@ -339,4 +431,43 @@ class Alarms extends Table {
   IntColumn get snoozeMinutes => integer().withDefault(const Constant(9))();
   BoolColumn get vibrate => boolean().withDefault(const Constant(true))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// Every notification the book has scheduled, in one place — so a line
+/// said by the diet book at nine and one said by the ledger at nine-thirty
+/// can be read back together, and a "did it ever tell me?" has an answer.
+///
+/// Local only: a phone's notifications are that phone's. A row is written
+/// when the reminder is laid down, replaced when the same id is re-said,
+/// and removed if it is cancelled before its hour; once the hour passes
+/// the row stays as the record of what was said.
+class Notices extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// The platform notification id — the ledger in `notifications.dart`.
+  IntColumn get notifId => integer()();
+
+  /// Which book spoke: money, diet, sky, felt, alarm, notes, calendar,
+  /// focus, work.
+  TextColumn get module => text()();
+  TextColumn get title => text()();
+  TextColumn get body => text()();
+
+  /// When it was, or will be, said.
+  DateTimeColumn get at => dateTime()();
+
+  /// 'weekly' for an alarm that rings every week at [at]'s weekday.
+  TextColumn get repeat => text().nullable()();
+  TextColumn get payload => text().nullable()();
+  DateTimeColumn get scheduledAt =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  /// When he tapped it, if he did.
+  DateTimeColumn get openedAt => dateTime().nullable()();
+
+  /// What became of it once its hour passed, as far as the phone will
+  /// say: 'said' (no longer pending), 'shown' (seen in the tray), or
+  /// 'stuck' (still pending after its hour — the phone held it back).
+  /// Null until the hour comes.
+  TextColumn get fate => text().nullable()();
 }

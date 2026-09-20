@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +10,9 @@ import '../../../core/tokens.dart';
 import '../../../core/typography.dart';
 import '../../../core/widgets/ledger_widgets.dart';
 import '../../../core/widgets/motion.dart';
+import '../../../core/icons.dart';
 import '../../../core/widgets/pen_marks.dart';
+import '../../../core/widgets/plates.dart';
 import '../../../core/widgets/seal.dart';
 import '../../../core/widgets/sheets.dart';
 import '../../../data/api/endpoints/coaching_api.dart';
@@ -20,6 +24,7 @@ import '../../../data/repos/recurring_repo.dart';
 import '../../add/money_moves.dart' show quietDays, showCatchUpSheet;
 import '../../add/shortfall.dart' show settleShortfall;
 import '../../book/book_page.dart' show WhereSlice;
+import '../../insights/insight_math.dart' show PinCandidate;
 import 'ledger_rows.dart';
 
 /// Today's sections. One color language runs through all of them: a
@@ -299,56 +304,37 @@ class LatelySection extends ConsumerWidget {
             if (recent.isEmpty)
               const EmptyRuledLines(line: 'No entries yet this month.')
             else
-              for (final t in recent)
-                InkIn(
-                  play: freshIds.contains(t.id),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: Gap.x2),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: catColor[t.categoryId] ?? c.inkFaint,
-                              borderRadius: BorderRadius.circular(1.5),
-                            ),
+              Plate(
+                margin: EdgeInsets.zero,
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final t in recent)
+                      InkIn(
+                        play: freshIds.contains(t.id),
+                        child: PlateRow(
+                          leading: Medallion(
+                            icon: LedgerIcons.resolve(cats[t.categoryId]?.icon),
+                            ink: t.type == TxnType.income
+                                ? c.jama
+                                : (catColor[t.categoryId] ?? c.inkFaint),
+                            size: 34,
+                            iconSize: 16,
                           ),
+                          title: t.title,
+                          sub:
+                              '${_when(t)} · ${cats[t.categoryId]?.name.toLowerCase() ?? 'unfiled'}',
+                          amount: t.type == TxnType.income
+                              ? Inr.format(t.amountPaise, signed: true)
+                              : Inr.format(t.amountPaise),
+                          amountColor: t.type == TxnType.income ? c.jama : null,
+                          dense: true,
                         ),
-                        const SizedBox(width: Gap.x3),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                t.title,
-                                style: LedgerType.bodyText.copyWith(
-                                  fontSize: 15,
-                                  color: c.ink,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${_when(t)} · ${cats[t.categoryId]?.name ?? 'unfiled'}',
-                                style: LedgerType.bodyText.copyWith(
-                                  fontSize: 12,
-                                  color: c.inkFaint,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: Gap.x3),
-                        Text(Inr.format(t.amountPaise), style: _figure(c, 17)),
-                      ],
-                    ),
-                  ),
+                      ),
+                  ],
                 ),
+              ),
           ],
         );
       },
@@ -398,27 +384,25 @@ class WhereSection extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SectionHead('where it went', trailing: trailing),
-            const SizedBox(height: Gap.x1),
-            // The month as one bar, segment widths honest to the paise.
-            ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: SizedBox(
-                height: 4,
-                child: Row(
-                  children: [
-                    for (final (i, s) in slices.indexed) ...[
-                      if (i > 0) const SizedBox(width: 2),
-                      Expanded(
-                        flex: s.paise,
-                        child: ColoredBox(color: _ink(c, s)),
-                      ),
-                    ],
-                  ],
-                ),
+            Plate(
+              margin: EdgeInsets.zero,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // The month as columns: each category stands to its own
+                  // height in its own ink, its mark beneath it. Tap one to
+                  // open the Book on it.
+                  _WhereColumns(
+                    slices: slices,
+                    cats: cats,
+                    inkOf: (s) => _ink(c, s),
+                    onTap: onSliceTap,
+                  ),
+                  const SizedBox(height: Gap.x2),
+                  for (final s in slices) _sliceRow(c, s, cats),
+                ],
               ),
             ),
-            const SizedBox(height: Gap.x2),
-            for (final s in slices) _sliceRow(c, s, cats),
           ],
         );
       },
@@ -427,15 +411,15 @@ class WhereSection extends ConsumerWidget {
 
   Widget _sliceRow(LedgerColors c, WhereSlice s, Map<int, Category> cats) {
     final row = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
           Container(
-            width: 7,
-            height: 7,
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(
               color: _ink(c, s),
-              borderRadius: BorderRadius.circular(1.5),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
           const SizedBox(width: Gap.x3),
@@ -468,6 +452,124 @@ class WhereSection extends ConsumerWidget {
     final tap = onSliceTap;
     if (tap == null || s.isOther || s.categoryId == null) return row;
     return Pressable(onTap: () => tap(s), child: row);
+  }
+}
+
+/// The month's categories as columns, heaviest first: each rises to its
+/// share of the heaviest in its own ink with a rounded cap, the figure
+/// above it, its mark beneath. Columns rise left to right as the page
+/// draws itself.
+class _WhereColumns extends StatelessWidget {
+  const _WhereColumns({
+    required this.slices,
+    required this.cats,
+    required this.inkOf,
+    this.onTap,
+  });
+
+  final List<WhereSlice> slices;
+  final Map<int, Category> cats;
+  final Color Function(WhereSlice) inkOf;
+  final void Function(WhereSlice slice)? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final top = slices.first.paise;
+    return SizedBox(
+      height: 168,
+      child: DrawIn(
+        duration: const Duration(milliseconds: 650),
+        builder: (context, t) => Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            for (final (i, s) in slices.indexed) ...[
+              if (i > 0) const SizedBox(width: Gap.x2),
+              Expanded(
+                child: Pressable(
+                  haptic: false,
+                  onTap: onTap == null || s.isOther || s.categoryId == null
+                      ? null
+                      : () => onTap!(s),
+                  child: _column(
+                    c,
+                    s,
+                    // Each column on its own beat, left to right.
+                    Curves.easeOutCubic.transform(
+                      ((t * slices.length) - i).clamp(0.0, 1.0),
+                    ),
+                    top,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _column(LedgerColors c, WhereSlice s, double rise, int top) {
+    final ink = inkOf(s);
+    final share = top <= 0 ? 0.0 : s.paise / top;
+    const chartH = 96.0;
+    final h = math.max(4.0, chartH * share * rise);
+    // Whole rupees over a column — paise on a bar label is noise.
+    final label = s.paise >= 10000000
+        ? Inr.compact(s.paise)
+        : Inr.format(s.paise - s.paise % 100);
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Opacity(
+          opacity: rise,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              style: LedgerType.amount.copyWith(
+                fontSize: 10,
+                height: 1.1,
+                color: c.inkFaint,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          height: h,
+          decoration: BoxDecoration(
+            color: ink,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Icon(
+          s.isOther
+              ? Icons.more_horiz_rounded
+              : LedgerIcons.resolve(cats[s.categoryId]?.icon),
+          size: 15,
+          color: ink,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          s.isOther
+              ? 'else'
+              : (cats[s.categoryId]?.name.split(' ').first.toLowerCase() ??
+                    'unfiled'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: LedgerType.bodyText.copyWith(
+            fontSize: 10,
+            height: 1.1,
+            color: c.inkFaint,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1015,31 +1117,178 @@ class CalendarSection extends StatelessWidget {
 /// The pinned one-tap repeats, as hairline tabs on the page instead of
 /// raised blocks. The stamp ritual on tap is unchanged — that motion marks
 /// a state change, which is exactly when the page is allowed to move.
-class PinStrip extends ConsumerWidget {
+class PinStrip extends ConsumerStatefulWidget {
   const PinStrip({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PinStrip> createState() => _PinStripState();
+}
+
+class _PinStripState extends ConsumerState<PinStrip> {
+  /// The line the book noticed him writing by hand, offered once.
+  PinCandidate? _offer;
+  int _pinCount = -1;
+
+  Future<void> _lookForOffer() async {
+    final passed = await ref.read(settingsRepoProvider).pinPassed();
+    final found = await ref.read(pinnedRepoProvider).suggest(passed: passed);
+    if (!mounted) return;
+    setState(() => _offer = found.isEmpty ? null : found.first);
+  }
+
+  Future<void> _pin(PinCandidate c) async {
+    final catId = c.categoryId;
+    if (catId == null) return;
+    HapticFeedback.mediumImpact();
+    await ref
+        .read(pinnedRepoProvider)
+        .pin(
+          title: c.title,
+          amountPaise: c.amountPaise,
+          categoryId: catId,
+          accountId: c.accountId,
+        );
+    if (mounted) setState(() => _offer = null);
+  }
+
+  Future<void> _pass(PinCandidate c) async {
+    HapticFeedback.selectionClick();
+    await ref.read(settingsRepoProvider).passPin(c.title);
+    if (mounted) setState(() => _offer = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
     final pins = ref.watch(pinnedRepoProvider);
     return StreamBuilder<List<Pinned>>(
       stream: pins.watchAll(),
       builder: (context, snapshot) {
         final items = snapshot.data ?? const [];
-        if (items.isEmpty) return const SizedBox.shrink();
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final p in items) ...[
-                _PinTab(pin: p),
-                const SizedBox(width: Gap.x4),
-              ],
-            ],
-          ),
+        // Re-read the offer whenever the set of pins changes — pinning the
+        // offered line is one such change, and so is the first load.
+        if (snapshot.hasData && items.length != _pinCount) {
+          _pinCount = items.length;
+          WidgetsBinding.instance.addPostFrameCallback((_) => _lookForOffer());
+        }
+        final offer = _offer;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (items.isNotEmpty)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final p in items) ...[
+                      _PinTab(pin: p),
+                      const SizedBox(width: Gap.x4),
+                    ],
+                  ],
+                ),
+              ),
+            // The offer: "rapido, five times in three weeks — pin ₹50?"
+            // One line, two answers, and it never asks twice about the
+            // same title.
+            AnimatedSize(
+              duration: Motion.spring,
+              curve: Motion.curve,
+              alignment: Alignment.topLeft,
+              child: offer == null || offer.categoryId == null
+                  ? const SizedBox(width: double.infinity)
+                  : InkIn(
+                      key: ValueKey('pin-offer-${offer.title}'),
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          top: items.isEmpty ? 0 : Gap.x2,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text:
+                                          '${offer.title.toLowerCase()}, '
+                                          '${_times(offer.count)} lately — pin ',
+                                      style: LedgerType.bodyText.copyWith(
+                                        fontSize: 12,
+                                        color: c.inkFaint,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: Inr.format(offer.amountPaise),
+                                      style: LedgerType.amount.copyWith(
+                                        fontSize: 12,
+                                        color: c.ink,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: '?',
+                                      style: LedgerType.bodyText.copyWith(
+                                        fontSize: 12,
+                                        color: c.inkFaint,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Pressable(
+                              key: const ValueKey('pin-offer-yes'),
+                              haptic: false,
+                              onTap: () => _pin(offer),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: Gap.x2,
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  'pin',
+                                  style: LedgerType.bodyStrong.copyWith(
+                                    fontSize: 12,
+                                    color: c.quill,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Pressable(
+                              key: const ValueKey('pin-offer-no'),
+                              haptic: false,
+                              onTap: () => _pass(offer),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: Gap.x2,
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  'not this',
+                                  style: LedgerType.bodyStrong.copyWith(
+                                    fontSize: 12,
+                                    color: c.inkFaint,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+            ),
+          ],
         );
       },
     );
   }
+
+  static String _times(int n) => switch (n) {
+    3 => 'three times',
+    4 => 'four times',
+    5 => 'five times',
+    6 => 'six times',
+    _ => '$n times',
+  };
 }
 
 /// The one-tap repeat, given its full ritual: the tab gives under the

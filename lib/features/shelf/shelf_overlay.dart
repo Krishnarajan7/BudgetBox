@@ -1,25 +1,34 @@
-import 'package:drift/drift.dart' show BooleanExpressionOperators;
+import 'package:drift/drift.dart' show BooleanExpressionOperators, ComparableExpr;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
+import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/motion.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../../data/repos/alarm_repo.dart';
+import '../../data/repos/diet_repo.dart';
+import '../../data/repos/txn_repo.dart';
+import '../../data/repos/work_repo.dart';
 import '../../data/repos/habit_repo.dart';
 import '../../data/repos/marks_repo.dart';
 import '../alarm/alarm_page.dart';
 import '../calendar/calendar_page.dart';
 import '../daily/daily_page.dart';
+import '../diet/diet_math.dart';
+import '../diet/diet_page.dart';
 import '../focus/focus_page.dart';
 import '../journal/journal_page.dart';
 import '../music/music_page.dart';
 import '../slate/slate_page.dart';
 import '../notes/notes_page.dart';
+import '../notices/notices_page.dart';
 import '../vault/vault_page.dart';
+import '../work/work_math.dart';
+import '../work/work_page.dart';
 
 /// Tap the wordmark: the box opens. Every book on one shelf, each spine
 /// telling the truth about what's inside it right now.
@@ -156,6 +165,64 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
         'day $clean clean${kept > 0 ? ' · $kept of ${live.length} kept' : ''}';
   }
 
+  // Diet: to-day's plate against its line, or the door still shut.
+  final dietProfile = await (db.select(
+    db.settings,
+  )..where((s) => s.key.equals('dietProfile'))).getSingleOrNull();
+  final String diet;
+  if (dietProfile == null) {
+    diet = 'unopened';
+  } else {
+    final meals = await (db.select(
+      db.meals,
+    )..where((m) => m.date.equals(todayKey))).get();
+    final entries = [for (final m in meals) DietRepo.entryOf(m)];
+    final totals = totalsFor(todayKey, entries);
+    final kcal = totals.nutrients.kcal.round();
+    final missing = missingNow(totals, now);
+    diet = kcal == 0 && totals.unmeasured == 0
+        ? (missing.isEmpty
+              ? 'nothing yet'
+              : '${slotName(missing.first)} unwritten')
+        : '$kcal kcal so far'
+              '${missing.isEmpty ? '' : ' · ${slotName(missing.first)} unwritten'}';
+  }
+
+  // Work: what clients owe across open projects, or the door still shut.
+  final projects = await db.select(db.projects).get();
+  final String work;
+  if (projects.isEmpty) {
+    work = 'unopened';
+  } else {
+    final repo = WorkRepo(db, TxnRepo(db));
+    final lines = await repo.watchAllLines().first;
+    final revs = await db.select(db.quoteRevisions).get();
+    var owed = 0;
+    var open = 0;
+    for (final p in projects) {
+      if (p.status != ProjectStatus.active &&
+          p.status != ProjectStatus.quoted) {
+        continue;
+      }
+      open++;
+      owed += summarise(
+        p,
+        [
+          for (final r in revs)
+            if (r.projectId == p.id) r,
+        ],
+        [
+          for (final l in lines)
+            if (l.link.projectId == p.id) l,
+        ],
+        now,
+      ).owedPaise;
+    }
+    work = open == 0
+        ? 'nothing open'
+        : '$open open · ${owed > 0 ? '${_compact(owed)} owed' : 'all settled'}';
+  }
+
   // Vault: sealed, and how much it guards.
   final vaultCount = (await db.select(db.vaultItems).get()).length;
   final vault = vaultCount == 0 ? 'sealed' : 'sealed · $vaultCount inside';
@@ -191,6 +258,26 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
   )..where((s) => s.key.equals('slateLine'))).getSingleOrNull();
   final slate = slateRow?.value ?? 'nothing out';
 
+  // Notifications: what was said to-day, and the next thing laid.
+  final noticeRows =
+      await (db.select(db.notices)..where(
+            (n) => n.at.isBiggerOrEqualValue(
+              DateTime(now.year, now.month, now.day),
+            ),
+          ))
+          .get();
+  final saidToday = noticeRows.where((n) => !n.at.isAfter(now)).length;
+  Notice? nextNotice;
+  for (final n in noticeRows) {
+    if (!n.at.isAfter(now)) continue;
+    if (nextNotice == null || n.at.isBefore(nextNotice.at)) nextNotice = n;
+  }
+  String clock(DateTime t) =>
+      '${t.hour % 12 == 0 ? 12 : t.hour % 12}:${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'am' : 'pm'}';
+  final notices = nextNotice == null
+      ? (saidToday == 0 ? 'quiet' : '$saidToday said to-day')
+      : '${saidToday == 0 ? '' : '$saidToday to-day · '}next ${clock(nextNotice.at)}';
+
   return {
     'Alarms': alarms,
     'Calendar': calendar,
@@ -200,6 +287,9 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
     'Slate': slate,
     'Music': music,
     'Daily': daily,
+    'Diet': diet,
+    'Work': work,
+    'Notifications': notices,
     'Vault': vault,
   };
 });
@@ -241,12 +331,15 @@ class _Shelf extends ConsumerWidget {
       Icons.handshake_outlined,
       builder: (_) => const SlatePage(),
     ),
-    _Spine(
-      'Music',
-      Icons.graphic_eq,
-      builder: (_) => const MusicPage(),
-    ),
+    _Spine('Music', Icons.graphic_eq, builder: (_) => const MusicPage()),
     _Spine('Daily', Icons.task_alt, builder: (_) => const DailyPage()),
+    _Spine('Diet', Icons.restaurant_outlined, builder: (_) => const DietPage()),
+    _Spine('Work', Icons.work_outline, builder: (_) => const WorkPage()),
+    _Spine(
+      'Notifications',
+      Icons.notifications_none_outlined,
+      builder: (_) => const NoticesPage(),
+    ),
     _Spine('Vault', Icons.lock_outline, builder: (_) => const VaultPage()),
   ];
 
@@ -290,59 +383,79 @@ class _Shelf extends ConsumerWidget {
                   style: LedgerType.label.copyWith(color: c.inkFaint),
                 ),
                 const SizedBox(height: Gap.x2),
-                for (final (i, s) in _spines.indexed)
-                  InkIn(
-                    // The rows ink in only after the drawer has landed —
-                    // two motions at once read as neither.
-                    delay: Duration(milliseconds: 260 + 40 * i),
-                    child: Pressable(
-                      scale: 0.985,
-                      onTap: () => _go(context, s),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: i == _spines.length - 1
-                              ? null
-                              : Border(bottom: BorderSide(color: c.rule)),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: Gap.x3),
-                        child: Row(
-                          children: [
-                            // One simple mark per book — the open one in
-                            // moonlight, the rest in quiet ink.
-                            SizedBox(
-                              width: 26,
-                              child: Icon(
-                                s.icon,
-                                size: 20,
-                                color: s.builder == null ? c.quill : c.inkFaint,
-                              ),
-                            ),
-                            const SizedBox(width: Gap.x3),
-                            Text(
-                              s.name,
-                              style: LedgerType.bodyStrong.copyWith(
-                                color: c.ink,
-                              ),
-                            ),
-                            const Spacer(),
-                            AnimatedSwitcher(
-                              duration: Motion.quick,
-                              child: Text(
-                                s.builder == null
-                                    ? 'this book'
-                                    : status?[s.name] ?? '',
-                                key: ValueKey(status?[s.name] ?? ''),
-                                style: LedgerType.bodyText.copyWith(
-                                  fontSize: 12,
-                                  color: c.inkFaint,
+                // Twelve books is more than a short screen holds at once;
+                // the list scrolls inside the drawer rather than pushing
+                // the last spines off the bottom.
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final (i, s) in _spines.indexed)
+                          InkIn(
+                            // The rows ink in only after the drawer has landed —
+                            // two motions at once read as neither.
+                            delay: Duration(milliseconds: 260 + 40 * i),
+                            child: Pressable(
+                              scale: 0.985,
+                              onTap: () => _go(context, s),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  border: i == _spines.length - 1
+                                      ? null
+                                      : Border(
+                                          bottom: BorderSide(color: c.rule),
+                                        ),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: Gap.x3,
+                                ),
+                                child: Row(
+                                  children: [
+                                    // One simple mark per book — the open one in
+                                    // moonlight, the rest in quiet ink.
+                                    SizedBox(
+                                      width: 26,
+                                      child: Icon(
+                                        s.icon,
+                                        size: 20,
+                                        color: s.builder == null
+                                            ? c.quill
+                                            : c.inkFaint,
+                                      ),
+                                    ),
+                                    const SizedBox(width: Gap.x3),
+                                    Text(
+                                      s.name,
+                                      style: LedgerType.bodyStrong.copyWith(
+                                        color: c.ink,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    AnimatedSwitcher(
+                                      duration: Motion.quick,
+                                      child: Text(
+                                        s.builder == null
+                                            ? 'this book'
+                                            : status?[s.name] ?? '',
+                                        key: ValueKey(status?[s.name] ?? ''),
+                                        style: LedgerType.bodyText.copyWith(
+                                          fontSize: 12,
+                                          color: c.inkFaint,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
+                      ],
                     ),
                   ),
+                ),
               ],
             ),
           ),
@@ -351,3 +464,5 @@ class _Shelf extends ConsumerWidget {
     );
   }
 }
+
+String _compact(int paise) => Inr.compact(paise);

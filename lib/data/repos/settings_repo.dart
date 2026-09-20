@@ -43,6 +43,9 @@ class SettingsRepo {
   static const _musicLine = 'musicLine';
   // The slate's shelf line — same trick, same reason.
   static const _slateLine = 'slateLine';
+  // The diet book's one setup answer: height, weight, born, activity, goal,
+  // what he eats — one JSON string, because the six move together.
+  static const dietProfileKey = 'dietProfile';
 
   /// The preferences worth keeping on the server, so a reinstall comes back
   /// as the same book rather than a blank one.
@@ -86,7 +89,58 @@ class SettingsRepo {
     // means fifty push-ups. They live here because they are one JSON string
     // with no relationships — a table for them would carry nothing extra.
     habitsKey,
+    // The diet targets are derived from this one answer; losing it on a
+    // reinstall would ask the same six questions again and, until answered,
+    // judge every meal against nothing.
+    dietProfileKey,
+    // The pin offers he waved away. Forgetting these would re-offer the
+    // same rapido line the morning after a reinstall.
+    pinPassedKey,
+    // The habits he has called fine. Raising "rapido, 7 times" again after
+    // a reinstall would be nagging.
+    handsMutedKey,
   ];
+
+  static const pinPassedKey = 'pinPassed';
+
+  /// Titles (lower-cased) he has said "not this" to on the pin offer.
+  Future<Set<String>> pinPassed() async {
+    final v = await _get(pinPassedKey);
+    if (v == null || v.isEmpty) return {};
+    return {
+      for (final s in v.split('\n'))
+        if (s.isNotEmpty) s,
+    };
+  }
+
+  Future<void> passPin(String title) async {
+    final cur = await pinPassed()
+      ..add(title.trim().toLowerCase());
+    await _set(pinPassedKey, cur.join('\n'));
+  }
+
+  static const handsMutedKey = 'handsMuted';
+
+  /// Habit keys (see `hands()` in insight_math) he has called fine.
+  Future<Set<String>> handsMuted() async {
+    final v = await _get(handsMutedKey);
+    if (v == null || v.isEmpty) return {};
+    return {
+      for (final s in v.split('\n'))
+        if (s.isNotEmpty) s,
+    };
+  }
+
+  Future<void> muteHand(String key) async {
+    final cur = await handsMuted()
+      ..add(key);
+    await _set(handsMutedKey, cur.join('\n'));
+  }
+
+  /// The diet book's setup, raw. [DietProfile.fromJson] in `diet_math.dart`
+  /// gives it shape; this file stays ignorant of the diet module.
+  Future<String?> dietProfileJson() => _get(dietProfileKey);
+  Future<void> setDietProfileJson(String json) => _set(dietProfileKey, json);
 
   /// Where [HabitRepo] keeps the checklist. Named here because the sync list
   /// above has to reach it and this file must not import a repo.
@@ -191,8 +245,7 @@ class SettingsRepo {
   Future<String?> musicLine() => _get(_musicLine);
   Future<void> setMusicLine(String value) => _set(_musicLine, value);
 
-  Future<void> setWorthVeiled(bool veiled) =>
-      _set(_worthVeiled, '$veiled');
+  Future<void> setWorthVeiled(bool veiled) => _set(_worthVeiled, '$veiled');
 
   Future<String?> kuralDay() => _get(_kuralDay);
 

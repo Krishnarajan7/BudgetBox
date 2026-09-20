@@ -270,4 +270,137 @@ void main() {
 
     await settleAndUnmount(tester);
   });
+
+  group('the high-water mark', () {
+    test('the peak is read across the whole history, with its morning',
+        () async {
+      final repo = AccountRepo(db);
+      final id = await repo.create(name: 'Bank', kind: AccountKind.bank);
+      final today = DateTime.now();
+      Future<void> snap(int daysAgo, int paise) => db
+          .into(db.balanceSnapshots)
+          .insertOnConflictUpdate(BalanceSnapshotsCompanion.insert(
+            accountId: id,
+            date: LedgerDates.dayKey(
+              today.subtract(Duration(days: daysAgo)),
+            ),
+            balancePaise: paise,
+          ));
+      await snap(3, 100000);
+      await snap(1, 500000);
+      await snap(0, 300000);
+
+      final (paise, on) = (await repo.netWorthPeak())!;
+      expect(paise, 500000);
+      expect(
+        LedgerDates.dayKey(on),
+        LedgerDates.dayKey(today.subtract(const Duration(days: 1))),
+      );
+    });
+
+    test('one morning is no history — a young book has no "ever"', () async {
+      final repo = AccountRepo(db);
+      await repo.create(name: 'Cash', kind: AccountKind.cash);
+      expect(await repo.netWorthPeak(), isNull);
+    });
+  });
+
+  group('the shelf, row by row', () {
+    testWidgets('each row carries its own change for the window, and the '
+        'shelf groups what is in reach from what is kept aside', (
+      tester,
+    ) async {
+      final repo = AccountRepo(db);
+      final cash = await repo.create(
+        name: 'Cash',
+        kind: AccountKind.cash,
+        openingBalancePaise: 500000,
+      );
+      await repo.create(
+        name: 'SIP / mutual funds',
+        kind: AccountKind.asset,
+        openingBalancePaise: 2000000,
+      );
+      // A reading from before the six-month window opened, and one from
+      // yesterday so the line has two mornings to join.
+      for (final d in [200, 1]) {
+        await db
+            .into(db.balanceSnapshots)
+            .insert(
+              BalanceSnapshotsCompanion.insert(
+                accountId: cash,
+                date: LedgerDates.dayKey(
+                  DateTime.now().subtract(Duration(days: d)),
+                ),
+                balancePaise: 400000,
+              ),
+            );
+      }
+      await tester.pumpWidget(host(const WorthPage()));
+      await tester.pumpAndSettle();
+
+      // The tiles under the hero say it first; the plates below repeat
+      // it as their heads — the second plate sits below the fold.
+      expect(find.text('in reach'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.text('level'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('kept aside'), findsWidgets);
+      // Cash rose by a thousand rupees over the window, from four to five;
+      // the fund never moved.
+      expect(find.textContaining('+25%'), findsOneWidget);
+      expect(find.text('level'), findsOneWidget);
+      expect(find.textContaining('most of the move'), findsOneWidget);
+      // The itemised list is gone — the rows say it themselves.
+      expect(find.text('what moved'), findsNothing);
+
+      await settleAndUnmount(tester);
+    });
+
+    testWidgets('a finger on the chart reads the morning beneath it', (
+      tester,
+    ) async {
+      final id = await AccountRepo(db).create(
+        name: 'Cash',
+        kind: AccountKind.cash,
+        openingBalancePaise: 500000,
+      );
+      for (var d = 1; d <= 3; d++) {
+        await db
+            .into(db.balanceSnapshots)
+            .insert(
+              BalanceSnapshotsCompanion.insert(
+                accountId: id,
+                date: LedgerDates.dayKey(
+                  DateTime.now().subtract(Duration(days: d)),
+                ),
+                balancePaise: 100000 * d,
+              ),
+            );
+      }
+      await tester.pumpWidget(host(const WorthPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('area-chart-scrub')), findsNothing);
+      final chart = find.byKey(const ValueKey('area-chart-touch'));
+      final box = tester.getRect(chart);
+      final gesture = await tester.startGesture(
+        Offset(box.left + 2, box.center.dy),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveBy(const Offset(4, 0));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('area-chart-scrub')), findsOneWidget);
+      // The far left of the line is the oldest morning: three days ago,
+      // when the pocket held three thousand.
+      expect(find.textContaining('₹3,000'), findsOneWidget);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('area-chart-scrub')), findsNothing);
+
+      await settleAndUnmount(tester);
+    });
+  });
 }

@@ -143,6 +143,55 @@ Map<String, dynamic> markBody(DayMark r) => {
   'at': isoInstant(r.at),
 };
 
+/// A meal travels with its nutrients already worked out (`facts`), so the
+/// server never needs the food table and a catalogue revision on the phone
+/// can never rewrite a day already eaten.
+Map<String, dynamic> mealBody(Meal r) => {
+  'date': r.date,
+  'slot': r.slot.name,
+  'food_key': r.foodKey,
+  'name': r.name,
+  'servings': r.servings,
+  'grams': r.grams,
+  'facts': r.facts,
+  'skipped': r.skipped,
+  'note': r.note,
+  'at': isoInstant(r.at),
+};
+
+Map<String, dynamic> clientBody(Client r) => {
+  'name': r.name,
+  'note': r.note,
+  'archived': r.archived,
+};
+
+Future<Map<String, dynamic>> projectBody(Project r, RemoteRefs refs) async => {
+  'client_id': await refs.remote(SyncKinds.client, r.clientId),
+  'name': r.name,
+  'kind': r.kind == ProjectKind.oneTime ? 'one_time' : 'monthly',
+  'quote_paise': r.quotePaise,
+  'billing_day': r.billingDay,
+  'status': r.status.name,
+  'started_at': isoInstant(r.startedAt),
+  'note': r.note,
+};
+
+Future<Map<String, dynamic>> quoteBody(QuoteRevision r, RemoteRefs refs) async => {
+  'project_id': await refs.remote(SyncKinds.project, r.projectId),
+  'paise': r.paise,
+  'reason': r.reason,
+  'at': isoInstant(r.at),
+};
+
+Future<Map<String, dynamic>> plinkBody(ProjectLink r, RemoteRefs refs) async => {
+  'project_id': await refs.remote(SyncKinds.project, r.projectId),
+  'txn_id': await refs.remote(SyncKinds.txn, r.txnId),
+  'role': r.role.name,
+  'billable': r.billable,
+  'note': r.note,
+  'at': isoInstant(r.at),
+};
+
 Map<String, dynamic> alarmBody(Alarm r) => {
   'label': r.label,
   'minute_of_day': r.minuteOfDay,

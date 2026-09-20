@@ -29,6 +29,12 @@ part 'db.g.dart';
     Outbox,
     DayMarks,
     Alarms,
+    Meals,
+    Clients,
+    Projects,
+    QuoteRevisions,
+    ProjectLinks,
+    Notices,
   ],
 )
 class LedgerDb extends _$LedgerDb {
@@ -38,7 +44,7 @@ class LedgerDb extends _$LedgerDb {
   LedgerDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 19;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -47,6 +53,30 @@ class LedgerDb extends _$LedgerDb {
       await _seedCategories();
     },
     onUpgrade: (m, from, to) async {
+      if (from < 19 && from >= 18) {
+        // v19: the ledger learns what became of each line.
+        await m.addColumn(notices, notices.fate);
+      }
+      if (from < 18) {
+        // v18: the notification ledger — every reminder any book lays
+        // down, readable in one place.
+        await m.createTable(notices);
+      }
+      if (from < 17) {
+        // v17: the work book — clients, projects, quote revisions, and the
+        // links that claim ledger lines for a project.
+        await m.createTable(clients);
+        await m.createTable(projects);
+        await m.createTable(quoteRevisions);
+        await m.createTable(projectLinks);
+      }
+      if (from < 16) {
+        // v16: the diet book. Meals get their own table — measured dishes
+        // with nutrients copied on — while the old free-text 'meal' marks
+        // stay where they are and keep showing, unmeasured, until each is
+        // tapped into a dish.
+        await m.createTable(meals);
+      }
       if (from < 15) {
         // v15: the cake and the bus ticket. A bakery run was landing in
         // "Food & chai" (which is meals) and a Chennai bus ticket in

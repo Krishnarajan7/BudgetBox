@@ -83,23 +83,27 @@ void main() {
       expect(find.text('₹420'), findsOneWidget);
       expect(find.textContaining('lighter than last month'), findsOneWidget);
 
-      // Where it went: food leads the bars.
-      expect(find.text('where it went'), findsOneWidget);
+      // The month's shape, then the ranking — each line judged against
+      // its own past: food ran ₹200 under its ₹500 usual; the unfiled
+      // entry has no past to judge by and says so instead of guessing.
+      expect(find.text('THE DAYS'), findsOneWidget);
+      expect(find.text('WHERE IT WENT'), findsOneWidget);
       expect(find.text('Food & chai'), findsWidgets);
-
-      // The ranking, each line judged against its own past: food ran
-      // ₹200 under its ₹500 usual; the unfiled entry has no past to
-      // judge by and says so instead of guessing.
-      expect(find.text('what holds the most'), findsOneWidget);
       expect(find.textContaining('under its usual'), findsOneWidget);
       expect(find.textContaining('first seen'), findsOneWidget);
       // And the share, so the heaviest is tellable at a glance.
       expect(find.text('71%'), findsOneWidget);
 
-      // The heaviest single line — below the wheel, so scroll to it.
-      await tester.scrollUntilVisible(find.text('heaviest lines'), 200,
+      // The movement against last month: food fell ₹200 — exactly at the
+      // floor, so it is still news; the ₹120 arrival is not.
+      await tester.scrollUntilVisible(find.text('−₹200'), 200,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('heaviest lines'), findsOneWidget);
+      expect(find.text('−₹200'), findsOneWidget);
+
+      // The heaviest single line — at the foot of the page, so scroll.
+      await tester.scrollUntilVisible(find.text('HEAVIEST LINES'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('HEAVIEST LINES'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 1));
@@ -147,6 +151,85 @@ void main() {
       final cats = await db.select(db.categories).get();
       expect(cats.map((c) => c.name), contains('Food & chai'));
       expect(cats.length, greaterThanOrEqualTo(8));
+    });
+  });
+
+  group('the shape of the days', () {
+    test('daily totals land on their day', () {
+      final daily = dailyTotals([(1, 5000), (1, 2000), (14, 10000)], 31);
+      expect(daily.length, 31);
+      expect(daily[0], 7000);
+      expect(daily[13], 10000);
+    });
+
+    test('the heaviest day must genuinely stand out', () {
+      // ₹500 on the 3rd against ₹40 days around it: a story.
+      final spiky = dailyTotals([(3, 50_000), (1, 4_000), (2, 4_000)], 30);
+      expect(heaviestDay(spiky, elapsed: 10), (3, 50_000));
+      // A flat month has no heaviest day worth a sentence.
+      final flat = dailyTotals(
+        [for (var d = 1; d <= 10; d++) (d, 50_000)],
+        30,
+      );
+      expect(heaviestDay(flat, elapsed: 10), isNull);
+    });
+
+    test('the quietest week is named only when genuinely quiet', () {
+      // Two loud weeks, then silence.
+      final daily = dailyTotals(
+        [for (var d = 1; d <= 14; d++) (d, 100_000)],
+        31,
+      );
+      expect(quietestWeek(daily, elapsed: 28), (15, 0));
+      // Under two weeks lived: too soon to talk about a quiet week.
+      expect(quietestWeek(daily, elapsed: 13), isNull);
+      // An even month has no quiet stretch worth a line.
+      final even = dailyTotals(
+        [for (var d = 1; d <= 28; d++) (d, 50_000)],
+        31,
+      );
+      expect(quietestWeek(even, elapsed: 28), isNull);
+    });
+
+    test('projection speaks only when the month can be extrapolated', () {
+      expect(
+        paceProjection(
+          spentPaise: 70_000,
+          elapsedDays: 7,
+          daysInMonth: 30,
+          priorMonthTotals: [200_000],
+        ),
+        (projected: 300_000, usual: 200_000),
+      );
+      // Too young to extrapolate honestly.
+      expect(
+        paceProjection(
+          spentPaise: 70_000,
+          elapsedDays: 5,
+          daysInMonth: 30,
+          priorMonthTotals: [],
+        ),
+        isNull,
+      );
+      // The last day is no longer a projection.
+      expect(
+        paceProjection(
+          spentPaise: 70_000,
+          elapsedDays: 30,
+          daysInMonth: 30,
+          priorMonthTotals: [],
+        ),
+        isNull,
+      );
+      // Quiet prior months are not a yardstick.
+      final noPrior = paceProjection(
+        spentPaise: 140_000,
+        elapsedDays: 14,
+        daysInMonth: 28,
+        priorMonthTotals: [0, 0, 0],
+      )!;
+      expect(noPrior.projected, 280_000);
+      expect(noPrior.usual, isNull);
     });
   });
 

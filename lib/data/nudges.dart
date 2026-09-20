@@ -7,9 +7,13 @@ import '../core/inr.dart';
 import '../core/notifications.dart';
 import 'db.dart';
 import 'repos/recurring_repo.dart';
+import 'repos/notice_repo.dart';
 import 'repos/settings_repo.dart';
 import 'repos/txn_repo.dart';
 import 'felt_nudge.dart';
+import 'meal_voice.dart';
+import 'repos/work_repo.dart';
+import '../features/work/work_math.dart';
 import 'tonight.dart';
 
 // Tonight's line is composed in `tonight.dart` because it is the one part of
@@ -76,6 +80,10 @@ class Nudges {
 
   Future<void> resync() async {
     final now = DateTime.now();
+    // The notification ledger keeps two months; older lines go each time
+    // the voices are re-laid, so it stays a record rather than a heap.
+    await LedgerReminders.reconcile();
+    await NoticeRepo(_db).prune();
     final at = await _settings.nudgeTime();
     if (at == null) {
       await LedgerReminders.quiet();
@@ -96,6 +104,10 @@ class Nudges {
     // switch: this book has one voice, and silencing the evening silences
     // all of it (see [LedgerReminders.quiet]).
     await revoiceFelt(_db, now: now);
+    // The diet book's three questions for to-day, and its stand-ins for
+    // the fortnight — same switch, same silence when the switch is off.
+    await revoiceMeals(_db, now: now);
+    await layMealsStanding(_db, now: now);
     await _autoSeal(now);
     await LedgerReminders.scheduleStanding(at.$1, at.$2, [
       for (var i = 1; i <= 14; i++)
@@ -105,6 +117,54 @@ class Nudges {
     ]);
     await _salary(now);
     await _dues(now);
+    await _retainers(now);
+  }
+
+  /// Each retainer that falls due this month and is still unpaid gets one
+  /// line on its due morning — and the moment the payment is written the
+  /// next resync takes the line away.
+  Future<void> _retainers(DateTime now) async {
+    final projects = await _db.select(_db.projects).get();
+    if (projects.isEmpty) return;
+    final repo = WorkRepo(_db, _txns);
+    final lines = await repo.watchAllLines().first;
+    final clients = {
+      for (final c in await _db.select(_db.clients).get()) c.id: c.name,
+    };
+    for (final p in projects) {
+      if (p.kind != ProjectKind.monthly || p.status != ProjectStatus.active) {
+        await LedgerReminders.cancelRetainer(p.id);
+        continue;
+      }
+      final s = summarise(p, const [], [
+        for (final l in lines)
+          if (l.link.projectId == p.id) l,
+      ], now);
+      final month = s.months.isEmpty ? null : s.months.last;
+      if (month == null || month.paidPaise >= s.quotePaise) {
+        await LedgerReminders.cancelRetainer(p.id);
+        continue;
+      }
+      final at = DateTime(
+        month.due.year,
+        month.due.month,
+        month.due.day,
+        9,
+        30,
+      );
+      if (!at.isAfter(now)) {
+        await LedgerReminders.cancelRetainer(p.id);
+        continue;
+      }
+      final who = clients[p.clientId] ?? p.name;
+      await LedgerReminders.scheduleRetainer(
+        p.id,
+        '$who\'s retainer is due to-day',
+        '${Inr.format(s.quotePaise - month.paidPaise)} for ${p.name} — '
+            'not written as received yet',
+        at,
+      );
+    }
   }
 
   /// The book closes its own days: every written day before to-day, and

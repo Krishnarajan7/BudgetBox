@@ -21,8 +21,11 @@ import '../../data/providers.dart';
 import '../../data/repos/event_repo.dart';
 import '../../data/repos/focus_repo.dart';
 import '../../data/repos/habit_repo.dart';
+import '../../core/foods.dart';
+import '../../data/repos/diet_repo.dart';
 import '../../data/repos/journal_repo.dart';
 import '../../data/repos/marks_repo.dart';
+import '../diet/diet_math.dart';
 import '../journal/journal_page.dart';
 import 'water_page.dart';
 
@@ -59,6 +62,11 @@ class _DailyPageState extends ConsumerState<DailyPage> {
   Set<String> _slips = const {};
   List<String> _frequent = const [];
   String? _since;
+
+  // The plate, read from the diet book: measured dishes, old words-only
+  // lines, skips. Written through the diet repo so both books count it.
+  List<MealEntry> _meals = const [];
+  FoodCatalogue? _catalogue;
 
   // The day's facts borrowed from the other books — re-read when the
   // selected day changes, never written to from here.
@@ -109,12 +117,29 @@ class _DailyPageState extends ConsumerState<DailyPage> {
         if (mounted) setState(() => _slips = {for (final m in s) m.date});
       }),
     );
+    FoodCatalogue.load().then((c) {
+      if (!mounted) return;
+      setState(() => _catalogue = c);
+      _loadFrequent();
+    });
     _loadFrequent();
     _watchDay();
   }
 
+  /// The quick row: the dishes he writes most, then the words he used to
+  /// type before the book could weigh anything.
   Future<void> _loadFrequent() async {
-    final list = await ref.read(marksRepoProvider).frequentMeals();
+    final diet = ref.read(dietRepoProvider);
+    final cat = _catalogue;
+    final foods = cat == null ? const <FoodItem>[] : await diet.frequent(cat);
+    final words = await diet.frequentWords();
+    final seen = <String>{};
+    final list = <String>[
+      for (final f in foods)
+        if (seen.add(f.name.toLowerCase())) f.name,
+      for (final w in words)
+        if (seen.add(w.toLowerCase())) w,
+    ].take(6).toList();
     if (mounted) setState(() => _frequent = list);
   }
 
@@ -125,6 +150,11 @@ class _DailyPageState extends ConsumerState<DailyPage> {
     }
     _daySubs.clear();
     final day = _day;
+    _daySubs.add(
+      ref.read(dietRepoProvider).watchDay(day).listen((m) {
+        if (mounted) setState(() => _meals = m);
+      }),
+    );
     _daySubs.add(
       ref.read(journalRepoProvider).watch(LedgerDates.dayKey(day)).listen((j) {
         if (mounted) setState(() => _journal = j);
@@ -334,17 +364,23 @@ class _DailyPageState extends ConsumerState<DailyPage> {
                 ),
                 _MealsCard(
                   meals: [
-                    for (final m in _marks)
-                      if (m.date == _key && m.kind == 'meal') m,
-                  ]..sort((a, b) => a.at.compareTo(b.at)),
+                    for (final m in _meals)
+                      if (!m.skipped) m,
+                  ],
                   frequent: _frequent,
                   controller: _food,
                   isToday: _isToday,
                   onAdd: (text) async {
-                    await repo.addMeal(_day, text);
+                    final diet = ref.read(dietRepoProvider);
+                    final cat = _catalogue;
+                    if (cat == null) {
+                      await diet.addUnmeasured(text, day: _day);
+                    } else {
+                      await diet.addByText(text, cat, day: _day);
+                    }
                     _loadFrequent();
                   },
-                  onStrike: (id) => repo.removeMark(id),
+                  onStrike: (e) => ref.read(dietRepoProvider).remove(e),
                 ),
                 _PageLine(
                   entry: _journal,
@@ -356,6 +392,7 @@ class _DailyPageState extends ConsumerState<DailyPage> {
                 ),
                 _DayThread(
                   day: _day,
+                  meals: _meals,
                   marks: [
                     for (final m in _marks)
                       if (m.date == _key) m,
@@ -1068,12 +1105,12 @@ class _MealsCard extends StatelessWidget {
     required this.onStrike,
   });
 
-  final List<DayMark> meals;
+  final List<MealEntry> meals;
   final List<String> frequent;
   final TextEditingController controller;
   final bool isToday;
   final ValueChanged<String> onAdd;
-  final ValueChanged<int> onStrike;
+  final ValueChanged<MealEntry> onStrike;
 
   /// Which part of the day a mark belongs to — the book groups food the way
   /// a person remembers it, not by the clock alone.
@@ -1106,12 +1143,13 @@ class _MealsCard extends StatelessWidget {
       }
       rows.add(
         LedgerLine(
-          key: ValueKey('meal-${m.id}'),
+          key: ValueKey('meal-m${m.mealId}-k${m.markId}'),
           leading: _hhmm(m.at),
-          title: m.note ?? '',
+          title: m.name,
+          detail: m.measured ? '${m.facts!.kcal.round()} kcal' : null,
           last: i == meals.length - 1,
           amountWidget: Pressable(
-            onTap: () => onStrike(m.id),
+            onTap: () => onStrike(m),
             child: Padding(
               padding: const EdgeInsets.all(4),
               child: PenCross(size: 11, color: c.inkFaint),
@@ -1422,6 +1460,7 @@ class _PageLine extends StatelessWidget {
 class _DayThread extends StatelessWidget {
   const _DayThread({
     required this.day,
+    required this.meals,
     required this.marks,
     required this.habits,
     required this.focus,
@@ -1430,6 +1469,7 @@ class _DayThread extends StatelessWidget {
   });
 
   final DateTime day;
+  final List<MealEntry> meals;
   final List<DayMark> marks;
   final List<Habit> habits;
   final List<FocusSession> focus;
@@ -1451,10 +1491,16 @@ class _DayThread extends StatelessWidget {
       }
     }
     final items = <({DateTime at, String title, String detail, String amount})>[
+      for (final e in meals)
+        if (!e.skipped)
+          (
+            at: e.at,
+            title: e.name,
+            detail: e.measured ? 'ate · ${e.facts!.kcal.round()} kcal' : 'ate',
+            amount: '',
+          ),
       for (final m in marks)
-        if (m.kind == 'meal')
-          (at: m.at, title: m.note ?? '', detail: 'ate', amount: '')
-        else if (m.kind == 'slip')
+        if (m.kind == 'slip')
           (at: m.at, title: 'a slip, written down', detail: '', amount: ''),
       for (final entry in folded.entries)
         (

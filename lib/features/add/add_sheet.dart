@@ -60,6 +60,11 @@ class _AddSheetState extends ConsumerState<AddSheet> {
   Timer? _debounce;
 
   int? _categoryId;
+
+  /// A category chosen from beyond the frequent row (the full drawer, or a
+  /// remembered title) — it earns a chip at the front of the row for the
+  /// sheet's life, so the choice is always visible and toggleable.
+  int? _extraChipId;
   int? _accountId;
   late DateTime _at = widget.at ?? DateTime.now();
   bool _stamping = false;
@@ -137,6 +142,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     setState(() {
       _moneyIn = value;
       _categoryId = null;
+      _extraChipId = null;
       _suggestion = null;
       _flashCategoryId = null;
       _chipOrder = _categoryOrder(moneyIn: value);
@@ -558,13 +564,24 @@ class _AddSheetState extends ConsumerState<AddSheet> {
   }
 
   Widget _categoryChips(LedgerColors c) {
+    // The chosen category always has a chip, even when it came from the
+    // full drawer or rode in on a remembered title: it steps to the front
+    // of the row, lit and underlined like any frequent chip — and stays
+    // for the sheet's life, so deselecting doesn't snap the row about.
+    // Without this, a pick beyond the frequent five changed the entry
+    // with no visible sign of what was chosen.
+    if (_categoryId != null && !_chipOrder.contains(_categoryId)) {
+      _extraChipId = _categoryId;
+    }
+    final order = [
+      if (_extraChipId != null && !_chipOrder.contains(_extraChipId))
+        _extraChipId!,
+      ..._chipOrder,
+    ];
     final chips = <Widget>[
-      for (final id in _chipOrder)
-        _chip(
-          c,
-          category: _categories.firstWhere((x) => x.id == id),
-          selected: _categoryId == id,
-        ),
+      for (final id in order)
+        if (_categories.where((x) => x.id == id).firstOrNull case final cat?)
+          _chip(c, category: cat, selected: _categoryId == id),
       Pressable(
         onTap: _pickCategory,
         child: Padding(
@@ -826,6 +843,11 @@ class _AddSheetState extends ConsumerState<AddSheet> {
       child: Row(
         children: [
           _defaultTap(c, dateLabel, _pickDate),
+          const SizedBox(width: Gap.x3),
+          // The hour. Most of the book gets written in one sitting at
+          // night, which stamped every lunch at half past nine — so the
+          // time is one tap away: morning, afternoon, evening, now.
+          _defaultTap(c, _whenLabel(), _cycleWhen),
           const Spacer(),
           // Optional by construction: the note only exists once asked for,
           // and asking is off the core path.
@@ -897,6 +919,54 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         ],
       ),
     );
+  }
+
+  /// The four hours a day is written in. 'now' is the clock; the others
+  /// are the middle of their stretch, which is as true as a back-dated
+  /// entry can honestly be.
+  static const _whens = [
+    ('morning', 9, 0),
+    ('afternoon', 13, 30),
+    ('evening', 19, 30),
+  ];
+
+  bool get _isNow => DateTime.now().difference(_at).inMinutes.abs() < 20;
+
+  String _whenLabel() {
+    if (_isNow) return 'now';
+    for (final (label, h, m) in _whens) {
+      if (_at.hour == h && _at.minute == m) return label;
+    }
+    final h = _at.hour % 12 == 0 ? 12 : _at.hour % 12;
+    return '$h:${_at.minute.toString().padLeft(2, '0')}'
+        '${_at.hour < 12 ? 'am' : 'pm'}';
+  }
+
+  void _cycleWhen() {
+    HapticFeedback.selectionClick();
+    var idx = -1;
+    for (final (i, (_, h, m)) in _whens.indexed) {
+      if (_at.hour == h && _at.minute == m) idx = i;
+    }
+    setState(() {
+      if (_isNow || idx == -1 && !_isNow && idx != _whens.length - 1) {
+        // From 'now' (or an odd hour), step to the first stretch.
+        if (!_isNow && idx == -1) {
+          final (_, h, m) = _whens.first;
+          _at = DateTime(_at.year, _at.month, _at.day, h, m);
+          return;
+        }
+        final (_, h, m) = _whens.first;
+        _at = DateTime(_at.year, _at.month, _at.day, h, m);
+      } else if (idx < _whens.length - 1) {
+        final (_, h, m) = _whens[idx + 1];
+        _at = DateTime(_at.year, _at.month, _at.day, h, m);
+      } else {
+        // Back to the clock — on the day the entry is dated.
+        final now = DateTime.now();
+        _at = DateTime(_at.year, _at.month, _at.day, now.hour, now.minute);
+      }
+    });
   }
 
   Future<void> _pickDate() async {

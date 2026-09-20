@@ -37,6 +37,7 @@ flutter:
   assets:
     - assets/kural/kural.json
     - assets/calendar/holidays.json
+    - assets/diet/foods.json
     - assets/animation/
   uses-material-design: true
 

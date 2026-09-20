@@ -27,6 +27,16 @@ abstract final class SyncKinds {
   static const mark = 'mark';
   static const alarm = 'alarm';
 
+  /// A dish eaten, measured or not — the diet book's row.
+  static const meal = 'meal';
+
+  /// The work book: a client, a project, a quote revision, and a ledger
+  /// line claimed by a project.
+  static const client = 'client';
+  static const project = 'project';
+  static const quote = 'quote';
+  static const plink = 'plink';
+
   /// Not a row of its own: a confirmed balance reading posted against an
   /// account. It rides the outbox so a balance edited on a train still lands.
   static const anchor = 'anchor';
@@ -53,6 +63,11 @@ abstract final class SyncKinds {
     vault,
     mark,
     alarm,
+    meal,
+    client,
+    project,
+    quote,
+    plink,
   ];
 }
 

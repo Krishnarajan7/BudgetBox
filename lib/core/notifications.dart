@@ -22,6 +22,90 @@ class LedgerReminders {
   LedgerReminders._();
 
   static final _plugin = FlutterLocalNotificationsPlugin();
+
+  /// Where every reminder is written down as it is laid, replaced, or
+  /// cancelled — the notification ledger. Null (tests, the background
+  /// isolate) means nothing is recorded, and nothing else changes.
+  static ReminderLog? log;
+
+  /// Which book a notification id belongs to, from the id ledger above.
+  /// The payload settles the one overlap: a snoozed alarm and a
+  /// calendar eve share a lane.
+  static String moduleFor(int id, {String? payload}) {
+    if (payload != null && payload.startsWith('alarm|')) return 'alarm';
+    if (id == _idFocus) return 'focus';
+    if (id == _idRain) return 'sky';
+    if (id == _idFelt || (id >= _feltBase && id < _feltBase + _feltDays)) {
+      return 'felt';
+    }
+    if ((id >= _mealBase && id < _mealBase + _mealSlots) ||
+        (id >= _mealStandingBase &&
+            id < _mealStandingBase + _mealDays * _mealSlots)) {
+      return 'diet';
+    }
+    if (id >= _noteBase) return 'notes';
+    if (id >= _eveBase) return 'calendar';
+    if (id >= _retainerBase && id < _retainerBase + _retainerSpan) {
+      return 'work';
+    }
+    if (id >= _alarmBase && id < _retainerBase) return 'alarm';
+    if (id >= _dueBase) return 'money';
+    if (id >= 1000) return 'calendar';
+    return 'money';
+  }
+
+  /// The plugin call and the ledger entry, together. Every schedule in
+  /// this file goes through here so the ledger can never miss one.
+  static Future<void> _schedule(
+    int id,
+    String title,
+    String body,
+    tz.TZDateTime when,
+    NotificationDetails details, {
+    required AndroidScheduleMode androidScheduleMode,
+    DateTimeComponents? matchDateTimeComponents,
+    String? payload,
+  }) async {
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      when,
+      details,
+      androidScheduleMode: androidScheduleMode,
+      matchDateTimeComponents: matchDateTimeComponents,
+      payload: payload,
+    );
+    final sink = log;
+    if (sink == null) return;
+    try {
+      await sink.scheduled(
+        id: id,
+        module: moduleFor(id, payload: payload),
+        title: title,
+        body: body,
+        at: DateTime(when.year, when.month, when.day, when.hour, when.minute),
+        repeat: matchDateTimeComponents == DateTimeComponents.dayOfWeekAndTime
+            ? 'weekly'
+            : null,
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('notice $id not recorded: $e');
+    }
+  }
+
+  static Future<void> _cancel(int id) async {
+    await _plugin.cancel(id);
+    final sink = log;
+    if (sink == null) return;
+    try {
+      await sink.cancelled(id);
+    } catch (e) {
+      debugPrint('notice $id not struck: $e');
+    }
+  }
+
   static bool _ready = false;
   static bool _unavailable = false;
 
@@ -43,6 +127,20 @@ class LedgerReminders {
   static const _idFelt = 6;
   static const _feltBase = 40;
   static const _feltDays = 14;
+
+  /// The diet book's voice: one id per sitting for to-day (60 breakfast,
+  /// 61 lunch, 62 dinner), each re-said whenever the ledger or the plate
+  /// changes, and a rolling fortnight of stand-ins behind them (100 + day×3
+  /// + sitting) for the days the app is never opened.
+  static const _mealBase = 60;
+  static const _mealStandingBase = 100;
+  static const _mealDays = 14;
+  static const _mealSlots = 3;
+
+  /// The work book: one morning line per retainer that falls due unpaid,
+  /// 4000 + the project's row number.
+  static const _retainerBase = 4000;
+  static const _retainerSpan = 1000;
   static const _dueBase = 2000;
   static const _noteBase = 1000000;
   static const _channel = AndroidNotificationDetails(
@@ -52,6 +150,7 @@ class LedgerReminders {
     importance: Importance.defaultImportance,
     priority: Priority.defaultPriority,
   );
+
   /// Its own channel so it can be silenced on its own: a person who wants
   /// the evening nudge and not the sky should not have to choose.
   static const _skyChannel = AndroidNotificationDetails(
@@ -72,6 +171,21 @@ class LedgerReminders {
     priority: Priority.defaultPriority,
   );
 
+  /// Its own channel: a missed lunch and an unclosed day are different
+  /// asks, and a person may want one without the other.
+  static const _mealChannel = AndroidNotificationDetails(
+    'meals',
+    'Meals',
+    channelDescription: 'One question when a sitting goes unwritten',
+    importance: Importance.defaultImportance,
+    priority: Priority.defaultPriority,
+  );
+
+  static const _mealDetails = NotificationDetails(
+    android: _mealChannel,
+    iOS: DarwinNotificationDetails(),
+  );
+
   static const _noteChannel = AndroidNotificationDetails(
     'notes-and-reminders',
     'Notes and reminders',
@@ -85,16 +199,8 @@ class LedgerReminders {
   /// one (so silent mode doesn't swallow the morning), and they carry their
   /// own two words of reply.
   static const _alarmActions = [
-    AndroidNotificationAction(
-      'snooze',
-      'Snooze',
-      cancelNotification: true,
-    ),
-    AndroidNotificationAction(
-      'stop',
-      'Stop',
-      cancelNotification: true,
-    ),
+    AndroidNotificationAction('snooze', 'Snooze', cancelNotification: true),
+    AndroidNotificationAction('stop', 'Stop', cancelNotification: true),
   ];
   static const _alarmChannel = AndroidNotificationDetails(
     'alarms',
@@ -158,11 +264,48 @@ class LedgerReminders {
         onDidReceiveBackgroundNotificationResponse: alarmResponseInBackground,
       );
       _ready = true;
+      // A tap that launched the app from cold never reaches the response
+      // handler; the launch details are the only record of it.
+      try {
+        final launch = await _plugin.getNotificationAppLaunchDetails();
+        final id = launch?.notificationResponse?.id;
+        if ((launch?.didNotificationLaunchApp ?? false) && id != null) {
+          await log?.opened(id);
+        }
+      } catch (_) {}
     } catch (e) {
       _unavailable = true;
       debugPrint('reminders unavailable: $e');
     }
     return _ready;
+  }
+
+  /// Asks the phone what became of the lines whose hour has passed. The
+  /// platform never says "delivered", but it will say what is still
+  /// pending and what is in the tray — enough to tell said from shown
+  /// from stuck. Called when the app comes forward and when the
+  /// Notifications page opens.
+  static Future<void> reconcile() async {
+    final sink = log;
+    if (sink == null) return;
+    if (!await _init()) return;
+    try {
+      final pending = <int>{
+        for (final p in await _plugin.pendingNotificationRequests()) p.id,
+      };
+      final active = <int>{};
+      try {
+        for (final a in await _plugin.getActiveNotifications()) {
+          if (a.id != null) active.add(a.id!);
+        }
+      } catch (_) {
+        // Older platforms cannot list the tray; pending alone still tells
+        // said from stuck.
+      }
+      await sink.reconcile(pending: pending, active: active);
+    } catch (e) {
+      debugPrint('notices not reconciled: $e');
+    }
   }
 
   /// Ask the platform's permission. True when notifications may be shown.
@@ -240,7 +383,7 @@ class LedgerReminders {
       );
       if (!when.isAfter(tz.TZDateTime.now(tz.local))) return;
       try {
-        await _plugin.zonedSchedule(
+        await _schedule(
           id,
           title,
           body,
@@ -253,7 +396,7 @@ class LedgerReminders {
         if (androidMode == AndroidScheduleMode.inexactAllowWhileIdle) rethrow;
         // Permission can be revoked after the reminder was written. Losing
         // the alert entirely is worse than allowing Android a little drift.
-        await _plugin.zonedSchedule(
+        await _schedule(
           id,
           title,
           body,
@@ -294,7 +437,7 @@ class LedgerReminders {
   static Future<void> cancelRain() async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_idRain);
+      await _cancel(_idRain);
     } catch (_) {}
   }
 
@@ -382,9 +525,9 @@ class LedgerReminders {
     if (!await _init()) return;
     try {
       for (var slot = 0; slot < _alarmStride; slot++) {
-        await _plugin.cancel(_alarmBase + id * _alarmStride + slot);
+        await _cancel(_alarmBase + id * _alarmStride + slot);
       }
-      await _plugin.cancel(_snoozeBase + id);
+      await _cancel(_snoozeBase + id);
     } catch (e) {
       debugPrint('alarm $id not cancelled: $e');
     }
@@ -439,7 +582,7 @@ class LedgerReminders {
         first.hour,
         first.minute,
       );
-      await _plugin.zonedSchedule(
+      await _schedule(
         id,
         title,
         body,
@@ -474,6 +617,9 @@ class LedgerReminders {
     if (response.actionId == 'snooze' && response.payload != null) {
       unawaited(snooze(response.payload!));
     }
+    final id = response.id;
+    final sink = log;
+    if (id != null && sink != null) unawaited(sink.opened(id));
   }
 
   /// Tonight's voiced nudge: it knows what the day wrote. One-shot — if the
@@ -496,12 +642,12 @@ class LedgerReminders {
   static Future<void> cancelTonight() async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_idTonight);
+      await _cancel(_idTonight);
       // A seal must also silence whichever fallback was assigned to today.
       // The next scheduleStanding call rebuilds tomorrow onward.
-      await _plugin.cancel(_idStanding);
+      await _cancel(_idStanding);
       for (var i = 0; i < _standingDays; i++) {
-        await _plugin.cancel(_standingBase + i);
+        await _cancel(_standingBase + i);
       }
     } catch (_) {}
   }
@@ -519,9 +665,9 @@ class LedgerReminders {
     try {
       // Remove the old repeating alarm from installations upgrading from the
       // first implementation, then replace the whole rolling horizon.
-      await _plugin.cancel(_idStanding);
+      await _cancel(_idStanding);
       for (var i = 0; i < _standingDays; i++) {
-        await _plugin.cancel(_standingBase + i);
+        await _cancel(_standingBase + i);
       }
       final now = tz.TZDateTime.now(tz.local);
       for (var i = 0; i < copies.length && i < _standingDays; i++) {
@@ -535,7 +681,7 @@ class LedgerReminders {
           minute,
         );
         final (title, body) = copies[i];
-        await _plugin.zonedSchedule(
+        await _schedule(
           _standingBase + i,
           title,
           body,
@@ -574,7 +720,7 @@ class LedgerReminders {
   static Future<void> cancelFelt() async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_idFelt);
+      await _cancel(_idFelt);
     } catch (_) {}
   }
 
@@ -591,12 +737,12 @@ class LedgerReminders {
     if (!await _init()) return;
     try {
       for (var i = 0; i < _feltDays; i++) {
-        await _plugin.cancel(_feltBase + i);
+        await _cancel(_feltBase + i);
       }
       final now = tz.TZDateTime.now(tz.local);
       for (var i = 0; i < _feltDays; i++) {
         final day = now.add(Duration(days: i + 1));
-        await _plugin.zonedSchedule(
+        await _schedule(
           _feltBase + i,
           title,
           body,
@@ -614,10 +760,101 @@ class LedgerReminders {
   static Future<void> quietFelt() async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_idFelt);
+      await _cancel(_idFelt);
       for (var i = 0; i < _feltDays; i++) {
-        await _plugin.cancel(_feltBase + i);
+        await _cancel(_feltBase + i);
       }
+    } catch (_) {}
+  }
+
+  // ————— the diet book —————
+
+  /// To-day's question about one sitting ([slot] 0 breakfast, 1 lunch,
+  /// 2 dinner), at [at]. Replaces itself, so re-saying it after every
+  /// dish is how it stays true.
+  static Future<void> scheduleMeal(
+    int slot,
+    String title,
+    String body,
+    DateTime at,
+  ) => _once(_mealBase + slot, title, body, at, details: _mealDetails);
+
+  static Future<void> cancelMeal(int slot) async {
+    if (!await _init()) return;
+    try {
+      await _cancel(_mealBase + slot);
+    } catch (_) {}
+  }
+
+  /// The fortnight of stand-ins, one per sitting per day from to-morrow:
+  /// [copies] is indexed `[dayOffset - 1][slot]` and each carries its own
+  /// wall-clock minute, because a weekend sitting runs later.
+  static Future<void> scheduleMealsStanding(
+    List<List<(String title, String body, DateTime at)?>> copies,
+  ) async {
+    if (!await _init()) return;
+    try {
+      for (var d = 0; d < _mealDays; d++) {
+        for (var s = 0; s < _mealSlots; s++) {
+          await _cancel(_mealStandingBase + d * _mealSlots + s);
+        }
+      }
+      for (var d = 0; d < copies.length && d < _mealDays; d++) {
+        for (var s = 0; s < _mealSlots && s < copies[d].length; s++) {
+          final c = copies[d][s];
+          if (c == null) continue;
+          final (title, body, at) = c;
+          final when = tz.TZDateTime(
+            tz.local,
+            at.year,
+            at.month,
+            at.day,
+            at.hour,
+            at.minute,
+          );
+          if (!when.isAfter(tz.TZDateTime.now(tz.local))) continue;
+          await _schedule(
+            _mealStandingBase + d * _mealSlots + s,
+            title,
+            body,
+            when,
+            _mealDetails,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('meal nudges not scheduled: $e');
+    }
+  }
+
+  static Future<void> quietMeals() async {
+    if (!await _init()) return;
+    try {
+      for (var s = 0; s < _mealSlots; s++) {
+        await _cancel(_mealBase + s);
+      }
+      for (var d = 0; d < _mealDays; d++) {
+        for (var s = 0; s < _mealSlots; s++) {
+          await _cancel(_mealStandingBase + d * _mealSlots + s);
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// A retainer's due morning, one-shot; replaced on every resync so a
+  /// payment written the day before takes the line away.
+  static Future<void> scheduleRetainer(
+    int projectId,
+    String title,
+    String body,
+    DateTime at,
+  ) => _once(_retainerBase + (projectId % _retainerSpan), title, body, at);
+
+  static Future<void> cancelRetainer(int projectId) async {
+    if (!await _init()) return;
+    try {
+      await _cancel(_retainerBase + (projectId % _retainerSpan));
     } catch (_) {}
   }
 
@@ -634,7 +871,7 @@ class LedgerReminders {
   static Future<void> cancelFocusEnd() async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_idFocus);
+      await _cancel(_idFocus);
     } catch (_) {}
   }
 
@@ -650,7 +887,7 @@ class LedgerReminders {
       for (final p in pending) {
         final rid = p.id - _dueBase;
         if (p.id >= _dueBase && !byId.containsKey(rid)) {
-          await _plugin.cancel(p.id);
+          await _cancel(p.id);
         }
       }
     } catch (_) {}
@@ -671,7 +908,7 @@ class LedgerReminders {
       for (final p in pending) {
         final noteId = p.id - _noteBase;
         if (p.id >= _noteBase && !byId.containsKey(noteId)) {
-          await _plugin.cancel(p.id);
+          await _cancel(p.id);
         }
       }
     } catch (_) {}
@@ -693,7 +930,7 @@ class LedgerReminders {
   static Future<void> cancelNote(int noteId) async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_noteBase + noteId);
+      await _cancel(_noteBase + noteId);
     } catch (_) {}
   }
 
@@ -703,21 +940,33 @@ class LedgerReminders {
   static Future<void> quiet() async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_idTonight);
-      await _plugin.cancel(_idStanding);
-      await _plugin.cancel(_idSalary);
+      await _cancel(_idTonight);
+      await _cancel(_idStanding);
+      await _cancel(_idSalary);
       for (var i = 0; i < _standingDays; i++) {
-        await _plugin.cancel(_standingBase + i);
+        await _cancel(_standingBase + i);
       }
       // The felt check-in is part of the same voice: no hour set, no talking.
-      await _plugin.cancel(_idFelt);
+      await _cancel(_idFelt);
       for (var i = 0; i < _feltDays; i++) {
-        await _plugin.cancel(_feltBase + i);
+        await _cancel(_feltBase + i);
+      }
+      // So is the diet book's.
+      for (var s = 0; s < _mealSlots; s++) {
+        await _cancel(_mealBase + s);
+      }
+      for (var d = 0; d < _mealDays; d++) {
+        for (var s = 0; s < _mealSlots; s++) {
+          await _cancel(_mealStandingBase + d * _mealSlots + s);
+        }
       }
       final pending = await _plugin.pendingNotificationRequests();
       for (final p in pending) {
-        if (p.id >= _dueBase && p.id < _noteBase) {
-          await _plugin.cancel(p.id);
+        // Dues stop where the alarms begin: an alarm is not a money
+        // reminder and must ring whether the book is speaking or not.
+        if ((p.id >= _dueBase && p.id < _alarmBase) ||
+            (p.id >= _retainerBase && p.id < _retainerBase + _retainerSpan)) {
+          await _cancel(p.id);
         }
       }
     } catch (_) {}
@@ -743,7 +992,7 @@ class LedgerReminders {
         at.minute,
       );
       if (!when.isAfter(tz.TZDateTime.now(tz.local))) return;
-      await _plugin.zonedSchedule(
+      await _schedule(
         1000 + eventId,
         title,
         body,
@@ -780,7 +1029,7 @@ class LedgerReminders {
         at.minute,
       );
       if (!when.isAfter(tz.TZDateTime.now(tz.local))) return;
-      await _plugin.zonedSchedule(
+      await _schedule(
         _eveBase + eventId,
         title,
         body,
@@ -799,15 +1048,15 @@ class LedgerReminders {
   static Future<void> cancelEventEve(int eventId) async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(_eveBase + eventId);
+      await _cancel(_eveBase + eventId);
     } catch (_) {}
   }
 
   static Future<void> cancelEvent(int eventId) async {
     if (!await _init()) return;
     try {
-      await _plugin.cancel(1000 + eventId);
-      await _plugin.cancel(_eveBase + eventId);
+      await _cancel(1000 + eventId);
+      await _cancel(_eveBase + eventId);
     } catch (_) {}
   }
 }
@@ -823,4 +1072,28 @@ void alarmResponseInBackground(NotificationResponse response) {
   final payload = response.payload;
   if (payload == null) return;
   unawaited(LedgerReminders.snooze(payload));
+}
+
+/// The notification ledger's side of the bargain — implemented by the
+/// data layer, which this file must not import.
+abstract interface class ReminderLog {
+  Future<void> scheduled({
+    required int id,
+    required String module,
+    required String title,
+    required String body,
+    required DateTime at,
+    String? repeat,
+    String? payload,
+  });
+
+  /// Struck before its hour: the row goes. A line already said stays.
+  Future<void> cancelled(int id);
+
+  /// He tapped it.
+  Future<void> opened(int id);
+
+  /// What the phone still holds ([pending]) and what sits in the tray
+  /// ([active]) — the ledger settles each past line's fate from these.
+  Future<void> reconcile({required Set<int> pending, required Set<int> active});
 }

@@ -22,6 +22,7 @@ import '../../data/repos/budget_math.dart';
 import '../../data/repos/journal_repo.dart' show journalRepoProvider;
 import '../book/book_page.dart' show whereItWent;
 import '../insights/insights_page.dart';
+import '../income/income_page.dart';
 import '../../core/widgets/feel_picker.dart';
 import '../birthday/birthday_page.dart' show BirthdayPage, gatherBirthdayFacts;
 import 'widgets/close_day.dart';
@@ -379,7 +380,14 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               children: [
                 const LedgerAppBar(),
                 const SizedBox(height: Gap.x4),
+                // The greeting is the line that knows when salary lands —
+                // so a tap on it opens the page where income lives.
                 GestureDetector(
+                  key: const ValueKey('today-greeting'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(context).push(
+                    LedgerRoute<void>(builder: (_) => const IncomePage()),
+                  ),
                   onLongPress: _isBirthday(now) ? _replayBirthday : null,
                   child: Text(
                     _greetingLine(now),

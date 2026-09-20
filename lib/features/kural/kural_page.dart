@@ -442,7 +442,7 @@ Future<void> maybeShowDailyKural(
     return;
   }
   final settings = container.read(settingsRepoProvider);
-  final today = DateTime.now();
+  final today = kuralDay(DateTime.now());
   final key =
       '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
   final lastDay = await settings.kuralDay();
@@ -474,6 +474,15 @@ Future<void> maybeShowDailyKural(
       ),
     ),
   );
+}
+
+/// The day a verse belongs to. The book's day turns at six in the
+/// morning, not at midnight: a page read at half past twelve is still
+/// last night's, and the next verse waits for the morning it is meant
+/// for.
+DateTime kuralDay(DateTime now) {
+  final d = now.hour < 6 ? now.subtract(const Duration(hours: 6)) : now;
+  return DateTime(d.year, d.month, d.day);
 }
 
 /// The verse the book hands its owner on his own day — picked, not drawn.

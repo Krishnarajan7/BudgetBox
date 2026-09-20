@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../db.dart';
 import '../sync/ids.dart';
 import '../sync/seam.dart';
+import '../../features/insights/insight_math.dart';
 import 'txn_repo.dart';
 
 /// The one-tap repeats — the only path that beats five seconds.
@@ -43,6 +44,35 @@ class PinnedRepo {
       await (_db.delete(_db.pinneds)..where((p) => p.id.equals(id))).go();
       await bbxSync.remove(SyncKinds.pinned, id);
     });
+  }
+
+  /// Lines he keeps writing by hand that should be one tap — the same
+  /// title three or more times in the last three weeks at a steady price,
+  /// not already pinned and not one he has passed on.
+  Future<List<PinCandidate>> suggest({
+    int days = 21,
+    Set<String> passed = const {},
+  }) async {
+    final from = DateTime.now().subtract(Duration(days: days));
+    final rows =
+        await (_db.select(_db.txns)
+              ..where(
+                (t) =>
+                    t.type.equalsValue(TxnType.expense) &
+                    t.at.isBiggerOrEqualValue(from),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.at)]))
+            .get();
+    final pins = await _db.select(_db.pinneds).get();
+    final cats = await _db.select(_db.categories).get();
+    return pinCandidates(
+      [for (final t in rows) (t.title, t.amountPaise, t.categoryId, t.accountId)],
+      taken: {
+        for (final p in pins) p.title.trim().toLowerCase(),
+        ...passed,
+      },
+      categoryNames: {for (final c in cats) c.name.trim().toLowerCase()},
+    );
   }
 
   /// Tap a pin → a stamped entry, now.

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/notifications.dart';
 import 'db.dart';
 import 'api/api_client.dart';
 import 'api/endpoints/coaching_api.dart';
@@ -15,12 +16,17 @@ import 'repos/goal_repo.dart';
 import 'repos/pinned_repo.dart';
 import 'repos/recurring_repo.dart';
 import 'repos/settings_repo.dart';
+import 'repos/notice_repo.dart';
 import 'repos/txn_repo.dart';
 
 /// The single database instance. Overridden with an in-memory executor in
 /// tests.
 final dbProvider = Provider<LedgerDb>((ref) {
   final db = LedgerDb();
+  // Every reminder any book lays down is written to this database's
+  // notification ledger; tests override the provider and record nothing.
+  LedgerReminders.log = NoticeRepo(db);
+  ref.onDispose(() => LedgerReminders.log = null);
   // The setup ritual owns first launch now. A fake month is still available
   // for UI work: flutter run --dart-define=DEV_SEED=true
   const wantSeed = bool.fromEnvironment('DEV_SEED');

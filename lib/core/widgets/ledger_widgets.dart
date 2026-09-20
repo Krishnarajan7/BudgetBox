@@ -53,6 +53,9 @@ class LedgerCard extends StatelessWidget {
     // Hard corners and one hairline of the rule: a printed plate, not the
     // borderless-soft card every app ships. At night the tone change carries
     // the edge; in daylight white-on-cream needs the rule to read as print.
+    // Hard corners and one hairline of the rule: a printed plate, not the
+    // borderless-soft card every app ships. At night the tone change carries
+    // the edge; in daylight white-on-cream needs the rule to read as print.
     return Container(
       margin: const EdgeInsets.only(top: Gap.x3),
       padding:

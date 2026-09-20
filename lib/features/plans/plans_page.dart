@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:drift/drift.dart' hide Column, Table;
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,13 +11,14 @@ import '../../core/icons.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
-import '../../core/widgets/cat_mark.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
+import '../../core/widgets/cat_mark.dart';
 import '../../core/widgets/pickers.dart';
+import '../../core/widgets/plates.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
@@ -25,6 +27,17 @@ import '../../data/repos/budget_math.dart';
 import '../../data/repos/budget_repo.dart';
 import '../../data/repos/goal_repo.dart';
 import '../../data/repos/recurring_repo.dart';
+import '../book/book_page.dart' show bookOrdinal;
+import '../insights/insight_math.dart'
+    show
+        BudgetFit,
+        BudgetFitKind,
+        RecurringCandidate,
+        SplitTitle,
+        budgetFits,
+        recurringCandidates,
+        splitTitles;
+import '../today/widgets/ledger_rows.dart';
 
 /// True when a budget's line has drifted more than [threshold] away from
 /// the spending it's supposed to describe — the cue for a suggested line.
@@ -74,14 +87,7 @@ class _PlansPageState extends ConsumerState<PlansPage> {
       children: [
         const LedgerAppBar(title: 'Plans'),
         const SizedBox(height: Gap.x3),
-        Row(
-          children: [
-            for (final (i, label) in _tabs.indexed) ...[
-              LedgerChip(label, selected: _tab == i, onTap: () => _go(i)),
-              const SizedBox(width: Gap.x2),
-            ],
-          ],
-        ),
+        PillSegments(labels: _tabs, index: _tab, onSelect: _go),
         const SizedBox(height: Gap.x4),
         _PageTurn(
           tag: _tab,
@@ -111,32 +117,49 @@ class _PageTurn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // The stack hands its children loose constraints; the page wants the
-    // full width it would have had on the paper.
+    // full width it would have had on the paper. The boundary means the
+    // page is rasterised once and carried, not re-laid every frame.
     final page = KeyedSubtree(
       key: ValueKey(tag),
-      child: SizedBox(width: double.infinity, child: child),
+      child: SizedBox(
+        width: double.infinity,
+        child: RepaintBoundary(child: child),
+      ),
     );
     if (Motion.reduced(context)) return page;
+    // A fade-through on whole pixels — the same discipline the shell's
+    // page turn learned: the leaving tab is off the paper before the
+    // arriving one reaches half ink (two dense ledgers never blend), and
+    // every offset is snapped so the type never resamples into a shimmer
+    // mid-slide. This switcher was the last one still riding fractional
+    // offsets, which is why Plans kept its glitch after the others lost
+    // theirs.
     return AnimatedSwitcher(
-      duration: Motion.spring,
-      switchInCurve: Motion.curve,
-      switchOutCurve: Motion.curve,
+      duration: const Duration(milliseconds: 340),
+      switchInCurve: const Interval(0.35, 1, curve: Curves.easeOutCubic),
+      switchOutCurve: const Interval(0.5, 1, curve: Curves.easeIn),
       layoutBuilder: (current, previous) => Stack(
         alignment: Alignment.topLeft,
         children: [...previous, ?current],
       ),
       transitionBuilder: (child, anim) {
         final incoming = child.key == ValueKey(tag);
-        final dx = (incoming ? dir : -dir) * 0.045;
-        return FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween(
-              begin: Offset(dx, 0),
-              end: Offset.zero,
-            ).animate(anim),
-            child: child,
-          ),
+        return AnimatedBuilder(
+          animation: anim,
+          child: child,
+          builder: (context, page) {
+            // The switcher already curves [anim]; for the leaving page it
+            // runs 1 → 0, so one formula carries both directions.
+            final v = anim.value;
+            final travel = incoming ? 24.0 : -14.0;
+            return Opacity(
+              opacity: v,
+              child: Transform.translate(
+                offset: Offset((travel * (1 - v) * dir).roundToDouble(), 0),
+                child: page,
+              ),
+            );
+          },
         );
       },
       child: page,
@@ -344,6 +367,16 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
               finalized: !onNow,
               sealed: v.budget.id == sealId,
             ),
+          ),
+        // What the month says about the lines themselves — a limit the
+        // month has already outrun, a line nothing is written against, a
+        // category taking real money with no line at all, and titles
+        // filed two ways. Each with the one tap that settles it.
+        if (onNow)
+          _WorthALook(
+            key: ValueKey('worth-a-look-${_month.year}-${_month.month}'),
+            views: views,
+            month: _month,
           ),
         Row(
           children: [
@@ -676,6 +709,193 @@ class _BudgetsTabState extends ConsumerState<_BudgetsTab> {
           limitPaise: rupees * 100,
           categoryId: categoryId,
         );
+  }
+}
+
+/// The budget page reading its own lines against the month: limits the
+/// month has outrun or abandoned, categories spending with no line, and
+/// titles filed two ways. Every line ends in the one tap that settles it.
+class _WorthALook extends ConsumerStatefulWidget {
+  const _WorthALook({super.key, required this.views, required this.month});
+
+  final List<BudgetView> views;
+  final DateTime month;
+
+  @override
+  ConsumerState<_WorthALook> createState() => _WorthALookState();
+}
+
+class _WorthALookState extends ConsumerState<_WorthALook> {
+  List<BudgetFit> _fits = const [];
+  List<SplitTitle> _splits = const [];
+  Map<int, String> _catNames = const {};
+  String? _loadedFor;
+  final _done = <String>{};
+
+  Future<void> _load() async {
+    final db = ref.read(dbProvider);
+    final now = DateTime.now();
+    final rows =
+        await (db.select(db.txns)..where(
+              (t) =>
+                  t.type.equalsValue(TxnType.expense) &
+                  t.at.isBiggerOrEqualValue(LedgerDates.monthStart(widget.month)) &
+                  t.at.isSmallerThanValue(LedgerDates.monthEnd(widget.month)),
+            ))
+            .get();
+    final cats = {
+      for (final c in await db.select(db.categories).get()) c.id: c.name,
+    };
+    final budgeted = {
+      for (final v in widget.views)
+        if (v.budget.categoryId != null) v.budget.categoryId!,
+    };
+    final spentByCat = <int, int>{};
+    final countByCat = <int, int>{};
+    for (final t in rows) {
+      final id = t.categoryId;
+      if (id == null) continue;
+      spentByCat[id] = (spentByCat[id] ?? 0) + t.amountPaise;
+      countByCat[id] = (countByCat[id] ?? 0) + 1;
+    }
+    final fits = budgetFits(
+      lines: [
+        for (final v in widget.views)
+          (
+            budgetId: v.budget.id,
+            categoryId: v.budget.categoryId,
+            name: v.name,
+            limitPaise: v.pace.limitPaise,
+            spentPaise: v.pace.spentPaise,
+            count: v.budget.categoryId == null
+                ? rows.length
+                : (countByCat[v.budget.categoryId!] ?? 0),
+          ),
+      ],
+      unbudgeted: {
+        for (final e in spentByCat.entries)
+          if (!budgeted.contains(e.key) && cats.containsKey(e.key))
+            e.key: (cats[e.key]!, e.value),
+      },
+      elapsedDays: now.day,
+      daysInMonth: LedgerDates.daysInMonth(now),
+    );
+    // Splits look back further than the month: a habit takes weeks to
+    // show it is filed two ways.
+    final since = now.subtract(const Duration(days: 60));
+    final older =
+        await (db.select(db.txns)..where(
+              (t) =>
+                  t.type.equalsValue(TxnType.expense) &
+                  t.categoryId.isNotNull() &
+                  t.at.isBiggerOrEqualValue(since),
+            ))
+            .get();
+    final splits = splitTitles([
+      for (final t in older)
+        if (cats.containsKey(t.categoryId))
+          (t.id, t.title, t.categoryId!, cats[t.categoryId]!),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _fits = fits;
+      _splits = splits;
+      _catNames = cats;
+    });
+  }
+
+  String get _signature =>
+      '${widget.views.length}-${widget.views.fold(0, (s, v) => s + v.pace.limitPaise + v.pace.spentPaise)}';
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    if (_loadedFor != _signature) {
+      _loadedFor = _signature;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    }
+    final fits = [for (final f in _fits) if (!_done.contains('fit-${f.name}')) f];
+    final splits = [for (final s in _splits) if (!_done.contains('split-${s.title}')) s];
+    if (fits.isEmpty && splits.isEmpty) return const SizedBox.shrink();
+    final faint = LedgerType.bodyText.copyWith(fontSize: 12.5, color: c.inkFaint, height: 1.4);
+    Widget line(String key, String body, String action, Future<void> Function() go) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.x2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: Text(body, style: faint)),
+            const SizedBox(width: Gap.x3),
+            Pressable(
+              key: ValueKey('look-$key'),
+              haptic: false,
+              onTap: () async {
+                HapticFeedback.mediumImpact();
+                await go();
+                if (mounted) setState(() => _done.add(key));
+              },
+              child: Text(
+                action,
+                style: LedgerType.bodyStrong.copyWith(fontSize: 13, color: c.quill),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final budgets = ref.read(budgetRepoProvider);
+    final txns = ref.read(txnRepoProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionHead('worth a look'),
+        for (final f in fits.take(4))
+          switch (f.kind) {
+            BudgetFitKind.raise => line(
+              'fit-${f.name}',
+              '${f.name} is heading for ${Inr.format(f.projectedPaise)} '
+                  'against a line of ${Inr.format(f.limitPaise)}',
+              'set ${Inr.compact(f.suggestedPaise)}',
+              () => budgets.setLimit(f.budgetId!, f.suggestedPaise),
+            ),
+            BudgetFitKind.lower => line(
+              'fit-${f.name}',
+              '${f.name} will land near ${Inr.format(f.projectedPaise)}; '
+                  'the line is ${Inr.format(f.limitPaise)}',
+              'set ${Inr.compact(f.suggestedPaise)}',
+              () => budgets.setLimit(f.budgetId!, f.suggestedPaise),
+            ),
+            BudgetFitKind.unused => line(
+              'fit-${f.name}',
+              'nothing written against ${f.name} this month — '
+                  '${Inr.format(f.limitPaise)} sitting idle',
+              'drop the line',
+              () => budgets.archive(f.budgetId!),
+            ),
+            BudgetFitKind.missing => line(
+              'fit-${f.name}',
+              '${f.name} has taken ${Inr.format(f.spentPaise)} with no '
+                  'line drawn — about ${Inr.format(f.projectedPaise)} by month end',
+              'draw ${Inr.compact(f.suggestedPaise)}',
+              () => budgets.create(
+                name: f.name,
+                limitPaise: f.suggestedPaise,
+                categoryId: f.categoryId,
+              ),
+            ),
+          },
+        for (final s in splits.take(2))
+          line(
+            'split-${s.title}',
+            '"${s.title}" is filed under ${s.toName} ${s.majority} times '
+                'and under ${s.fromNames.join(', ')} '
+                '${s.minorityIds.length == 1 ? 'once' : '${s.minorityIds.length} times'}',
+            'file it all under ${(_catNames[s.toCategoryId] ?? s.toName).toLowerCase()}',
+            () => txns.refile(s.minorityIds, s.toCategoryId),
+          ),
+      ],
+    );
   }
 }
 
@@ -1197,16 +1417,30 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
       stream: recurring.watchAll(),
       builder: (context, shelfSnap) {
         if (shelfSnap.hasData && shelfSnap.data!.isEmpty) {
-          return EmptyPage(
-            line: 'Nothing on the recurring shelf yet.',
-            sub:
-                'The rent, the phone, the one subscription I keep '
-                'forgetting about.',
-            action: LedgerChip(
-              'add a bill',
-              selected: true,
-              onTap: _addRecurring,
-            ),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              EmptyPage(
+                line: 'Nothing on the recurring shelf yet.',
+                sub:
+                    'The rent, the phone, the one subscription I keep '
+                    'forgetting about.',
+                action: Pressable(
+                  onTap: _addRecurring,
+                  child: Text(
+                    'add a bill ›',
+                    style: LedgerType.bodyStrong.copyWith(
+                      fontSize: 14,
+                      color: c.quill,
+                    ),
+                  ),
+                ),
+              ),
+              _RecurringOffers(
+                existing: const {},
+                onAdd: (cand) => _addRecurring(initial: cand),
+              ),
+            ],
           );
         }
         return StreamBuilder<int>(
@@ -1277,6 +1511,13 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
                           ],
                         ),
                       ),
+                    _RecurringOffers(
+                      existing: {
+                        for (final r in shelfSnap.data ?? const <Recurring>[])
+                          r.title.trim().toLowerCase(),
+                      },
+                      onAdd: (cand) => _addRecurring(initial: cand),
+                    ),
                     _addLine(c),
                     const SizedBox(height: Gap.x3),
                     FutureBuilder<int>(
@@ -1339,7 +1580,7 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
     );
   }
 
-  Future<void> _addRecurring() async {
+  Future<void> _addRecurring({RecurringCandidate? initial}) async {
     final db = ref.read(dbProvider);
     final accounts =
         await (db.select(db.accounts)
@@ -1359,8 +1600,11 @@ class _RecurringTabState extends ConsumerState<_RecurringTab> {
     if (!mounted) return;
     final made = await showLedgerSheet<_NewRecurring>(
       context,
-      builder: (context) =>
-          _RecurringSheet(accounts: accounts, categories: cats),
+      builder: (context) => _RecurringSheet(
+        accounts: accounts,
+        categories: cats,
+        initial: initial,
+      ),
     );
     if (made == null) return;
     await ref
@@ -2464,6 +2708,82 @@ class _GoalSheetState extends State<_GoalSheet> {
 }
 
 /// What a new shelf line needs to exist.
+/// Lines in the book that read like standing charges but sit on no shelf —
+/// the PG rent written by hand every month, the yearly Spotify, the
+/// membership. Each is one tap from becoming a recurring, already filled.
+class _RecurringOffers extends ConsumerStatefulWidget {
+  const _RecurringOffers({required this.existing, required this.onAdd});
+
+  final Set<String> existing;
+  final ValueChanged<RecurringCandidate> onAdd;
+
+  @override
+  ConsumerState<_RecurringOffers> createState() => _RecurringOffersState();
+}
+
+class _RecurringOffersState extends ConsumerState<_RecurringOffers> {
+  List<RecurringCandidate> _found = const [];
+  Set<String>? _loadedFor;
+
+  Future<void> _load() async {
+    final db = ref.read(dbProvider);
+    final from = DateTime.now().subtract(const Duration(days: 60));
+    final rows =
+        await (db.select(db.txns)
+              ..where(
+                (t) =>
+                    t.type.equalsValue(TxnType.expense) &
+                    t.at.isBiggerOrEqualValue(from),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.at)]))
+            .get();
+    final cats = {
+      for (final c in await db.select(db.categories).get()) c.id: c.name,
+    };
+    final found = recurringCandidates([
+      for (final t in rows)
+        (
+          t.title,
+          t.amountPaise,
+          t.categoryId,
+          cats[t.categoryId],
+          t.accountId,
+          t.at,
+        ),
+    ], existing: widget.existing);
+    if (mounted) setState(() => _found = found);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadedFor == null || !setEquals(_loadedFor, widget.existing)) {
+      _loadedFor = {...widget.existing};
+      WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    }
+    if (_found.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHead('looks like it repeats'),
+        for (final (i, cand) in _found.take(4).indexed)
+          Pressable(
+            key: ValueKey('recurring-offer-${cand.title}'),
+            onTap: () => widget.onAdd(cand),
+            child: LedgerLine(
+              leading: cand.everyMonths == 12
+                  ? 'yearly'
+                  : 'the ${bookOrdinal(cand.day)}',
+              title: cand.title,
+              detail: 'written by hand · tap to put it on the shelf',
+              amount: Inr.format(cand.amountPaise),
+              last: i == _found.take(4).length - 1,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _NewRecurring {
   const _NewRecurring({
     required this.title,
@@ -2485,7 +2805,14 @@ class _NewRecurring {
 /// Putting something on the recurring shelf: what it is, what it costs, when
 /// it lands, which pocket it leaves from.
 class _RecurringSheet extends StatefulWidget {
-  const _RecurringSheet({required this.accounts, required this.categories});
+  const _RecurringSheet({
+    required this.accounts,
+    required this.categories,
+    this.initial,
+  });
+
+  /// A line the book noticed repeating — the sheet opens already filled.
+  final RecurringCandidate? initial;
 
   final List<Account> accounts;
   final List<Category> categories;
@@ -2495,18 +2822,27 @@ class _RecurringSheet extends StatefulWidget {
 }
 
 class _RecurringSheetState extends State<_RecurringSheet> {
-  final _title = TextEditingController();
-  final _amount = TextEditingController();
+  late final _title = TextEditingController(text: widget.initial?.title ?? '');
+  late final _amount = TextEditingController(
+    text: widget.initial == null
+        ? ''
+        : '${widget.initial!.amountPaise ~/ 100}',
+  );
   late final TextEditingController _day = TextEditingController(
-    text: '${DateTime.now().day}',
+    text: '${widget.initial?.day ?? DateTime.now().day}',
   );
 
-  String _name = '';
-  int _rupees = 0;
-  int _dayOfMonth = DateTime.now().day;
-  RecurringKind _kind = RecurringKind.bill;
-  int? _categoryId;
-  late Account _account = widget.accounts.first;
+  late String _name = widget.initial?.title ?? '';
+  late int _rupees = (widget.initial?.amountPaise ?? 0) ~/ 100;
+  late int _dayOfMonth = widget.initial?.day ?? DateTime.now().day;
+  late RecurringKind _kind = widget.initial?.everyMonths == 12
+      ? RecurringKind.subscription
+      : RecurringKind.bill;
+  late int? _categoryId = widget.initial?.categoryId;
+  late Account _account = widget.accounts.firstWhere(
+    (a) => a.id == widget.initial?.accountId,
+    orElse: () => widget.accounts.first,
+  );
 
   @override
   void dispose() {

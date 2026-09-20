@@ -15,7 +15,9 @@ import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
+import '../../core/icons.dart';
 import '../../core/widgets/pen_marks.dart';
+import '../../core/widgets/plates.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
@@ -113,6 +115,21 @@ class _WorthPageState extends ConsumerState<WorthPage> {
   /// Roughly one month of spending, read once per page life: the runway
   /// line divides what's in reach by this.
   Future<int>? _burnFuture;
+
+  /// The all-time high and the morning it stood there — read apart from
+  /// the range series so the line under the chart tells the same story
+  /// whichever chip is chosen. Re-read when the net figure moves.
+  (int, DateTime)? _peak;
+  int? _peakNet;
+
+  void _ensurePeak(int net) {
+    if (_peakNet == net) return;
+    _peakNet = net;
+    ref.read(accountRepoProvider).netWorthPeak().then((p) {
+      if (!mounted || _peakNet != net) return;
+      setState(() => _peak = p);
+    });
+  }
 
   void _ensureDeltas(int net) {
     final key = '$_range-$net';
@@ -265,6 +282,7 @@ class _WorthPageState extends ConsumerState<WorthPage> {
 
         _ensureHistory(net);
         _ensureDeltas(net);
+        _ensurePeak(net);
         _burnFuture ??= _monthlyBurn();
 
         final fetched = _history;
@@ -278,17 +296,15 @@ class _WorthPageState extends ConsumerState<WorthPage> {
         // appear only once there are two mornings to join.
         final hasLine = history.length > 1;
 
-        // The high-water mark, and roughly when it was set: the series is one
-        // reading per day, ending to-day.
+        // The range's own high point, for the chart's dashed watermark.
+        // The *sentence* under the chart speaks the all-time figure from
+        // [_peak] instead — a 1M window has no business claiming "ever".
         var peakIndex = 0;
         for (var i = 1; i < history.length; i++) {
           if (history[i] > history[peakIndex]) peakIndex = i;
         }
-        final peak = history[peakIndex];
-        final belowPeak = peak - net >= 100 && history.length > 2;
-        final peakOn = now.subtract(
-          Duration(days: history.length - 1 - peakIndex),
-        );
+        final belowPeak =
+            history[peakIndex] - net >= 100 && history.length > 2;
 
         final deltas = _deltas ?? const <int, int>{};
         final movers = [
@@ -455,6 +471,75 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ),
               ),
             ],
+            // The three answers under the figure: what can be spent now,
+            // what is put away, and how long the reachable part lasts.
+            if (assetTotal > 0)
+              StatTiles(
+                tiles: [
+                  StatTile(
+                    label: 'in reach',
+                    value: '',
+                    valueWidget: InkVeil(
+                      veiled: veiled,
+                      order: 3,
+                      text: Inr.compact(
+                        assets
+                            .where((a) => !a.keptAside)
+                            .fold<int>(0, (t, a) => t + a.balancePaise),
+                      ),
+                      style: LedgerType.amountTotal.copyWith(
+                        fontSize: 19,
+                        color: c.ink,
+                      ),
+                    ),
+                    sub: '${assets.where((a) => !a.keptAside).length} '
+                        '${assets.where((a) => !a.keptAside).length == 1 ? 'pocket' : 'pockets'}',
+                  ),
+                  StatTile(
+                    label: 'kept aside',
+                    value: '',
+                    valueWidget: InkVeil(
+                      veiled: veiled,
+                      order: 4,
+                      text: Inr.compact(
+                        assets
+                            .where((a) => a.keptAside)
+                            .fold<int>(0, (t, a) => t + a.balancePaise),
+                      ),
+                      style: LedgerType.amountTotal.copyWith(
+                        fontSize: 19,
+                        color: c.ink,
+                      ),
+                    ),
+                    sub: assets.any((a) => a.keptAside)
+                        ? 'funds, the slate'
+                        : 'nothing yet',
+                  ),
+                  FutureBuilder<int>(
+                    future: _burnFuture,
+                    builder: (context, snap) {
+                      final burn = snap.data ?? 0;
+                      final inReach = assets
+                          .where((a) => !a.keptAside)
+                          .fold<int>(0, (t, a) => t + a.balancePaise);
+                      final months = burn <= 0 || inReach <= 0
+                          ? null
+                          : inReach / burn;
+                      return StatTile(
+                        label: 'runway',
+                        value: months == null
+                            ? '—'
+                            : months < 1
+                            ? '< 1 mo'
+                            : months < 10
+                            ? '${months.toStringAsFixed(1)} mo'
+                            : '${months.round()} mo',
+                        sub: burn <= 0 ? 'no spending yet' : 'at this pace',
+                      );
+                    },
+                  ),
+                ],
+              ),
             // The reading everything counts from: until the shelf holds
             // real declared money, Worth leads with its own setup ritual
             // instead of a negative number and a shrug.
@@ -497,23 +582,25 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ),
               )
             else ...[
-              Row(
-                children: [
-                  for (final r in WorthRange.values) ...[
-                    QuillTab(
-                      r.chip,
-                      selected: r == _range,
-                      onTap: () => _pickRange(r),
-                    ),
-                    const SizedBox(width: Gap.x3),
-                  ],
-                ],
+              PillSegments(
+                labels: [for (final r in WorthRange.values) r.chip],
+                index: _range.index,
+                onSelect: (i) => _pickRange(WorthRange.values[i]),
               ),
               const SizedBox(height: Gap.x3),
-              _NetWorthChart(
+              // The line, filled and smoothed, a finger reading any morning.
+              AreaChart(
                 key: ValueKey('chart-$_drawToken'),
-                history: history,
-                peakIndex: belowPeak ? peakIndex : null,
+                points: [for (final v in history) v.toDouble()],
+                markIndex: belowPeak ? peakIndex : null,
+                labelFor: (i) {
+                  final day = now.subtract(
+                    Duration(days: history.length - 1 - i),
+                  );
+                  return veiled
+                      ? LedgerDates.ddMmm(day)
+                      : '${LedgerDates.ddMmm(day)} · ${Inr.format(history[i])}';
+                },
               ),
               Row(
                 children: [
@@ -536,55 +623,128 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   ),
                 ],
               ),
-            ],
-            if (belowPeak) ...[
-              const SizedBox(height: 6),
-              Text(
-                'highest it\'s ever been was ${Inr.compact(peak)}, '
-                '${LedgerDates.ddMmm(peakOn)}',
-                style: LedgerType.bodyText.copyWith(
-                  fontSize: 12,
-                  color: c.inkFaint,
+              // A window wider than the book's whole history shows all of
+              // it — the same line as the window below it. Said plainly,
+              // so a young book's identical charts read as young, not
+              // broken.
+              if (_range != WorthRange.month &&
+                  history.length < _range.days(now) &&
+                  history.length <= 60)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'the book is ${history.length} days old — this window '
+                    'holds all of it',
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 11,
+                      color: c.inkFaint,
+                    ),
+                  ),
                 ),
-              ),
             ],
-            // ————— what moved: the range's delta, itemised —————
-            if (hasLine && _deltas != null) ...[
-              const SectionHead('what moved'),
-              if (movers.isEmpty)
+            // ————— the high-water mark, for the whole book —————
+            //
+            // All-time, whatever range the chips hold. When to-day *is* the
+            // mark, the line says so without repeating the hero's figure.
+            if (hasLine && _peak != null) ...[
+              const SizedBox(height: 6),
+              if (net + 100 >= _peak!.$1)
                 Text(
-                  'nothing moved ${_range.phrase(now)}',
+                  'to-day is the most this book has ever held',
                   style: LedgerType.bodyText.copyWith(
-                    fontSize: 13,
+                    fontSize: 12,
                     color: c.inkFaint,
                   ),
                 )
               else
-                for (final (i, (a, d)) in movers.take(3).indexed)
-                  LeaderRow(
-                    label: a.name,
-                    amountWidget: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          d > 0 ? '+' : '−',
-                          style: LedgerType.amount.copyWith(
-                            color: d > 0 ? c.jama : c.ink,
-                          ),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'the most it has ever held — ',
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
                         ),
-                        InkVeil(
+                      ),
+                      WidgetSpan(
+                        alignment: PlaceholderAlignment.baseline,
+                        baseline: TextBaseline.alphabetic,
+                        child: InkVeil(
                           veiled: veiled,
-                          order: 2 + i,
-                          text: Inr.format(d.abs()),
-                          style: LedgerType.amount.copyWith(
-                            color: d > 0 ? c.jama : c.ink,
+                          order: 1,
+                          text: Inr.compact(_peak!.$1),
+                          style: LedgerType.bodyText.copyWith(
+                            fontSize: 12,
+                            color: c.inkFaint,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      TextSpan(
+                        text:
+                            ', ${LedgerDates.ddMmm(_peak!.$2)}'
+                            '${_peak!.$2.year == now.year ? '' : ' ${_peak!.$2.year}'}',
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
             ],
-            // ————— the shelf: everything owned, and how reachable —————
+            // ————— what carried the move —————
+            //
+            // Every row below now wears its own change for the window, so
+            // the itemised list this used to be is redundant; one sentence
+            // names the account that carried most of it.
+            if (hasLine && _deltas != null && movers.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              InkIn(
+                key: ValueKey('mover-$_drawToken'),
+                delay: const Duration(milliseconds: 520),
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'most of the move — ${movers.first.$1.name} ',
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                      TextSpan(
+                        text: movers.first.$2 > 0 ? '+' : '−',
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 12,
+                          color: movers.first.$2 > 0 ? c.jama : c.ink,
+                        ),
+                      ),
+                      WidgetSpan(
+                        alignment: PlaceholderAlignment.baseline,
+                        baseline: TextBaseline.alphabetic,
+                        child: InkVeil(
+                          veiled: veiled,
+                          order: 2,
+                          text: Inr.format(movers.first.$2.abs()),
+                          style: LedgerType.amount.copyWith(
+                            fontSize: 12,
+                            color: movers.first.$2 > 0 ? c.jama : c.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            // ————— the shelf: everything owned, grouped by how reachable —————
+            //
+            // Pockets you can spend from to-day sit first under their own
+            // combined figure; holdings kept aside sit under theirs. Each
+            // row carries its own balance and its own change for the window
+            // the chips hold — the same range governs the chart, the delta
+            // line and every row alike.
             SectionHead(
               'the shelf',
               trailing: InkVeil(
@@ -606,35 +766,6 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ],
               ),
               const SizedBox(height: Gap.x1),
-              if (assets.any((a) => a.keptAside)) ...[
-                LeaderRow(
-                  label: 'in reach',
-                  amountWidget: InkVeil(
-                    veiled: veiled,
-                    order: 6,
-                    text: Inr.format(
-                      assets
-                          .where((a) => !a.keptAside)
-                          .fold<int>(0, (t, a) => t + a.balancePaise),
-                    ),
-                    style: LedgerType.amount.copyWith(color: c.ink),
-                  ),
-                ),
-                LeaderRow(
-                  label: 'kept aside',
-                  amountWidget: InkVeil(
-                    veiled: veiled,
-                    order: 7,
-                    text: Inr.format(
-                      assets
-                          .where((a) => a.keptAside)
-                          .fold<int>(0, (t, a) => t + a.balancePaise),
-                    ),
-                    style: LedgerType.amount.copyWith(color: c.ink),
-                  ),
-                ),
-                const SizedBox(height: Gap.x1),
-              ],
             ] else if (assets.isNotEmpty) ...[
               const SizedBox(height: Gap.x2),
               Text(
@@ -646,12 +777,83 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ),
               ),
             ],
-            for (final (i, a) in assets.indexed)
-              _AccountRow(
-                account: a,
-                ink: assetTotal > 0 ? inkFor(i) : null,
-                stagger: i,
-                last: i == assets.length - 1,
+            if (assets.any((a) => a.keptAside)) ...[
+              Plate(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PlateHead(
+                      'in reach',
+                      trailing: InkVeil(
+                        veiled: veiled,
+                        order: 6,
+                        text: Inr.format(
+                          assets
+                              .where((a) => !a.keptAside)
+                              .fold<int>(0, (t, a) => t + a.balancePaise),
+                        ),
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                    ),
+                    for (final (i, a)
+                        in assets.where((a) => !a.keptAside).indexed)
+                      _AccountRow(
+                        account: a,
+                        ink: assetTotal > 0 ? inkFor(assets.indexOf(a)) : null,
+                        delta: hasLine ? deltas[a.id] : null,
+                        stagger: i,
+                      ),
+                  ],
+                ),
+              ),
+              Plate(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PlateHead(
+                      'kept aside',
+                      trailing: InkVeil(
+                        veiled: veiled,
+                        order: 7,
+                        text: Inr.format(
+                          assets
+                              .where((a) => a.keptAside)
+                              .fold<int>(0, (t, a) => t + a.balancePaise),
+                        ),
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                    ),
+                    for (final (i, a)
+                        in assets.where((a) => a.keptAside).indexed)
+                      _AccountRow(
+                        account: a,
+                        ink: assetTotal > 0 ? inkFor(assets.indexOf(a)) : null,
+                        delta: hasLine ? deltas[a.id] : null,
+                        stagger: assets.where((a) => !a.keptAside).length + i,
+                      ),
+                  ],
+                ),
+              ),
+            ] else
+              Plate(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final (i, a) in assets.indexed)
+                      _AccountRow(
+                        account: a,
+                        ink: assetTotal > 0 ? inkFor(i) : null,
+                        delta: hasLine ? deltas[a.id] : null,
+                        stagger: i,
+                      ),
+                  ],
+                ),
               ),
             // The shelf is a set of pockets, not a set of vaults: cash goes
             // to the bank, the bank feeds GPay. Worth is where you *see* the
@@ -676,36 +878,6 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                 ),
               ),
             ],
-            // The runway: what's in reach, said in months of real spending —
-            // the projection that makes "liquid" mean something.
-            FutureBuilder<int>(
-              future: _burnFuture,
-              builder: (context, snap) {
-                final burn = snap.data ?? 0;
-                final inReach = assets
-                    .where((a) => !a.keptAside)
-                    .fold<int>(0, (t, a) => t + a.balancePaise);
-                if (burn <= 0 || inReach <= 0) {
-                  return const SizedBox.shrink();
-                }
-                final months = inReach / burn;
-                final said = months < 1
-                    ? 'under a month'
-                    : months < 10
-                    ? 'about ${months.toStringAsFixed(1)} months'
-                    : 'about ${months.round()} months';
-                return Padding(
-                  padding: const EdgeInsets.only(top: Gap.x2),
-                  child: Text(
-                    'what\'s in reach covers $said of spending at this pace',
-                    style: LedgerType.bodyText.copyWith(
-                      fontSize: 12,
-                      color: c.inkFaint,
-                    ),
-                  ),
-                );
-              },
-            ),
             if (owed.isNotEmpty) ...[
               SectionHead(
                 'owed',
@@ -731,13 +903,20 @@ class _WorthPageState extends ConsumerState<WorthPage> {
                   ],
                 ),
               ),
-              for (final (i, a) in owed.indexed)
-                _AccountRow(
-                  account: a,
-                  negative: true,
-                  stagger: assets.length + i,
-                  last: i == owed.length - 1,
+              Plate(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final (i, a) in owed.indexed)
+                      _AccountRow(
+                        account: a,
+                        negative: true,
+                        delta: hasLine ? deltas[a.id] : null,
+                        stagger: assets.length + i,
+                      ),
+                  ],
                 ),
+              ),
             ],
             const _FundsSection(),
             const _GoalsSection(),
@@ -1163,8 +1342,8 @@ class _AccountRow extends ConsumerWidget {
   const _AccountRow({
     required this.account,
     this.ink,
+    this.delta,
     this.negative = false,
-    this.last = false,
     this.stagger = 0,
   });
 
@@ -1173,8 +1352,12 @@ class _AccountRow extends ConsumerWidget {
   /// The account's ink from the drawer — the swatch that ties its row to
   /// its share of the strip above. Null when there is nothing to tie to.
   final Color? ink;
+
+  /// How far this account moved over the window the page's range chips
+  /// hold (signed so a liability paid down reads as growth). Null while the
+  /// page has no line to measure against.
+  final int? delta;
   final bool negative;
-  final bool last;
 
   /// Row index across both sections, for the sparkline reveal stagger.
   final int stagger;
@@ -1191,86 +1374,93 @@ class _AccountRow extends ConsumerWidget {
         ? 'as of yesterday'
         : 'as of ${LedgerDates.ddMmm(account.asOf)}';
 
-    return Pressable(
+    final d = delta;
+    final Widget? change = d == null
+        ? null
+        : d.abs() < 100
+        ? Text(
+            'level',
+            style: LedgerType.bodyText.copyWith(fontSize: 11, color: c.inkFaint),
+          )
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                d > 0 ? '+' : '−',
+                style: LedgerType.amount.copyWith(
+                  fontSize: 11,
+                  color: d > 0 ? c.jama : c.inkFaint,
+                ),
+              ),
+              InkVeil(
+                veiled: veiled,
+                order: 8 + stagger,
+                text: Inr.format(d.abs()),
+                style: LedgerType.amount.copyWith(
+                  fontSize: 11,
+                  color: d > 0 ? c.jama : c.inkFaint,
+                ),
+              ),
+              if (_share(d) case final sh?)
+                Text(
+                  ' · $sh',
+                  style: LedgerType.amount.copyWith(
+                    fontSize: 11,
+                    color: d > 0 ? c.jama : c.inkFaint,
+                  ),
+                ),
+            ],
+          );
+    return PlateRow(
+      leading: Medallion(
+        icon: LedgerIcons.account[account.kind.name] ??
+            Icons.account_balance_wallet_outlined,
+        ink: negative ? c.seal : ink,
+      ),
+      title: account.name,
+      sub: [
+        stale ? '$asOf — update?' : asOf,
+        if (account.keptAside) 'kept aside',
+      ].join(' · '),
+      trailing: _SparkReveal(
+        delayMs: 60 * stagger,
+        child: FutureBuilder<List<double>>(
+          key: ValueKey('spark-${account.id}-${account.balancePaise}'),
+          future: ref.read(accountRepoProvider).spark(account.id),
+          builder: (context, spark) => Sparkline(spark.data ?? const [1, 1]),
+        ),
+      ),
+      amountWidget: InkVeil(
+        veiled: veiled,
+        order: 8 + stagger,
+        text: negative
+            ? '− ${Inr.format(account.balancePaise)}'
+            : Inr.format(account.balancePaise),
+        style: LedgerType.amountTotal.copyWith(fontSize: 15, color: c.ink),
+        child: CountUp(
+          value: account.balancePaise,
+          format: (p) => negative ? '− ${Inr.format(p)}' : Inr.format(p),
+          style: LedgerType.amountTotal.copyWith(fontSize: 15, color: c.ink),
+        ),
+      ),
+      amountSub: change,
       onTap: () => _correctBalance(context, ref),
       onLongPress: () {
         HapticFeedback.selectionClick();
         _historySheet(context, ref, asOf);
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: Gap.x3),
-        decoration: BoxDecoration(
-          border: last ? null : Border(bottom: BorderSide(color: c.rule)),
-        ),
-        child: Row(
-          children: [
-            if (ink != null) ...[
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: ink,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: Gap.x2),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    account.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: LedgerType.bodyText.copyWith(color: c.ink),
-                  ),
-                  // A holding's protection rides in the subline — daily
-                  // spending never sees this row, and no box says so.
-                  Text(
-                    [
-                      stale ? '$asOf — update?' : asOf,
-                      if (account.keptAside) 'kept aside',
-                    ].join(' · '),
-                    style: LedgerType.bodyText.copyWith(
-                      fontSize: 11,
-                      color: stale ? c.warn : c.inkFaint,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _SparkReveal(
-              delayMs: 60 * stagger,
-              child: FutureBuilder<List<double>>(
-                key: ValueKey('spark-${account.id}-${account.balancePaise}'),
-                future: ref.read(accountRepoProvider).spark(account.id),
-                builder: (context, spark) =>
-                    Sparkline(spark.data ?? const [1, 1]),
-              ),
-            ),
-            const SizedBox(width: Gap.x3),
-            // Settles to the new figure after an update, never snaps —
-            // and behind the veil it is struck out, not rewritten, so its
-            // width never jolts the row.
-            InkVeil(
-              veiled: veiled,
-              order: 8 + stagger,
-              text: negative
-                  ? '− ${Inr.format(account.balancePaise)}'
-                  : Inr.format(account.balancePaise),
-              style: LedgerType.amount.copyWith(color: c.ink),
-              child: CountUp(
-                value: account.balancePaise,
-                format: (p) =>
-                    negative ? '− ${Inr.format(p)}' : Inr.format(p),
-                style: LedgerType.amount.copyWith(color: c.ink),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
+  }
+
+  /// The move as a share of where the account stood when the window
+  /// opened — the figure Copilot-style account rows carry. Null when the
+  /// baseline was nothing (a share of zero is not a number worth printing).
+  String? _share(int d) {
+    final before = account.balancePaise * (negative ? -1 : 1) - d;
+    if (before.abs() < 100) return null;
+    final pct = (d * 100 / before.abs()).round();
+    if (pct.abs() > 999) return null;
+    return '${pct > 0 ? '+' : ''}$pct%';
   }
 
   /// Long-press: the readings behind the whisper, at a size worth reading.
@@ -1640,139 +1830,6 @@ class _RevealClipper extends CustomClipper<Rect> {
 
   @override
   bool shouldReclip(_RevealClipper old) => old.progress != progress;
-}
-
-class _NetWorthChart extends StatelessWidget {
-  const _NetWorthChart({super.key, required this.history, this.peakIndex});
-
-  final List<int> history;
-
-  /// When set, a faint watermark rule is ruled across the high-water mark —
-  /// the line has been higher than it is now.
-  final int? peakIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = LedgerColors.of(context);
-    return SizedBox(
-      height: 80,
-      width: double.infinity,
-      child: DrawIn(
-        duration: const Duration(milliseconds: 700),
-        builder: (context, t) => CustomPaint(
-          painter: _AreaPainter(
-            points: [for (final v in history) v.toDouble()],
-            line: c.quill,
-            rule: c.rule,
-            faint: c.inkFaint,
-            peakIndex: peakIndex,
-            progress: t,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AreaPainter extends CustomPainter {
-  _AreaPainter({
-    required this.points,
-    required this.line,
-    required this.rule,
-    required this.faint,
-    this.peakIndex,
-    this.progress = 1,
-  });
-
-  final List<double> points;
-  final Color line;
-  final Color rule;
-  final Color faint;
-  final int? peakIndex;
-
-  /// 0→1 draws the line pen-style and washes the fill in behind it.
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (points.length < 2) return;
-    final base = size.height - 8;
-    canvas.drawLine(
-      Offset(0, base),
-      Offset(size.width, base),
-      Paint()
-        ..color = rule
-        ..strokeWidth = 1,
-    );
-
-    final min = points.reduce(math.min);
-    final max = points.reduce(math.max);
-    final range = (max - min) == 0 ? 1.0 : max - min;
-
-    Offset at(int i) => Offset(
-      size.width * i / (points.length - 1),
-      base - (base - 10) * ((points[i] - min) / range) * 0.9 - 4,
-    );
-
-    final path = Path()..moveTo(at(0).dx, at(0).dy);
-    for (var i = 1; i < points.length; i++) {
-      path.lineTo(at(i).dx, at(i).dy);
-    }
-
-    // A flat quill wash under the line — the one place ink pools on paper.
-    final fill = Path.from(path)
-      ..lineTo(size.width, base)
-      ..lineTo(0, base)
-      ..close();
-    canvas.drawPath(
-      fill,
-      Paint()..color = line.withValues(alpha: 0.10 * progress),
-    );
-
-    // The watermark: a dashed hairline ruled across the high-water mark.
-    final peak = peakIndex;
-    if (peak != null && peak >= 0 && peak < points.length) {
-      final y = at(peak).dy;
-      final mark = Paint()
-        ..color = faint.withValues(alpha: 0.45 * progress)
-        ..strokeWidth = 1;
-      var x = 0.0;
-      while (x < size.width) {
-        canvas.drawLine(
-          Offset(x, y),
-          Offset(math.min(x + 3, size.width), y),
-          mark,
-        );
-        x += 7;
-      }
-    }
-
-    // The line draws itself: clip the path to [progress] of its length.
-    final drawn = Path();
-    for (final metric in path.computeMetrics()) {
-      drawn.addPath(
-        metric.extractPath(0, metric.length * progress.clamp(0.0, 1.0)),
-        Offset.zero,
-      );
-    }
-    canvas.drawPath(
-      drawn,
-      Paint()
-        ..color = line
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2
-        ..strokeCap = StrokeCap.round,
-    );
-    if (progress >= 0.98) {
-      canvas.drawCircle(at(points.length - 1), 3.4, Paint()..color = line);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_AreaPainter old) =>
-      old.points != points ||
-      old.progress != progress ||
-      old.peakIndex != peakIndex;
 }
 
 /// The Worth setup: one full screen, plain questions — how much, and where it

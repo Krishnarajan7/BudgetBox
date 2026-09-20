@@ -498,9 +498,16 @@ class _PageEditorState extends ConsumerState<_PageEditor> {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            Text(
-              _longDate(date),
-              style: LedgerType.title.copyWith(color: c.ink),
+            // Flexible: "Saturday, 19 September" beside a long felt word
+            // overran the row on narrow phones; the date yields, the
+            // word does not.
+            Flexible(
+              child: Text(
+                _longDate(date),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: LedgerType.title.copyWith(color: c.ink),
+              ),
             ),
             const SizedBox(width: Gap.x2),
             AnimatedOpacity(

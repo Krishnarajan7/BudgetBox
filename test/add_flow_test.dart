@@ -4,12 +4,14 @@ import 'package:budgetbox/data/repos/account_repo.dart';
 import 'package:budgetbox/data/repos/txn_repo.dart';
 import 'package:budgetbox/features/add/add_sheet.dart';
 import 'package:budgetbox/features/today/widgets/digit_roll.dart';
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:budgetbox/core/theme.dart';
+import 'package:budgetbox/core/widgets/pen_marks.dart';
 
 void main() {
   late LedgerDb db;
@@ -230,5 +232,42 @@ void main() {
     expect(txns.single.amountPaise, 60000);
     final acct = (await db.select(db.accounts).get()).single;
     expect(acct.balancePaise, 60000, reason: 'money in raises the pocket');
+  });
+
+  testWidgets('a category picked from the full drawer lights its own chip', (
+    tester,
+  ) async {
+    await tester.pumpWidget(host());
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // A category just beyond the four frequent chips of a fresh book —
+    // absent from the row, but on the drawer grid's visible rows.
+    final cats =
+        await (db.select(db.categories)..orderBy([
+              (c) => OrderingTerm.asc(c.sortOrder),
+            ]))
+            .get();
+    final far = cats
+        .where((x) => x.kind == CategoryKind.expense)
+        .elementAt(4);
+    expect(find.text(far.name), findsNothing);
+
+    // The dots live at the far end of the scrollable chip row.
+    await tester.ensureVisible(find.byType(PenDots));
+    await tester.pump();
+    await tester.tap(find.byType(PenDots));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(far.name));
+    await tester.pumpAndSettle();
+
+    // The pick now stands at the front of the row, lit like any frequent
+    // chip — before, it changed the entry with no visible sign at all.
+    expect(find.text(far.name), findsOneWidget);
+
+    // And it toggles like the others: deselecting keeps the chip standing.
+    await tester.tap(find.text(far.name));
+    await tester.pumpAndSettle();
+    expect(find.text(far.name), findsOneWidget);
   });
 }

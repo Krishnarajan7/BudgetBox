@@ -115,6 +115,13 @@ class _InkVeilState extends State<InkVeil>
       _t.value = 1;
       return;
     }
+    // Hold at the wave's start *now*. Between the toggle and this figure's
+    // turn in the cascade the controller used to sit completed, so build()
+    // read it as settled and flashed the destination — masks snapping on
+    // and back off (or the true figure leaking out) before the wave ran.
+    // Parked at zero, the tiles keep showing what the figure was until
+    // its turn actually comes.
+    _t.value = 0;
     Future.delayed(_stagger * widget.order, () {
       if (!mounted || gen != _generation) return;
       _t.forward(from: 0);

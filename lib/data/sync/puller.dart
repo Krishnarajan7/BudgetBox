@@ -183,6 +183,32 @@ class SyncPuller {
           await (_db.delete(
             _db.alarms,
           )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.meal:
+          await (_db.delete(
+            _db.meals,
+          )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.plink:
+          await (_db.delete(
+            _db.projectLinks,
+          )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.quote:
+          await (_db.delete(
+            _db.quoteRevisions,
+          )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.project:
+          await (_db.delete(
+            _db.projectLinks,
+          )..where((x) => x.projectId.equals(localId))).go();
+          await (_db.delete(
+            _db.quoteRevisions,
+          )..where((x) => x.projectId.equals(localId))).go();
+          await (_db.delete(
+            _db.projects,
+          )..where((x) => x.id.equals(localId))).go();
+        case SyncKinds.client:
+          await (_db.delete(
+            _db.clients,
+          )..where((x) => x.id.equals(localId))).go();
         default:
           // Accounts, categories, budgets, goals and recurrings use archive /
           // inactive states in the public API. Refuse to cascade an unexpected
@@ -205,6 +231,11 @@ class SyncPuller {
     'events' => SyncKinds.event,
     'day_marks' => SyncKinds.mark,
     'alarms' => SyncKinds.alarm,
+    'meals' => SyncKinds.meal,
+    'clients' => SyncKinds.client,
+    'projects' => SyncKinds.project,
+    'quote_revisions' => SyncKinds.quote,
+    'project_links' => SyncKinds.plink,
     _ => null,
   };
 
@@ -224,6 +255,11 @@ class SyncPuller {
     _Step('vault_items', _applyVault),
     _Step('day_marks', _applyMarks),
     _Step('alarms', _applyAlarms),
+    _Step('meals', _applyMeals),
+    _Step('clients', _applyClients),
+    _Step('projects', _applyProjects),
+    _Step('quote_revisions', _applyQuotes),
+    _Step('project_links', _applyPlinks),
   ];
 
   // ————— the shared shape of applying one remote row —————
@@ -821,6 +857,171 @@ class SyncPuller {
         }
         await (p._db.update(
           p._db.dayMarks,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  /// Meals come down whole, nutrients included — the phone never re-weighs
+  /// a restored day against whatever catalogue it now carries.
+  static Future<int> _applyMeals(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/meals');
+    var n = 0;
+    for (final r in rows) {
+      n += await p._absorb(SyncKinds.meal, '${r['id']}', (localId) async {
+        final companion = MealsCompanion(
+          date: Value('${r['date']}'),
+          slot: Value(_pick(MealSlot.values, r['slot'], MealSlot.lunch)),
+          foodKey: Value(r['food_key'] as String?),
+          name: Value('${r['name'] ?? 'something'}'),
+          servings: Value((r['servings'] as num?)?.toDouble() ?? 1),
+          grams: Value((r['grams'] as num?)?.toDouble()),
+          facts: Value(r['facts'] as String?),
+          skipped: Value(r['skipped'] == true),
+          note: Value(r['note'] as String?),
+          at: Value(_time(r['at']) ?? DateTime.now()),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.meals).insert(companion);
+        }
+        await (p._db.update(
+          p._db.meals,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  static Future<int> _applyClients(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/clients', {'include_archived': true});
+    var n = 0;
+    for (final r in rows) {
+      n += await p._absorb(SyncKinds.client, '${r['id']}', (localId) async {
+        final companion = ClientsCompanion(
+          name: Value('${r['name']}'),
+          note: Value(r['note'] as String?),
+          archived: Value(r['archived'] == true),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.clients).insert(companion);
+        }
+        await (p._db.update(
+          p._db.clients,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  static Future<int> _applyProjects(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/projects');
+    var n = 0;
+    for (final r in rows) {
+      final clientId = await p._ids.localFor(SyncKinds.client, '${r['client_id']}');
+      if (clientId == null) continue;
+      n += await p._absorb(SyncKinds.project, '${r['id']}', (localId) async {
+        final companion = ProjectsCompanion(
+          clientId: Value(clientId),
+          name: Value('${r['name']}'),
+          kind: Value(
+            r['kind'] == 'monthly' ? ProjectKind.monthly : ProjectKind.oneTime,
+          ),
+          quotePaise: Value(_int(r['quote_paise'])),
+          billingDay: Value((r['billing_day'] as num?)?.toInt()),
+          status: Value(
+            _pick(ProjectStatus.values, r['status'], ProjectStatus.active),
+          ),
+          startedAt: Value(_time(r['started_at']) ?? DateTime.now()),
+          note: Value(r['note'] as String?),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.projects).insert(companion);
+        }
+        await (p._db.update(
+          p._db.projects,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  static Future<int> _applyQuotes(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/quotes');
+    var n = 0;
+    for (final r in rows) {
+      final projectId = await p._ids.localFor(
+        SyncKinds.project,
+        '${r['project_id']}',
+      );
+      if (projectId == null) continue;
+      n += await p._absorb(SyncKinds.quote, '${r['id']}', (localId) async {
+        final companion = QuoteRevisionsCompanion(
+          projectId: Value(projectId),
+          paise: Value(_int(r['paise'])),
+          reason: Value(r['reason'] as String?),
+          at: Value(_time(r['at']) ?? DateTime.now()),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.quoteRevisions).insert(companion);
+        }
+        await (p._db.update(
+          p._db.quoteRevisions,
+        )..where((x) => x.id.equals(localId))).write(companion);
+        return localId;
+      });
+    }
+    return n;
+  }
+
+  static Future<int> _applyPlinks(
+    SyncPuller p,
+    SyncWire wire,
+    List<String> ids,
+  ) async {
+    final rows = await wire.list('/v1/project-links');
+    var n = 0;
+    for (final r in rows) {
+      final projectId = await p._ids.localFor(
+        SyncKinds.project,
+        '${r['project_id']}',
+      );
+      final txnId = await p._ids.localFor(SyncKinds.txn, '${r['txn_id']}');
+      if (projectId == null || txnId == null) continue;
+      n += await p._absorb(SyncKinds.plink, '${r['id']}', (localId) async {
+        final companion = ProjectLinksCompanion(
+          projectId: Value(projectId),
+          txnId: Value(txnId),
+          role: Value(_pick(LinkRole.values, r['role'], LinkRole.cost)),
+          billable: Value(r['billable'] == true),
+          note: Value(r['note'] as String?),
+          at: Value(_time(r['at']) ?? DateTime.now()),
+        );
+        if (localId == null) {
+          return p._db.into(p._db.projectLinks).insert(companion);
+        }
+        await (p._db.update(
+          p._db.projectLinks,
         )..where((x) => x.id.equals(localId))).write(companion);
         return localId;
       });

@@ -236,6 +236,21 @@ class _IncomeSheet extends ConsumerStatefulWidget {
 }
 
 class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
+  /// 'transfer' when the words describe money moving between his own
+  /// pockets, 'repaid' when they describe a friend settling up, else null.
+  static String? _looksLike(String title) {
+    final t = title.toLowerCase();
+    if (RegExp(r'transfer|hand cash|to bank|from bank|to gpay|to upi|atm')
+        .hasMatch(t)) {
+      return 'transfer';
+    }
+    if (RegExp(r'paid back|repaid|repayment|returned|gave back|settle')
+        .hasMatch(t)) {
+      return 'repaid';
+    }
+    return null;
+  }
+
   final _amount = TextEditingController();
   final _title = TextEditingController();
 
@@ -398,6 +413,41 @@ class _IncomeSheetState extends ConsumerState<_IncomeSheet> {
                   ),
                 ],
               ),
+            ),
+            // Money moving is not money earned. The book has seen "hand
+            // cash to bank" and "paid back" written as income; both inflate
+            // the month. When the words say so, offer the right door.
+            AnimatedSize(
+              duration: Motion.spring,
+              curve: Motion.curve,
+              alignment: Alignment.topLeft,
+              child: switch (_looksLike(_title.text)) {
+                null => const SizedBox(width: double.infinity),
+                final kind => Padding(
+                  padding: const EdgeInsets.only(top: Gap.x2),
+                  child: Pressable(
+                    key: const ValueKey('income-looks-like'),
+                    haptic: false,
+                    onTap: kind == 'transfer'
+                        ? () {
+                            Navigator.of(context).pop();
+                            showTransferSheet(context);
+                          }
+                        : null,
+                    child: Text(
+                      kind == 'transfer'
+                          ? 'reads like money moving between pockets, not '
+                                'earned — write it as a transfer ›'
+                          : 'reads like someone paying you back — the slate '
+                                'keeps that, and it is not income',
+                      style: LedgerType.bodyText.copyWith(
+                        fontSize: 12,
+                        color: c.inkFaint,
+                      ),
+                    ),
+                  ),
+                ),
+              },
             ),
             _defaultsRow(c),
             const SizedBox(height: Gap.x4),

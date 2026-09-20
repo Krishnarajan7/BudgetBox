@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/rain_watch.dart';
+import '../../data/providers.dart';
+import '../../data/rain_context.dart';
 import '../../core/weather.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
@@ -60,7 +62,12 @@ class _WeatherPageState extends ConsumerState<WeatherPage> {
     if (haptic) HapticFeedback.mediumImpact();
     setState(() => _looking = true);
     final sky = await ref.read(weatherRepoProvider).refresh();
-    await ref.read(rainWatchProvider).lay(sky);
+    await ref
+        .read(rainWatchProvider)
+        .lay(
+          sky,
+          context: await readRainContext(ref.read(dbProvider), DateTime.now()),
+        );
     if (!mounted) return;
     setState(() {
       _looking = false;

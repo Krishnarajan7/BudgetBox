@@ -13,6 +13,7 @@ import '../../core/undo_banner.dart';
 import '../../core/dates.dart';
 import '../../core/icons.dart';
 import '../../core/inr.dart';
+import '../../core/tabs.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/cat_mark.dart';
@@ -20,11 +21,13 @@ import '../../core/widgets/ledger_app_bar.dart';
 import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/widgets/pen_marks.dart';
+import '../../core/widgets/plates.dart';
 import '../../core/widgets/seal.dart';
 import '../../core/widgets/sheets.dart';
 import '../../data/db.dart';
 import '../../data/providers.dart';
 import '../add/add_sheet.dart';
+import '../income/income_page.dart';
 import '../../data/repos/txn_repo.dart';
 import '../today/widgets/ledger_rows.dart';
 import '../today/widgets/sections.dart';
@@ -181,13 +184,22 @@ class _Strike {
 /// view where quiet days stay pale, and pages that turn back through the
 /// months of the book.
 class BookPage extends ConsumerStatefulWidget {
-  const BookPage({super.key, this.initialMonth, this.initialCategory});
+  const BookPage({
+    super.key,
+    this.initialMonth,
+    this.initialCategory,
+    this.initialQuery,
+  });
 
   /// Where to open the book — an Insights row pushes the page already
   /// turned to its month and narrowed to its category. Null opens on the
   /// current month, unfiltered, exactly as the spine's tab always has.
   final DateTime? initialMonth;
   final int? initialCategory;
+
+  /// A word to open the search on — an Insights habit pushes the book
+  /// already narrowed to its lines.
+  final String? initialQuery;
 
   @override
   ConsumerState<BookPage> createState() => _BookPageState();
@@ -196,8 +208,9 @@ class BookPage extends ConsumerStatefulWidget {
 class _BookPageState extends ConsumerState<BookPage> {
   bool _heat = false;
   late int? _categoryFilter = widget.initialCategory;
-  String _query = '';
+  late String _query = widget.initialQuery ?? '';
   final _searchFocus = FocusNode();
+  late final _searchCtl = TextEditingController(text: widget.initialQuery);
 
   /// The month being read — always the first of a month.
   late DateTime _month = LedgerDates.monthStart(
@@ -216,6 +229,10 @@ class _BookPageState extends ConsumerState<BookPage> {
   /// been brought back (the seq re-inks the line when it returns).
   final _struck = <int, _Strike>{};
   final _reinked = <int, int>{};
+
+  /// Days whose quieter lines are spread open — the fold's memory. It
+  /// empties when the month flips: every page opens folded to its story.
+  final _unfolded = <int>{};
 
   /// One repaint boundary per visible row, so a strike can photograph the
   /// line it is about to dissolve.
@@ -237,10 +254,20 @@ class _BookPageState extends ConsumerState<BookPage> {
 
   void _onFocusChanged() => setState(() {});
 
+  /// The pen is lifted from the search: the field empties, the keyboard
+  /// goes, and the page shows the whole month again. One motion, because
+  /// a search you can't leave is a filter you're trapped in.
+  void _cancelSearch() {
+    _searchCtl.clear();
+    _searchFocus.unfocus();
+    if (_query.isNotEmpty) setState(() => _query = '');
+  }
+
   @override
   void dispose() {
     _searchFocus.removeListener(_onFocusChanged);
     _searchFocus.dispose();
+    _searchCtl.dispose();
     // A struck line was already let go — leaving the page just settles it.
     final repo = _strikeRepo;
     if (repo != null) {
@@ -274,6 +301,7 @@ class _BookPageState extends ConsumerState<BookPage> {
       _flipDx = dir.toDouble();
       _month = target;
       _flipSeq++;
+      _unfolded.clear();
     });
   }
 
@@ -389,6 +417,14 @@ class _BookPageState extends ConsumerState<BookPage> {
     final onNow = _month == LedgerDates.monthStart(now);
     _sealStream ??= db.select(db.daySeals).watch();
 
+    // Turning to another page of the spine lifts the pen from the search —
+    // otherwise the keyboard and the focused underline follow you to Today.
+    ref.listen(activeTabProvider, (prev, next) {
+      if (next != LedgerTab.book && _searchFocus.hasFocus) {
+        _searchFocus.unfocus();
+      }
+    });
+
     // A flipped month reads as an already-written page: reset the seen-ids
     // book-keeping so nothing inks in on its first load.
     if (_streamMonth != _month) {
@@ -469,6 +505,9 @@ class _BookPageState extends ConsumerState<BookPage> {
         Gap.page,
         MediaQuery.paddingOf(context).bottom + Gap.x4,
       ),
+      // Reading the results is leaving the search: the first drag down the
+      // page puts the keyboard away, the way every list-with-search does.
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         LedgerAppBar(
           title: 'Book',
@@ -580,26 +619,34 @@ class _BookPageState extends ConsumerState<BookPage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _filters(c, cats),
-                            _monthLine(c, monthSpent, all.length, onNow),
-                            // Matched rows re-filter with a soft fade.
-                            AnimatedSwitcher(
-                              duration: Motion.quick,
-                              switchInCurve: Motion.curve,
-                              switchOutCurve: Motion.curve,
-                              layoutBuilder: _topAligned,
-                              child: Column(
-                                key: ValueKey('book-$_query'),
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: _ledgerView(
-                                  c,
-                                  now,
-                                  rows,
-                                  catById,
-                                  catColor,
-                                  fresh,
-                                  onNow,
-                                  sealedDays,
-                                ),
+                            _monthLine(
+                              c,
+                              monthSpent,
+                              all.length,
+                              onNow,
+                              matched: _query.isEmpty && _categoryFilter == null
+                                  ? null
+                                  : rows,
+                            ),
+                            // Matched rows re-filter *in place*. This used
+                            // to be an AnimatedSwitcher keyed by the query,
+                            // which cross-faded two whole ledgers on every
+                            // keystroke — and both copies carried the same
+                            // per-row GlobalKeys (the strike's photograph
+                            // boundaries), so for a few frames each key was
+                            // mounted twice. That double-mount was the
+                            // flicker every letter typed into the search.
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: _ledgerView(
+                                c,
+                                now,
+                                rows,
+                                catById,
+                                catColor,
+                                fresh,
+                                onNow,
+                                sealedDays,
                               ),
                             ),
                           ],
@@ -746,6 +793,8 @@ class _BookPageState extends ConsumerState<BookPage> {
     final faint = LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint);
     TextStyle mono(Color color) =>
         LedgerType.amount.copyWith(fontSize: 12, color: color);
+    // The 'in' figure is a door: income has its own page, and this line is
+    // where the month first mentions it.
     return Padding(
       padding: const EdgeInsets.only(top: Gap.x2),
       child: FittedBox(
@@ -753,12 +802,27 @@ class _BookPageState extends ConsumerState<BookPage> {
         alignment: Alignment.centerLeft,
         child: Row(
           children: [
-            Text('in ', style: faint),
-            CountUp(
-              value: k.inPaise,
-              format: Inr.format,
-              style: mono(c.ink),
-              duration: const Duration(milliseconds: 400),
+            Pressable(
+              key: const ValueKey('book-income-door'),
+              haptic: false,
+              onTap: () => Navigator.of(context).push(
+                LedgerRoute<void>(
+                  builder: (_) => IncomePage(initialMonth: _month),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Text('in ', style: faint),
+                  CountUp(
+                    value: k.inPaise,
+                    format: Inr.format,
+                    style: mono(c.quill),
+                    duration: const Duration(milliseconds: 400),
+                  ),
+                  const SizedBox(width: 3),
+                  PenChevron(size: 9, color: c.quill),
+                ],
+              ),
             ),
             Text(' · out ', style: faint),
             CountUp(
@@ -819,6 +883,11 @@ class _BookPageState extends ConsumerState<BookPage> {
           ),
         ),
         // The underline takes the quill while the pen is in the field.
+        // The row has three states and always a way back from each: idle
+        // (a quiet line), writing (a clear mark appears the moment there
+        // is something to clear), and focused (the word 'cancel' sits at
+        // the right edge, and lifts the pen out entirely). The pattern is
+        // the platform search bar's — nothing here had a way *out* before.
         AnimatedContainer(
           duration: Motion.quick,
           curve: Motion.curve,
@@ -831,32 +900,98 @@ class _BookPageState extends ConsumerState<BookPage> {
               ),
             ),
           ),
-          child: TextField(
-            focusNode: _searchFocus,
-            onChanged: (v) => setState(() => _query = v),
-            style: LedgerType.bodyText.copyWith(color: c.ink, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: 'search the book…',
-              hintStyle: LedgerType.bodyText.copyWith(
-                fontSize: 14,
-                color: c.inkFaint,
-              ),
-              icon: AnimatedSwitcher(
-                duration: Motion.quick,
-                switchInCurve: Motion.curve,
-                switchOutCurve: Motion.curve,
+          child: Row(
+            children: [
+              Pressable(
+                key: const ValueKey('book-search-pen'),
+                haptic: false,
+                onTap: () => _searchFocus.requestFocus(),
                 child: Padding(
-                  key: ValueKey('search-icon-$focused'),
-                  padding: const EdgeInsets.only(right: 4),
-                  child: PenSearch(
-                    size: 16,
-                    color: focused ? c.quill : c.inkFaint,
+                  padding: const EdgeInsets.fromLTRB(0, 6, Gap.x2, 6),
+                  child: AnimatedSwitcher(
+                    duration: Motion.quick,
+                    switchInCurve: Motion.curve,
+                    switchOutCurve: Motion.curve,
+                    child: PenSearch(
+                      key: ValueKey('search-icon-$focused'),
+                      size: 16,
+                      color: focused ? c.quill : c.inkFaint,
+                    ),
                   ),
                 ),
               ),
-              border: InputBorder.none,
-              isDense: true,
-            ),
+              Expanded(
+                child: TextField(
+                  key: const ValueKey('book-search'),
+                  controller: _searchCtl,
+                  focusNode: _searchFocus,
+                  textInputAction: TextInputAction.search,
+                  onChanged: (v) => setState(() => _query = v),
+                  onSubmitted: (_) => _searchFocus.unfocus(),
+                  style: LedgerType.bodyText.copyWith(
+                    color: c.ink,
+                    fontSize: 14,
+                  ),
+                  cursorColor: c.quill,
+                  decoration: InputDecoration(
+                    hintText: 'search the book…',
+                    hintStyle: LedgerType.bodyText.copyWith(
+                      fontSize: 14,
+                      color: c.inkFaint,
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                ),
+              ),
+              // The clear mark: only while there is something to clear. It
+              // empties the field but keeps the pen in it — a retype, not
+              // a retreat.
+              AnimatedSize(
+                duration: Motion.quick,
+                curve: Motion.curve,
+                alignment: Alignment.centerRight,
+                child: _query.isEmpty
+                    ? const SizedBox.shrink()
+                    : Pressable(
+                        key: const ValueKey('book-search-clear'),
+                        haptic: false,
+                        onTap: () {
+                          _searchCtl.clear();
+                          setState(() => _query = '');
+                          _searchFocus.requestFocus();
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: PenCross(size: 11, color: c.inkFaint),
+                        ),
+                      ),
+              ),
+              // The way out: shown while the pen is in the field or a
+              // query stands, gone the moment neither is true.
+              AnimatedSize(
+                duration: Motion.quick,
+                curve: Motion.curve,
+                alignment: Alignment.centerRight,
+                child: (focused || _query.isNotEmpty)
+                    ? Pressable(
+                        key: const ValueKey('book-search-cancel'),
+                        haptic: false,
+                        onTap: _cancelSearch,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(Gap.x2, 6, 0, 6),
+                          child: Text(
+                            'cancel',
+                            style: LedgerType.bodyStrong.copyWith(
+                              fontSize: 13,
+                              color: c.quill,
+                            ),
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ],
           ),
         ),
       ],
@@ -868,9 +1003,42 @@ class _BookPageState extends ConsumerState<BookPage> {
     LedgerColors c,
     int monthSpent,
     int entryCount,
-    bool onNow,
-  ) {
+    bool onNow, {
+    List<Txn>? matched,
+  }) {
     final style = LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint);
+    // A searched or filtered page keeps score of what it found, not of the
+    // month behind it — the total of the matches is the answer being
+    // looked for ("how much on auto this month?"), so it is said here.
+    if (matched != null) {
+      final spent = matched
+          .where((t) => t.type == TxnType.expense)
+          .fold(0, (s, t) => s + t.amountPaise);
+      final n = matched.length;
+      return Padding(
+        padding: const EdgeInsets.only(top: Gap.x3),
+        child: Row(
+          key: const ValueKey('book-match-line'),
+          children: [
+            Text(
+              n == 0 ? 'no matches' : '$n ${n == 1 ? 'match' : 'matches'} · ',
+              style: style,
+            ),
+            if (n > 0)
+              CountUp(
+                value: spent,
+                format: Inr.format,
+                style: LedgerType.amount.copyWith(
+                  fontSize: 12,
+                  color: c.inkFaint,
+                ),
+                duration: const Duration(milliseconds: 400),
+              ),
+            if (n > 0) Text(' spent', style: style),
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(top: Gap.x3),
       child: Row(
@@ -909,11 +1077,13 @@ class _BookPageState extends ConsumerState<BookPage> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: Gap.x8),
           child: Text(
-            _query.isEmpty
-                ? (onNow
-                      ? 'This month\'s pages are blank so far.'
-                      : 'Nothing was written in ${_monthName(_month.month)}.')
-                : 'Nothing in the book matches "$_query".',
+            _query.isNotEmpty
+                ? 'Nothing in the book matches "$_query".'
+                : _categoryFilter != null
+                ? 'Nothing under this mark in ${_monthName(_month.month)}.'
+                : onNow
+                ? 'This month\'s pages are blank so far.'
+                : 'Nothing was written in ${_monthName(_month.month)}.',
             style: LedgerType.bodyText.copyWith(color: c.inkFaint),
           ),
         ),
@@ -926,6 +1096,82 @@ class _BookPageState extends ConsumerState<BookPage> {
     }
     final days = byDay.keys.toList()..sort((a, b) => b.compareTo(a));
 
+    // The fold sleeps while the book is being queried — a searched or
+    // filtered page shows every match, because every match was asked for.
+    final canFold = _query.isEmpty && _categoryFilter == null;
+
+    Widget rowFor(Txn t, {required bool last}) {
+      final strike = _struck[t.id];
+      final reink = _reinked[t.id] ?? 0;
+      // The category's ink rides ahead of its mark — the same color this
+      // category wears on Today and in the month view.
+      final ink = t.type == TxnType.income ? c.jama : catColor[t.categoryId];
+      final mark = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: ink ?? c.rule,
+              borderRadius: BorderRadius.circular(1.5),
+            ),
+          ),
+          const SizedBox(width: Gap.x2),
+          CatMark(cats[t.categoryId]?.icon, size: 14),
+        ],
+      );
+      final amount = t.type == TxnType.income
+          ? Inr.format(t.amountPaise, signed: true)
+          : Inr.format(t.amountPaise);
+      final catName = t.type == TxnType.transfer
+          ? 'moved'
+          : (cats[t.categoryId]?.name.toLowerCase() ?? 'unfiled');
+      // The payoff after the add sheet pops: only a genuinely new
+      // entry inks itself onto the page — and a line brought back from
+      // the strike inks itself in again.
+      return InkIn(
+        key: ValueKey('txn-ink-${t.id}-$reink'),
+        play: fresh.contains(t.id) || reink > 0,
+        child: strike != null
+            ? _StrikeStages(
+                key: ValueKey('struck-${t.id}'),
+                strike: strike,
+                leading: _time(t.at),
+                mark: mark,
+                title: t.title,
+                amount: amount,
+                last: last,
+              )
+            : _StrikeSwipe(
+                rowKey: ValueKey('swipe-${t.id}'),
+                onEdit: () => showTxnEditor(context, t),
+                onStrike: () => _strike(t),
+                child: RepaintBoundary(
+                  key: _boundaryKeys.putIfAbsent(t.id, GlobalKey.new),
+                  // An open row: the category's disc in its own ink, the
+                  // title, the hour and the category beneath, the figure
+                  // set heavy on the right. Spacing separates rows — no
+                  // hairline, no surface.
+                  child: PlateRow(
+                    leading: Medallion(
+                      icon: LedgerIcons.resolve(cats[t.categoryId]?.icon),
+                      ink: ink,
+                      size: 36,
+                      iconSize: 16,
+                    ),
+                    title: t.title,
+                    sub: '${_time(t.at)} · $catName',
+                    amount: amount,
+                    amountColor: t.type == TxnType.income ? c.jama : null,
+                    onTap: () => showTxnEditor(context, t),
+                    onLongPress: () => showTxnActions(context, ref, t),
+                  ),
+                ),
+              ),
+      );
+    }
+
     final widgets = <Widget>[];
     for (final day in days) {
       final list = byDay[day]!;
@@ -933,6 +1179,36 @@ class _BookPageState extends ConsumerState<BookPage> {
           .where((t) => t.type == TxnType.expense)
           .fold(0, (s, t) => s + t.amountPaise);
       final date = DateTime(_month.year, _month.month, day);
+
+      // ————— the fold —————
+      //
+      // A busy day keeps only the lines that shaped it; the small routine
+      // rest — each under about a seventh of the day — gathers beneath one
+      // quiet line that opens in place. A day of nothing but small usuals
+      // folds to its header and that line alone, which is the honest size
+      // of such a day. Today never folds (the live page stays open), a
+      // fresh entry is never born hidden, and the fold earns its line only
+      // when it gathers at least three — hiding one or two saves no
+      // reading.
+      final isToday = onNow && day == now.day;
+      var quiet = <Txn>[];
+      if (canFold && !isToday && list.length > 4 && spent > 0) {
+        quiet = [
+          for (final t in list)
+            if (t.type == TxnType.expense &&
+                t.amountPaise * 100 < spent * 15 &&
+                !fresh.contains(t.id))
+              t,
+        ];
+        if (quiet.length < 3) quiet = const [];
+      }
+      final quietIds = {for (final t in quiet) t.id};
+      final loud = [
+        for (final t in list)
+          if (!quietIds.contains(t.id)) t,
+      ];
+      final open = _unfolded.contains(day);
+
       widgets.add(
         _CountingDayHeader(
           key: ValueKey('day-header-$day'),
@@ -944,70 +1220,73 @@ class _BookPageState extends ConsumerState<BookPage> {
           onLongPress: () => _openDayPage(date, list, cats),
         ),
       );
-      for (final (i, t) in list.indexed) {
-        final strike = _struck[t.id];
-        final reink = _reinked[t.id] ?? 0;
-        // The category's ink rides ahead of its mark — the same color this
-        // category wears on Today and in the month view.
-        final ink = t.type == TxnType.income ? c.jama : catColor[t.categoryId];
-        final mark = Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                color: ink ?? c.rule,
-                borderRadius: BorderRadius.circular(1.5),
-              ),
-            ),
-            const SizedBox(width: Gap.x2),
-            CatMark(cats[t.categoryId]?.icon, size: 14),
-          ],
-        );
-        final amount = t.type == TxnType.income
-            ? Inr.format(t.amountPaise, signed: true)
-            : Inr.format(t.amountPaise);
+      for (final (i, t) in loud.indexed) {
+        widgets.add(rowFor(t, last: quiet.isEmpty && i == loud.length - 1));
+      }
+      if (quiet.isNotEmpty) {
+        widgets.add(_quietFoldLine(c, day, quiet, open));
         widgets.add(
-          // The payoff after the add sheet pops: only a genuinely new
-          // entry inks itself onto the page — and a line brought back from
-          // the strike inks itself in again.
-          InkIn(
-            key: ValueKey('txn-ink-${t.id}-$reink'),
-            play: fresh.contains(t.id) || reink > 0,
-            child: strike != null
-                ? _StrikeStages(
-                    key: ValueKey('struck-${t.id}'),
-                    strike: strike,
-                    leading: _time(t.at),
-                    mark: mark,
-                    title: t.title,
-                    amount: amount,
-                    last: i == list.length - 1,
+          AnimatedSize(
+            duration: Motion.reduced(context) ? Duration.zero : Motion.spring,
+            curve: Motion.curve,
+            alignment: Alignment.topCenter,
+            child: open
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final (i, t) in quiet.indexed)
+                        rowFor(t, last: i == quiet.length - 1),
+                    ],
                   )
-                : _StrikeSwipe(
-                    rowKey: ValueKey('swipe-${t.id}'),
-                    onEdit: () => showTxnEditor(context, t),
-                    onStrike: () => _strike(t),
-                    child: RepaintBoundary(
-                      key: _boundaryKeys.putIfAbsent(t.id, GlobalKey.new),
-                      child: LedgerLine(
-                        leading: _time(t.at),
-                        mark: mark,
-                        title: t.title,
-                        amount: amount,
-                        amountColor: t.type == TxnType.income ? c.jama : null,
-                        last: i == list.length - 1,
-                        onTap: () => showTxnEditor(context, t),
-                        onLongPress: () => showTxnActions(context, ref, t),
-                      ),
-                    ),
-                  ),
+                : const SizedBox(width: double.infinity),
           ),
         );
       }
     }
     return widgets;
+  }
+
+  /// The fold's own line: how many small lines sleep under it and what
+  /// they cost together. Tapping spreads them open in place — the chevron
+  /// turns over rather than swapping.
+  Widget _quietFoldLine(LedgerColors c, int day, List<Txn> quiet, bool open) {
+    final total = quiet.fold(0, (s, t) => s + t.amountPaise);
+    final n = bookCount(quiet.length);
+    final faint = LedgerType.bodyText.copyWith(fontSize: 12, color: c.inkFaint);
+    final mono = LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint);
+    return Pressable(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        setState(() {
+          open ? _unfolded.remove(day) : _unfolded.add(day);
+        });
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(0, 6, 0, 6),
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            AnimatedRotation(
+              turns: open ? 0.5 : 0,
+              duration: Motion.reduced(context) ? Duration.zero : Motion.quick,
+              curve: Motion.curve,
+              child: PenChevron(size: 11, color: c.inkFaint),
+            ),
+            const SizedBox(width: Gap.x2),
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: n.text, style: n.mono ? mono : faint),
+                  TextSpan(text: ' quieter lines', style: faint),
+                ],
+              ),
+            ),
+            const Spacer(),
+            Text(Inr.format(total), style: mono),
+          ],
+        ),
+      ),
+    );
   }
 
   List<Widget> _heatView(
@@ -1465,10 +1744,43 @@ class _CountingDayHeaderState extends State<_CountingDayHeader> {
 
   @override
   Widget build(BuildContext context) {
-    Widget header(int paise) => DayHeader(
-      label: widget.label,
-      total: Inr.format(paise),
-      sealed: widget.sealed,
+    final c = LedgerColors.of(context);
+    // The day's head, open on the paper: the day in a firm hand, the seal
+    // beside it when the day is closed, its figure settling on the right.
+    // Air above it does the separating that a rule used to.
+    Widget header(int paise) => Padding(
+      padding: const EdgeInsets.only(top: Gap.x6, bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            widget.label,
+            style: LedgerType.bodyStrong.copyWith(fontSize: 15, color: c.ink),
+          ),
+          if (widget.sealed) ...[
+            const SizedBox(width: Gap.x2),
+            // A closed day wears a quiet tick in a faint disc — done, not
+            // alarmed. The vermilion stamp stays on the day's own page,
+            // where the closing happens.
+            Container(
+              width: 16,
+              height: 16,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: c.rule, shape: BoxShape.circle),
+              child: PenTick(size: 9, color: c.ink),
+            ),
+          ],
+          const Spacer(),
+          Text(
+            Inr.format(paise),
+            style: LedgerType.amountTotal.copyWith(
+              fontSize: 14,
+              color: widget.sealed ? c.ink : c.inkFaint,
+            ),
+          ),
+        ],
+      ),
     );
 
     final child = Motion.reduced(context)

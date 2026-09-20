@@ -1,6 +1,6 @@
 import 'package:budgetbox/core/theme.dart';
 import 'package:budgetbox/core/undo_banner.dart';
-import 'package:budgetbox/core/widgets/cat_mark.dart';
+import 'package:budgetbox/core/widgets/plates.dart';
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
 import 'package:budgetbox/data/repos/account_repo.dart';
@@ -109,7 +109,7 @@ void main() {
       await tester.pumpWidget(host());
       await tester.pumpAndSettle();
 
-      expect(find.byType(CatMark), findsWidgets);
+      expect(find.byType(Medallion), findsWidgets);
       await settleAndUnmount(tester);
     });
 
@@ -183,6 +183,52 @@ void main() {
       await settleAndUnmount(tester);
     });
 
+    testWidgets('a busy past day folds its small lines under one quiet line', (
+      tester,
+    ) async {
+      final now = DateTime.now();
+      // On the 1st there is no past day in the month to fold — today
+      // itself never folds. The fold is exercised the other 27+ mornings.
+      if (now.day == 1) return;
+      final cash = (await db.select(db.accounts).get()).single.id;
+      final day1 = DateTime(now.year, now.month, 1, 10);
+      await TxnRepo(db).addExpense(
+        amountPaise: 100000,
+        accountId: cash,
+        title: 'Big shop',
+        at: day1,
+      );
+      for (var i = 1; i <= 5; i++) {
+        await TxnRepo(db).addExpense(
+          amountPaise: 2000,
+          accountId: cash,
+          title: 'chai $i',
+          at: day1.add(Duration(minutes: i)),
+        );
+      }
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      // The line that shaped the day stands; the five ₹20s sleep under
+      // one quiet line saying what they cost together.
+      expect(find.text('Big shop'), findsOneWidget);
+      expect(find.text('chai 1'), findsNothing);
+      expect(find.textContaining('quieter lines'), findsOneWidget);
+
+      // Tapping spreads them open in place.
+      await tester.tap(find.textContaining('quieter lines'));
+      await tester.pumpAndSettle();
+      expect(find.text('chai 1'), findsOneWidget);
+
+      // And folds them back.
+      await tester.tap(find.textContaining('quieter lines'));
+      await tester.pumpAndSettle();
+      expect(find.text('chai 1'), findsNothing);
+
+      await settleAndUnmount(tester);
+    });
+
     testWidgets('the heat view closes with one sentence, not a tally', (
       tester,
     ) async {
@@ -195,6 +241,62 @@ void main() {
       expect(find.textContaining('entry written'), findsOneWidget);
       expect(find.text('Quiet days'), findsNothing);
       expect(find.text('Entries written'), findsNothing);
+
+      await settleAndUnmount(tester);
+    });
+
+    testWidgets('the search has a way out: clear keeps the pen, cancel lifts it', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      // Idle: no clear mark, no cancel word.
+      expect(find.byKey(const ValueKey('book-search-clear')), findsNothing);
+      expect(find.byKey(const ValueKey('book-search-cancel')), findsNothing);
+
+      await tester.enterText(find.byKey(const ValueKey('book-search')), 'cha');
+      await tester.pumpAndSettle();
+      // Typing narrows the page in place and keeps score of the matches.
+      expect(find.byKey(const ValueKey('book-match-line')), findsOneWidget);
+      expect(find.textContaining('1 match'), findsOneWidget);
+      expect(find.byKey(const ValueKey('book-search-clear')), findsOneWidget);
+      expect(find.byKey(const ValueKey('book-search-cancel')), findsOneWidget);
+
+      // A miss says so, and says it once.
+      await tester.enterText(find.byKey(const ValueKey('book-search')), 'zzz');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('matches "zzz"'), findsOneWidget);
+      expect(find.text('no matches'), findsOneWidget);
+
+      // Clear empties the field but the pen stays in it.
+      await tester.tap(find.byKey(const ValueKey('book-search-clear')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('book-match-line')), findsNothing);
+      expect(find.byKey(const ValueKey('book-search-clear')), findsNothing);
+      expect(find.byKey(const ValueKey('book-search-cancel')), findsOneWidget);
+
+      // Cancel lifts it out entirely: the row returns to its idle state.
+      await tester.tap(find.byKey(const ValueKey('book-search-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('book-search-cancel')), findsNothing);
+      final field = tester.widget<TextField>(
+        find.byKey(const ValueKey('book-search')),
+      );
+      expect(field.focusNode!.hasFocus, isFalse);
+
+      await settleAndUnmount(tester);
+    });
+
+    testWidgets('the month\'s income figure opens the income page', (
+      tester,
+    ) async {
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('book-income-door')));
+      await tester.pumpAndSettle();
+      expect(find.text('Income'), findsOneWidget);
 
       await settleAndUnmount(tester);
     });
