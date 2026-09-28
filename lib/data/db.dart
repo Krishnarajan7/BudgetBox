@@ -44,7 +44,7 @@ class LedgerDb extends _$LedgerDb {
   LedgerDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 19;
+  int get schemaVersion => 20;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -53,6 +53,10 @@ class LedgerDb extends _$LedgerDb {
       await _seedCategories();
     },
     onUpgrade: (m, from, to) async {
+      if (from < 20) {
+        // v20: every expense can say which pot of income it drew on.
+        await m.addColumn(txns, txns.sourceId);
+      }
       if (from < 19 && from >= 18) {
         // v19: the ledger learns what became of each line.
         await m.addColumn(notices, notices.fate);

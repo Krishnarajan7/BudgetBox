@@ -66,6 +66,12 @@ class _AddSheetState extends ConsumerState<AddSheet> {
   /// sheet's life, so the choice is always visible and toggleable.
   int? _extraChipId;
   int? _accountId;
+
+  /// The pots — the income categories — and the one this expense draws
+  /// on. Asked on the core path because "salary or extra?" is the whole
+  /// point of keeping them apart; defaults to the last answer.
+  List<Category> _pots = const [];
+  int? _sourceId;
   late DateTime _at = widget.at ?? DateTime.now();
   bool _stamping = false;
 
@@ -113,11 +119,17 @@ class _AddSheetState extends ConsumerState<AddSheet> {
     final pockets = accts.where((a) => !a.keptAside).toList();
     final offered = pockets.isEmpty ? accts : pockets;
     final top = await txns.topCategoryIds();
+    final pots = cats.where((c) => c.kind == CategoryKind.income).toList();
+    final last = await ref.read(settingsRepoProvider).lastSourceId();
     if (!mounted) return;
     setState(() {
       _categories = cats;
       _accounts = offered;
       _accountId = offered.isEmpty ? null : offered.first.id;
+      _pots = pots;
+      _sourceId = pots.any((p) => p.id == last)
+          ? last
+          : (pots.isEmpty ? null : pots.first.id);
       _topExpenseCategoryIds = top;
       _chipOrder = _categoryOrder(moneyIn: _moneyIn);
     });
@@ -311,10 +323,14 @@ class _AddSheetState extends ConsumerState<AddSheet> {
         amountPaise: _engine.paise,
         accountId: accountId,
         categoryId: _categoryId,
+        sourceId: _sourceId,
         title: title,
         note: note.isEmpty ? null : note,
         at: _at,
       );
+      if (_sourceId != null) {
+        await ref.read(settingsRepoProvider).setLastSourceId(_sourceId!);
+      }
     }
 
     // Let the seal land on the key before the sheet leaves — the stamp is
@@ -375,6 +391,7 @@ class _AddSheetState extends ConsumerState<AddSheet> {
             // A faint "Cash ›" tucked in a corner was the app deciding for
             // Krish; a chip row is the app asking him.
             _leavesThePen(child: _accountChips(c)),
+            if (!_moneyIn) _leavesThePen(child: _potChips(c)),
             _defaultsRow(c),
             if (_noteOpen) _leavesThePen(child: _noteField(c)),
             const SizedBox(height: Gap.x3),
@@ -822,6 +839,36 @@ class _AddSheetState extends ConsumerState<AddSheet> {
                 a.name,
                 selected: _accountId == a.id,
                 onTap: () => setState(() => _accountId = a.id),
+              ),
+              const SizedBox(width: Gap.x2),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The pots, under the pockets: which income this draws on. Two pots
+  /// or more is the question worth asking; one pot answers itself.
+  Widget _potChips(LedgerColors c) {
+    if (_pots.length < 2) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: Gap.x2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            Text(
+              'out of',
+              style: LedgerType.label.copyWith(fontSize: 10, color: c.inkFaint),
+            ),
+            const SizedBox(width: Gap.x2),
+            for (final p in _pots) ...[
+              QuillTab(
+                key: ValueKey('add-pot-${p.id}'),
+                p.name.toLowerCase(),
+                selected: _sourceId == p.id,
+                onTap: () => setState(() => _sourceId = p.id),
               ),
               const SizedBox(width: Gap.x2),
             ],

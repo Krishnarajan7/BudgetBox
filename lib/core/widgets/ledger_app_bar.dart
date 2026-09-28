@@ -30,10 +30,27 @@ class LedgerAppBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = LedgerColors.of(context);
+    // On the shell the bar sits at the root; a page pushed on its own —
+    // the Book opened from an Insights row — is a page that can be left,
+    // and says so with the same chevron every other pushed page wears.
+    final pushed = Navigator.of(context).canPop();
     return Padding(
       padding: const EdgeInsets.only(top: Gap.x2),
       child: Row(
         children: [
+          if (pushed)
+            Pressable(
+              key: const ValueKey('bar-back'),
+              scale: 0.9,
+              onTap: () => Navigator.of(context).pop(),
+              child: Padding(
+                padding: const EdgeInsets.only(right: Gap.x3),
+                child: RotatedBox(
+                  quarterTurns: 1,
+                  child: PenChevron(size: 16, color: c.inkFaint),
+                ),
+              ),
+            ),
           // The wordmark yields first: chrome on the right is information,
           // and a bar that overflows is worse than a shortened name.
           Expanded(
@@ -255,10 +272,7 @@ class _Says extends StatelessWidget {
       showDuration: const Duration(seconds: 4),
       preferBelow: true,
       margin: const EdgeInsets.symmetric(horizontal: Gap.page),
-      padding: const EdgeInsets.symmetric(
-        horizontal: Gap.x3,
-        vertical: Gap.x2,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.x3, vertical: Gap.x2),
       decoration: BoxDecoration(
         color: c.paperRaised,
         borderRadius: BorderRadius.circular(6),

@@ -1161,7 +1161,9 @@ class _BookPageState extends ConsumerState<BookPage> {
                       iconSize: 16,
                     ),
                     title: t.title,
-                    sub: '${_time(t.at)} · $catName',
+                    sub:
+                        '${_time(t.at)} · $catName'
+                        '${t.sourceId != null && cats[t.sourceId] != null ? ' · ${cats[t.sourceId]!.name.toLowerCase()}' : ''}',
                     amount: amount,
                     amountColor: t.type == TxnType.income ? c.jama : null,
                     onTap: () => showTxnEditor(context, t),

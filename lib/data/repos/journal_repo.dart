@@ -54,9 +54,7 @@ class JournalRepo {
                 body: body == null ? const Value.absent() : Value(body),
                 mood: mood == null ? const Value.absent() : Value(mood),
                 energy: mood == null ? const Value.absent() : Value(energy),
-                feelWord: mood == null
-                    ? const Value.absent()
-                    : Value(feelWord),
+                feelWord: mood == null ? const Value.absent() : Value(feelWord),
                 // The second breath writes on its own: passed → written,
                 // empty string → cleared, null → left alone.
                 feelWhy: feelWhy == null

@@ -53,6 +53,9 @@ class Txn(Base, StampedMixin):
     at: Mapped[dt.datetime] = mapped_column(UTCInstant())
     goal_id: Mapped[str | None] = mapped_column(ForeignKey("goals.id"), default=None)
     recurring_id: Mapped[str | None] = mapped_column(ForeignKey("recurrings.id"), default=None)
+    # The pot an expense drew on: an income category. Null for income,
+    # transfers, and lines written before the phone asked.
+    source_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), default=None)
 
 
 class Pinned(Base, StampedMixin):

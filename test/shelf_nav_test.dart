@@ -1,5 +1,6 @@
 import 'package:budgetbox/data/db.dart';
 import 'package:budgetbox/data/providers.dart';
+import 'package:budgetbox/data/repos/event_repo.dart';
 import 'package:budgetbox/data/repos/settings_repo.dart';
 import 'package:budgetbox/main.dart';
 import 'package:drift/native.dart';
@@ -28,6 +29,48 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
   }
+
+  group('the calendar spine', () {
+    testWidgets('a birthday months off does not beat the next holiday', (
+      tester,
+    ) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      await SettingsRepo(db).markSetupDone();
+      final now = DateTime.now();
+      // A yearly day that already passed this year rolls to next year.
+      final gone = now.subtract(const Duration(days: 40));
+      await EventRepo(db).create(
+        title: 'my birthday',
+        date: DateTime(now.year, gone.month, gone.day),
+        repeat: EventRepeat.yearly,
+      );
+      await openBook(tester, db);
+      await tester.tap(find.text('Krish Space'));
+      await tester.pumpAndSettle();
+      // The fixed holidays alone put a named day inside four months, so
+      // the spine names it, and never the birthday a year away.
+      expect(find.textContaining('my birthday'), findsNothing);
+      expect(find.textContaining("'${(now.year + 1) % 100}"), findsNothing);
+      expect(find.text('clear ahead'), findsNothing);
+      await drain(tester);
+    });
+
+    testWidgets('a day of his own that comes sooner is the one named', (
+      tester,
+    ) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      await SettingsRepo(db).markSetupDone();
+      final tomorrow = DateTime.now().add(const Duration(days: 1));
+      await EventRepo(db).create(title: 'amma flight', date: tomorrow);
+      await openBook(tester, db);
+      await tester.tap(find.text('Krish Space'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('amma flight'), findsOneWidget);
+      await drain(tester);
+    });
+  });
 
   for (final spine in ['Calendar', 'Notes', 'Focus', 'Journal', 'Vault']) {
     testWidgets('the shelf opens $spine and comes back', (tester) async {

@@ -47,26 +47,35 @@ class DietRepo {
 
   /// Every line on [day]'s page, oldest first: measured dishes, skips, and
   /// the old free-text marks the book never weighed.
-  Stream<List<MealEntry>> watchDay(DateTime day) =>
-      watchSince(day, days: 1).map((byDay) => byDay[LedgerDates.dayKey(day)] ?? const []);
+  Stream<List<MealEntry>> watchDay(DateTime day) => watchSince(
+    day,
+    days: 1,
+  ).map((byDay) => byDay[LedgerDates.dayKey(day)] ?? const []);
 
   /// The last [days] days ending on [day], keyed by date. Days with nothing
   /// written are absent from the map.
-  Stream<Map<String, List<MealEntry>>> watchSince(DateTime day, {int days = 7}) {
+  Stream<Map<String, List<MealEntry>>> watchSince(
+    DateTime day, {
+    int days = 7,
+  }) {
     final to = DateTime(day.year, day.month, day.day);
     final from = to.subtract(Duration(days: days - 1));
     final fromKey = LedgerDates.dayKey(from);
     final toKey = LedgerDates.dayKey(to);
-    final meals = (_db.select(_db.meals)
-          ..where((m) => m.date.isBetweenValues(fromKey, toKey))
-          ..orderBy([(m) => OrderingTerm.asc(m.at)]))
-        .watch();
-    final marks = (_db.select(_db.dayMarks)
-          ..where(
-            (m) => m.kind.equals('meal') & m.date.isBetweenValues(fromKey, toKey),
-          )
-          ..orderBy([(m) => OrderingTerm.asc(m.at)]))
-        .watch();
+    final meals =
+        (_db.select(_db.meals)
+              ..where((m) => m.date.isBetweenValues(fromKey, toKey))
+              ..orderBy([(m) => OrderingTerm.asc(m.at)]))
+            .watch();
+    final marks =
+        (_db.select(_db.dayMarks)
+              ..where(
+                (m) =>
+                    m.kind.equals('meal') &
+                    m.date.isBetweenValues(fromKey, toKey),
+              )
+              ..orderBy([(m) => OrderingTerm.asc(m.at)]))
+            .watch();
     // Two streams, one page: whichever emits, the page re-reads both.
     return _combine(meals, marks).map((pair) {
       final (rows, legacy) = pair;
@@ -75,14 +84,18 @@ class DietRepo {
         out.putIfAbsent(r.date, () => []).add(entryOf(r));
       }
       for (final m in legacy) {
-        out.putIfAbsent(m.date, () => []).add(
-          MealEntry(
-            markId: m.id,
-            at: m.at,
-            slot: slotFor(m.at),
-            name: (m.note ?? '').trim().isEmpty ? 'something' : m.note!.trim(),
-          ),
-        );
+        out
+            .putIfAbsent(m.date, () => [])
+            .add(
+              MealEntry(
+                markId: m.id,
+                at: m.at,
+                slot: slotFor(m.at),
+                name: (m.note ?? '').trim().isEmpty
+                    ? 'something'
+                    : m.note!.trim(),
+              ),
+            );
       }
       for (final list in out.values) {
         list.sort((a, b) => a.at.compareTo(b.at));
@@ -109,14 +122,16 @@ class DietRepo {
   /// — every day present, empty ones included, so a week reads as a week.
   Stream<List<DayTotals>> watchWeek(DateTime day, {int days = 7}) {
     final to = DateTime(day.year, day.month, day.day);
-    return watchSince(day, days: days).map((byDay) => [
-      for (var i = days - 1; i >= 0; i--)
-        () {
-          final d = to.subtract(Duration(days: i));
-          final key = LedgerDates.dayKey(d);
-          return totalsFor(key, byDay[key] ?? const []);
-        }(),
-    ]);
+    return watchSince(day, days: days).map(
+      (byDay) => [
+        for (var i = days - 1; i >= 0; i--)
+          () {
+            final d = to.subtract(Duration(days: i));
+            final key = LedgerDates.dayKey(d);
+            return totalsFor(key, byDay[key] ?? const []);
+          }(),
+      ],
+    );
   }
 
   /// The measured lines over the last [days] days — the pool suggestions
@@ -141,7 +156,10 @@ class DietRepo {
 
   /// The dishes that come back most, newest first among ties — the quick
   /// row, so the tenth idli is one tap.
-  Future<List<FoodItem>> frequent(FoodCatalogue catalogue, {int limit = 8}) async {
+  Future<List<FoodItem>> frequent(
+    FoodCatalogue catalogue, {
+    int limit = 8,
+  }) async {
     final rows =
         await (_db.select(_db.meals)
               ..where((m) => m.foodKey.isNotNull() & m.skipped.equals(false))
@@ -201,7 +219,9 @@ class DietRepo {
     String? note,
   }) async {
     final when = at ?? stampFor(day);
-    final facts = grams != null ? food.forGrams(grams) : food.forServings(servings);
+    final facts = grams != null
+        ? food.forGrams(grams)
+        : food.forServings(servings);
     final id = await _db.transaction(() async {
       final id = await _db
           .into(_db.meals)
@@ -273,13 +293,14 @@ class DietRepo {
   Future<void> skip(DateTime day, MealSlot slot) async {
     final key = LedgerDates.dayKey(day);
     await _db.transaction(() async {
-      final existing = await (_db.select(_db.meals)..where(
-            (m) =>
-                m.date.equals(key) &
-                m.slot.equalsValue(slot) &
-                m.skipped.equals(true),
-          ))
-          .get();
+      final existing =
+          await (_db.select(_db.meals)..where(
+                (m) =>
+                    m.date.equals(key) &
+                    m.slot.equalsValue(slot) &
+                    m.skipped.equals(true),
+              ))
+              .get();
       if (existing.isNotEmpty) return;
       final id = await _db
           .into(_db.meals)
@@ -331,7 +352,9 @@ class DietRepo {
     );
     if (markId != null) {
       await _db.transaction(() async {
-        await (_db.delete(_db.dayMarks)..where((m) => m.id.equals(markId))).go();
+        await (_db.delete(
+          _db.dayMarks,
+        )..where((m) => m.id.equals(markId))).go();
         await bbxSync.remove(SyncKinds.mark, markId);
       });
     }

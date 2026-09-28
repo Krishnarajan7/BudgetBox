@@ -7,8 +7,9 @@ import '../providers.dart';
 import '../sync/ids.dart';
 import '../sync/seam.dart';
 
-final eventRepoProvider =
-    Provider<EventRepo>((ref) => EventRepo(ref.watch(dbProvider)));
+final eventRepoProvider = Provider<EventRepo>(
+  (ref) => EventRepo(ref.watch(dbProvider)),
+);
 
 /// The calendar's book-keeping. Events are written once against an anchor
 /// date; a yearly repeat re-occurs on that month and day every year after —
@@ -28,7 +29,9 @@ class EventRepo {
     String? note,
   }) {
     return _db.transaction(() async {
-      final id = await _db.into(_db.events).insert(
+      final id = await _db
+          .into(_db.events)
+          .insert(
             EventsCompanion.insert(
               title: title,
               date: LedgerDates.dayKey(date),
@@ -73,8 +76,9 @@ class EventRepo {
 
   Future<void> archive(int id) {
     return _db.transaction(() async {
-      await (_db.update(_db.events)..where((e) => e.id.equals(id)))
-          .write(const EventsCompanion(archived: Value(true)));
+      await (_db.update(_db.events)..where((e) => e.id.equals(id))).write(
+        const EventsCompanion(archived: Value(true)),
+      );
       // EventIn carries no `archived`; taking an event off the calendar is a
       // PATCH upstream.
       await bbxSync.patch(SyncKinds.event, id, {'archived': true});
@@ -93,7 +97,9 @@ class EventRepo {
   /// date; `yearly` events occur on their anchor month+day each year from
   /// the anchor onward (a Feb-29 anchor lands on Feb-28 in non-leap years).
   static List<({Event event, DateTime on})> occurrencesInMonth(
-      List<Event> events, DateTime month) {
+    List<Event> events,
+    DateTime month,
+  ) {
     final start = LedgerDates.monthStart(month);
     final out = <({Event event, DateTime on})>[];
     for (final e in events) {
@@ -117,8 +123,11 @@ class EventRepo {
   /// The next occurrences on or after [from], within [days], capped at
   /// [limit]. Sorted by date, then time-of-day with all-day entries first.
   static List<({Event event, DateTime on})> upcoming(
-      List<Event> events, DateTime from,
-      {int days = 60, int limit = 5}) {
+    List<Event> events,
+    DateTime from, {
+    int days = 60,
+    int limit = 5,
+  }) {
     final first = DateTime(from.year, from.month, from.day);
     final end = DateTime(from.year, from.month, from.day + days);
     final out = <({Event event, DateTime on})>[];
@@ -132,7 +141,8 @@ class EventRepo {
         case EventRepeat.yearly:
           for (var year = first.year; year <= end.year; year++) {
             final on = _yearlyOn(anchor, year);
-            if (!on.isBefore(first) && on.isBefore(end) &&
+            if (!on.isBefore(first) &&
+                on.isBefore(end) &&
                 !on.isBefore(anchor)) {
               out.add((event: e, on: on));
             }
@@ -156,7 +166,9 @@ class EventRepo {
   }
 
   static int _byWhen(
-      ({Event event, DateTime on}) a, ({Event event, DateTime on}) b) {
+    ({Event event, DateTime on}) a,
+    ({Event event, DateTime on}) b,
+  ) {
     final byDate = a.on.compareTo(b.on);
     if (byDate != 0) return byDate;
     // All-day entries lead the day's list.

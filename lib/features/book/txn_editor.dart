@@ -142,6 +142,10 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
   late int _amountPaise = widget.txn.amountPaise;
   late int? _categoryId = widget.txn.categoryId;
   late int _accountId = widget.txn.accountId;
+
+  /// The pot this expense drew on; the tap cycles through them.
+  late int? _sourceId = widget.txn.sourceId;
+  List<Category> _pots = const [];
   late DateTime _at = widget.txn.at;
   late bool _noteOpen = (widget.txn.note ?? '').trim().isNotEmpty;
   bool _editingAmount = false;
@@ -179,11 +183,26 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
               ..where((a) => a.archived.equals(false))
               ..orderBy([(a) => OrderingTerm.asc(a.sortOrder)]))
             .get();
+    final pots = widget.txn.type == TxnType.expense
+        ? await (db.select(db.categories)
+                ..where((x) => x.archived.equals(false))
+                ..where((x) => x.kind.equalsValue(CategoryKind.income))
+                ..orderBy([(x) => OrderingTerm.asc(x.sortOrder)]))
+              .get()
+        : const <Category>[];
     if (!mounted) return;
     setState(() {
       _categories = cats;
       _accounts = accts;
+      _pots = pots;
     });
+  }
+
+  void _cyclePot() {
+    if (_pots.isEmpty) return;
+    HapticFeedback.selectionClick();
+    final i = _pots.indexWhere((p) => p.id == _sourceId);
+    setState(() => _sourceId = _pots[(i + 1) % _pots.length].id);
   }
 
   Future<void> _loadHistory() async {
@@ -251,6 +270,7 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
           title: title,
           at: _at,
           note: note.isEmpty ? null : note,
+          sourceId: _sourceId,
         );
 
     // The stamp has to land before the sheet leaves — it is the receipt.
@@ -541,6 +561,16 @@ class _TxnEditorState extends ConsumerState<TxnEditor> {
           _defaultTap(c, acct, _pickAccount),
           const SizedBox(width: Gap.x4),
           _defaultTap(c, _dateLabel, _pickDate),
+          if (_pots.length >= 2) ...[
+            const SizedBox(width: Gap.x4),
+            _defaultTap(
+              c,
+              _sourceId == null
+                  ? 'out of ?'
+                  : 'out of ${_pots.firstWhere((p) => p.id == _sourceId, orElse: () => _pots.first).name.toLowerCase()}',
+              _cyclePot,
+            ),
+          ],
           const Spacer(),
           LedgerChip(
             'note',

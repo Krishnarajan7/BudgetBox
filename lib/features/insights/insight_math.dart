@@ -968,7 +968,7 @@ Hands hands(
       Habit(
         key: 'unnamed',
         kind: HabitKind.unnamed,
-        label: 'lines with only a category name',
+        label: 'unnamed lines',
         count: unnamedCount,
         paise: unnamedPaise,
         days: 0,

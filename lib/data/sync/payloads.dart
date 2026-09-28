@@ -31,6 +31,7 @@ Future<Map<String, dynamic>> txnBody(Txn r, RemoteRefs refs) async {
     'note': r.note,
     'at': isoInstant(r.at),
     'goal_id': await refs.remoteOrNull(SyncKinds.goal, r.goalId),
+    'source_id': await refs.remoteOrNull(SyncKinds.category, r.sourceId),
     // TxnIn carries no recurring_id: upstream, a materialized charge is
     // stamped by the recurring job, not claimed by the client.
   };

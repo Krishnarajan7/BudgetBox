@@ -2102,6 +2102,20 @@ class $TxnsTable extends Txns with TableInfo<$TxnsTable, Txn> {
     requiredDuringInsert: false,
     defaultValue: currentDateAndTime,
   );
+  static const VerificationMeta _sourceIdMeta = const VerificationMeta(
+    'sourceId',
+  );
+  @override
+  late final GeneratedColumn<int> sourceId = GeneratedColumn<int>(
+    'source_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES categories (id)',
+    ),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2116,6 +2130,7 @@ class $TxnsTable extends Txns with TableInfo<$TxnsTable, Txn> {
     goalId,
     recurringId,
     createdAt,
+    sourceId,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2206,6 +2221,12 @@ class $TxnsTable extends Txns with TableInfo<$TxnsTable, Txn> {
         createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
       );
     }
+    if (data.containsKey('source_id')) {
+      context.handle(
+        _sourceIdMeta,
+        sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    }
     return context;
   }
 
@@ -2265,6 +2286,10 @@ class $TxnsTable extends Txns with TableInfo<$TxnsTable, Txn> {
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
       )!,
+      sourceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}source_id'],
+      ),
     );
   }
 
@@ -2292,6 +2317,13 @@ class Txn extends DataClass implements Insertable<Txn> {
   final int? goalId;
   final int? recurringId;
   final DateTime createdAt;
+
+  /// The pot an expense drew on — an *income* category (Salary, Extra
+  /// income), so that "what did I spend from salary, and what is left of
+  /// it" can be answered without the money ever being split across
+  /// accounts. Null for income and transfers, and for lines written
+  /// before the book asked.
+  final int? sourceId;
   const Txn({
     required this.id,
     required this.amountPaise,
@@ -2305,6 +2337,7 @@ class Txn extends DataClass implements Insertable<Txn> {
     this.goalId,
     this.recurringId,
     required this.createdAt,
+    this.sourceId,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2333,6 +2366,9 @@ class Txn extends DataClass implements Insertable<Txn> {
       map['recurring_id'] = Variable<int>(recurringId);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || sourceId != null) {
+      map['source_id'] = Variable<int>(sourceId);
+    }
     return map;
   }
 
@@ -2358,6 +2394,9 @@ class Txn extends DataClass implements Insertable<Txn> {
           ? const Value.absent()
           : Value(recurringId),
       createdAt: Value(createdAt),
+      sourceId: sourceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceId),
     );
   }
 
@@ -2381,6 +2420,7 @@ class Txn extends DataClass implements Insertable<Txn> {
       goalId: serializer.fromJson<int?>(json['goalId']),
       recurringId: serializer.fromJson<int?>(json['recurringId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      sourceId: serializer.fromJson<int?>(json['sourceId']),
     );
   }
   @override
@@ -2399,6 +2439,7 @@ class Txn extends DataClass implements Insertable<Txn> {
       'goalId': serializer.toJson<int?>(goalId),
       'recurringId': serializer.toJson<int?>(recurringId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
+      'sourceId': serializer.toJson<int?>(sourceId),
     };
   }
 
@@ -2415,6 +2456,7 @@ class Txn extends DataClass implements Insertable<Txn> {
     Value<int?> goalId = const Value.absent(),
     Value<int?> recurringId = const Value.absent(),
     DateTime? createdAt,
+    Value<int?> sourceId = const Value.absent(),
   }) => Txn(
     id: id ?? this.id,
     amountPaise: amountPaise ?? this.amountPaise,
@@ -2428,6 +2470,7 @@ class Txn extends DataClass implements Insertable<Txn> {
     goalId: goalId.present ? goalId.value : this.goalId,
     recurringId: recurringId.present ? recurringId.value : this.recurringId,
     createdAt: createdAt ?? this.createdAt,
+    sourceId: sourceId.present ? sourceId.value : this.sourceId,
   );
   Txn copyWithCompanion(TxnsCompanion data) {
     return Txn(
@@ -2451,6 +2494,7 @@ class Txn extends DataClass implements Insertable<Txn> {
           ? data.recurringId.value
           : this.recurringId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
     );
   }
 
@@ -2468,7 +2512,8 @@ class Txn extends DataClass implements Insertable<Txn> {
           ..write('at: $at, ')
           ..write('goalId: $goalId, ')
           ..write('recurringId: $recurringId, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('sourceId: $sourceId')
           ..write(')'))
         .toString();
   }
@@ -2487,6 +2532,7 @@ class Txn extends DataClass implements Insertable<Txn> {
     goalId,
     recurringId,
     createdAt,
+    sourceId,
   );
   @override
   bool operator ==(Object other) =>
@@ -2503,7 +2549,8 @@ class Txn extends DataClass implements Insertable<Txn> {
           other.at == this.at &&
           other.goalId == this.goalId &&
           other.recurringId == this.recurringId &&
-          other.createdAt == this.createdAt);
+          other.createdAt == this.createdAt &&
+          other.sourceId == this.sourceId);
 }
 
 class TxnsCompanion extends UpdateCompanion<Txn> {
@@ -2519,6 +2566,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
   final Value<int?> goalId;
   final Value<int?> recurringId;
   final Value<DateTime> createdAt;
+  final Value<int?> sourceId;
   const TxnsCompanion({
     this.id = const Value.absent(),
     this.amountPaise = const Value.absent(),
@@ -2532,6 +2580,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
     this.goalId = const Value.absent(),
     this.recurringId = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.sourceId = const Value.absent(),
   });
   TxnsCompanion.insert({
     this.id = const Value.absent(),
@@ -2546,6 +2595,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
     this.goalId = const Value.absent(),
     this.recurringId = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.sourceId = const Value.absent(),
   }) : amountPaise = Value(amountPaise),
        type = Value(type),
        accountId = Value(accountId),
@@ -2564,6 +2614,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
     Expression<int>? goalId,
     Expression<int>? recurringId,
     Expression<DateTime>? createdAt,
+    Expression<int>? sourceId,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -2578,6 +2629,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
       if (goalId != null) 'goal_id': goalId,
       if (recurringId != null) 'recurring_id': recurringId,
       if (createdAt != null) 'created_at': createdAt,
+      if (sourceId != null) 'source_id': sourceId,
     });
   }
 
@@ -2594,6 +2646,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
     Value<int?>? goalId,
     Value<int?>? recurringId,
     Value<DateTime>? createdAt,
+    Value<int?>? sourceId,
   }) {
     return TxnsCompanion(
       id: id ?? this.id,
@@ -2608,6 +2661,7 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
       goalId: goalId ?? this.goalId,
       recurringId: recurringId ?? this.recurringId,
       createdAt: createdAt ?? this.createdAt,
+      sourceId: sourceId ?? this.sourceId,
     );
   }
 
@@ -2650,6 +2704,9 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
+    if (sourceId.present) {
+      map['source_id'] = Variable<int>(sourceId.value);
+    }
     return map;
   }
 
@@ -2667,7 +2724,8 @@ class TxnsCompanion extends UpdateCompanion<Txn> {
           ..write('at: $at, ')
           ..write('goalId: $goalId, ')
           ..write('recurringId: $recurringId, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('sourceId: $sourceId')
           ..write(')'))
         .toString();
   }
@@ -12414,25 +12472,6 @@ final class $$CategoriesTableReferences
     );
   }
 
-  static MultiTypedResultKey<$TxnsTable, List<Txn>> _txnsRefsTable(
-    _$LedgerDb db,
-  ) => MultiTypedResultKey.fromTable(
-    db.txns,
-    aliasName: 'categories__id__txns__category_id',
-  );
-
-  $$TxnsTableProcessedTableManager get txnsRefs {
-    final manager = $$TxnsTableTableManager(
-      $_db,
-      $_db.txns,
-    ).filter((f) => f.categoryId.id.sqlEquals($_itemColumn<int>('id')!));
-
-    final cache = $_typedResult.readTableOrNull(_txnsRefsTable($_db));
-    return ProcessedTableManager(
-      manager.$state.copyWith(prefetchedData: cache),
-    );
-  }
-
   static MultiTypedResultKey<$BudgetsTable, List<Budget>> _budgetsRefsTable(
     _$LedgerDb db,
   ) => MultiTypedResultKey.fromTable(
@@ -12528,31 +12567,6 @@ class $$CategoriesTableFilterComposer
           }) => $$RecurringsTableFilterComposer(
             $db: $db,
             $table: $db.recurrings,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return f(composer);
-  }
-
-  Expression<bool> txnsRefs(
-    Expression<bool> Function($$TxnsTableFilterComposer f) f,
-  ) {
-    final $$TxnsTableFilterComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.id,
-      referencedTable: $db.txns,
-      getReferencedColumn: (t) => t.categoryId,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$TxnsTableFilterComposer(
-            $db: $db,
-            $table: $db.txns,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -12705,31 +12719,6 @@ class $$CategoriesTableAnnotationComposer
     return f(composer);
   }
 
-  Expression<T> txnsRefs<T extends Object>(
-    Expression<T> Function($$TxnsTableAnnotationComposer a) f,
-  ) {
-    final $$TxnsTableAnnotationComposer composer = $composerBuilder(
-      composer: this,
-      getCurrentColumn: (t) => t.id,
-      referencedTable: $db.txns,
-      getReferencedColumn: (t) => t.categoryId,
-      builder:
-          (
-            joinBuilder, {
-            $addJoinBuilderToRootComposer,
-            $removeJoinBuilderFromRootComposer,
-          }) => $$TxnsTableAnnotationComposer(
-            $db: $db,
-            $table: $db.txns,
-            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-            joinBuilder: joinBuilder,
-            $removeJoinBuilderFromRootComposer:
-                $removeJoinBuilderFromRootComposer,
-          ),
-    );
-    return f(composer);
-  }
-
   Expression<T> budgetsRefs<T extends Object>(
     Expression<T> Function($$BudgetsTableAnnotationComposer a) f,
   ) {
@@ -12796,7 +12785,6 @@ class $$CategoriesTableTableManager
           Category,
           PrefetchHooks Function({
             bool recurringsRefs,
-            bool txnsRefs,
             bool budgetsRefs,
             bool pinnedsRefs,
           })
@@ -12855,7 +12843,6 @@ class $$CategoriesTableTableManager
           prefetchHooksCallback:
               ({
                 recurringsRefs = false,
-                txnsRefs = false,
                 budgetsRefs = false,
                 pinnedsRefs = false,
               }) {
@@ -12863,7 +12850,6 @@ class $$CategoriesTableTableManager
                   db: db,
                   explicitlyWatchedTables: [
                     if (recurringsRefs) db.recurrings,
-                    if (txnsRefs) db.txns,
                     if (budgetsRefs) db.budgets,
                     if (pinnedsRefs) db.pinneds,
                   ],
@@ -12885,27 +12871,6 @@ class $$CategoriesTableTableManager
                                 table,
                                 p0,
                               ).recurringsRefs,
-                          referencedItemsForCurrentItem:
-                              (item, referencedItems) => referencedItems.where(
-                                (e) => e.categoryId == item.id,
-                              ),
-                          typedResults: items,
-                        ),
-                      if (txnsRefs)
-                        await $_getPrefetchedData<
-                          Category,
-                          $CategoriesTable,
-                          Txn
-                        >(
-                          currentTable: table,
-                          referencedTable: $$CategoriesTableReferences
-                              ._txnsRefsTable(db),
-                          managerFromTypedResult: (p0) =>
-                              $$CategoriesTableReferences(
-                                db,
-                                table,
-                                p0,
-                              ).txnsRefs,
                           referencedItemsForCurrentItem:
                               (item, referencedItems) => referencedItems.where(
                                 (e) => e.categoryId == item.id,
@@ -12976,7 +12941,6 @@ typedef $$CategoriesTableProcessedTableManager =
       Category,
       PrefetchHooks Function({
         bool recurringsRefs,
-        bool txnsRefs,
         bool budgetsRefs,
         bool pinnedsRefs,
       })
@@ -13921,6 +13885,7 @@ typedef $$TxnsTableCreateCompanionBuilder =
       Value<int?> goalId,
       Value<int?> recurringId,
       Value<DateTime> createdAt,
+      Value<int?> sourceId,
     });
 typedef $$TxnsTableUpdateCompanionBuilder =
     TxnsCompanion Function({
@@ -13936,6 +13901,7 @@ typedef $$TxnsTableUpdateCompanionBuilder =
       Value<int?> goalId,
       Value<int?> recurringId,
       Value<DateTime> createdAt,
+      Value<int?> sourceId,
     });
 
 final class $$TxnsTableReferences
@@ -14021,6 +13987,23 @@ final class $$TxnsTableReferences
       $_db.recurrings,
     ).filter((f) => f.id.sqlEquals($_column));
     final item = $_typedResult.readTableOrNull(_recurringIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+
+  static $CategoriesTable _sourceIdTable(_$LedgerDb db) =>
+      db.categories.createAlias('txns__source_id__categories__id');
+
+  $$CategoriesTableProcessedTableManager? get sourceId {
+    final $_column = $_itemColumn<int>('source_id');
+    if ($_column == null) return null;
+    final manager = $$CategoriesTableTableManager(
+      $_db,
+      $_db.categories,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_sourceIdTable($_db));
     if (item == null) return manager;
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: [item]),
@@ -14196,6 +14179,29 @@ class $$TxnsTableFilterComposer extends Composer<_$LedgerDb, $TxnsTable> {
           }) => $$RecurringsTableFilterComposer(
             $db: $db,
             $table: $db.recurrings,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
+  $$CategoriesTableFilterComposer get sourceId {
+    final $$CategoriesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.categories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CategoriesTableFilterComposer(
+            $db: $db,
+            $table: $db.categories,
             $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
             joinBuilder: joinBuilder,
             $removeJoinBuilderFromRootComposer:
@@ -14388,6 +14394,29 @@ class $$TxnsTableOrderingComposer extends Composer<_$LedgerDb, $TxnsTable> {
     );
     return composer;
   }
+
+  $$CategoriesTableOrderingComposer get sourceId {
+    final $$CategoriesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.categories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CategoriesTableOrderingComposer(
+            $db: $db,
+            $table: $db.categories,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
 }
 
 class $$TxnsTableAnnotationComposer extends Composer<_$LedgerDb, $TxnsTable> {
@@ -14536,6 +14565,29 @@ class $$TxnsTableAnnotationComposer extends Composer<_$LedgerDb, $TxnsTable> {
     return composer;
   }
 
+  $$CategoriesTableAnnotationComposer get sourceId {
+    final $$CategoriesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.sourceId,
+      referencedTable: $db.categories,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$CategoriesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.categories,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+
   Expression<T> projectLinksRefs<T extends Object>(
     Expression<T> Function($$ProjectLinksTableAnnotationComposer a) f,
   ) {
@@ -14581,6 +14633,7 @@ class $$TxnsTableTableManager
             bool toAccountId,
             bool goalId,
             bool recurringId,
+            bool sourceId,
             bool projectLinksRefs,
           })
         > {
@@ -14609,6 +14662,7 @@ class $$TxnsTableTableManager
                 Value<int?> goalId = const Value.absent(),
                 Value<int?> recurringId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<int?> sourceId = const Value.absent(),
               }) => TxnsCompanion(
                 id: id,
                 amountPaise: amountPaise,
@@ -14622,6 +14676,7 @@ class $$TxnsTableTableManager
                 goalId: goalId,
                 recurringId: recurringId,
                 createdAt: createdAt,
+                sourceId: sourceId,
               ),
           createCompanionCallback:
               ({
@@ -14637,6 +14692,7 @@ class $$TxnsTableTableManager
                 Value<int?> goalId = const Value.absent(),
                 Value<int?> recurringId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<int?> sourceId = const Value.absent(),
               }) => TxnsCompanion.insert(
                 id: id,
                 amountPaise: amountPaise,
@@ -14650,6 +14706,7 @@ class $$TxnsTableTableManager
                 goalId: goalId,
                 recurringId: recurringId,
                 createdAt: createdAt,
+                sourceId: sourceId,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -14664,6 +14721,7 @@ class $$TxnsTableTableManager
                 toAccountId = false,
                 goalId = false,
                 recurringId = false,
+                sourceId = false,
                 projectLinksRefs = false,
               }) {
                 return PrefetchHooks(
@@ -14752,6 +14810,19 @@ class $$TxnsTableTableManager
                                   )
                                   as T;
                         }
+                        if (sourceId) {
+                          state =
+                              state.withJoin(
+                                    currentTable: table,
+                                    currentColumn: table.sourceId,
+                                    referencedTable: $$TxnsTableReferences
+                                        ._sourceIdTable(db),
+                                    referencedColumn: $$TxnsTableReferences
+                                        ._sourceIdTable(db)
+                                        .id,
+                                  )
+                                  as T;
+                        }
 
                         return state;
                       },
@@ -14799,6 +14870,7 @@ typedef $$TxnsTableProcessedTableManager =
         bool toAccountId,
         bool goalId,
         bool recurringId,
+        bool sourceId,
         bool projectLinksRefs,
       })
     >;

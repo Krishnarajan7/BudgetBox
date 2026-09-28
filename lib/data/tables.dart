@@ -62,6 +62,13 @@ class Txns extends Table {
   IntColumn get recurringId =>
       integer().nullable().references(Recurrings, #id)();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+
+  /// The pot an expense drew on — an *income* category (Salary, Extra
+  /// income), so that "what did I spend from salary, and what is left of
+  /// it" can be answered without the money ever being split across
+  /// accounts. Null for income and transfers, and for lines written
+  /// before the book asked.
+  IntColumn get sourceId => integer().nullable().references(Categories, #id)();
 }
 
 class Recurrings extends Table {

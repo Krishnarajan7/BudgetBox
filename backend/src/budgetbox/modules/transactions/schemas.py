@@ -16,6 +16,7 @@ class TxnIn(APIModel):
     note: str | None = None
     at: Instant
     goal_id: str | None = None
+    source_id: str | None = None
 
 
 class TxnPatch(APIModel):
@@ -28,6 +29,7 @@ class TxnPatch(APIModel):
     note: str | None = None
     at: Instant | None = None
     goal_id: str | None = None
+    source_id: str | None = None
 
 
 class TxnOut(APIModel):
@@ -42,6 +44,7 @@ class TxnOut(APIModel):
     at: datetime
     goal_id: str | None
     recurring_id: str | None
+    source_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

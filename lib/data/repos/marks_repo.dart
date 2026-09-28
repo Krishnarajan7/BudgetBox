@@ -104,7 +104,10 @@ int longestKeptRun(Set<String> dates, DateTime from, DateTime to) {
 /// The share of [habits] kept on [date], 0..1 — what shades one square of
 /// the record grid. An empty checklist is not a failed day, it's no day.
 double dayWeight(List<DayMark> marks, List<Habit> habits, String date) {
-  final live = [for (final h in habits) if (!h.archived) h];
+  final live = [
+    for (final h in habits)
+      if (!h.archived) h,
+  ];
   if (live.isEmpty) return 0;
   var kept = 0;
   for (final h in live) {
@@ -229,12 +232,7 @@ class MarksRepo {
     final text = food.trim();
     if (text.isEmpty) return;
     await _db.transaction(
-      () => _write(
-        LedgerDates.dayKey(day),
-        'meal',
-        stampFor(day),
-        note: text,
-      ),
+      () => _write(LedgerDates.dayKey(day), 'meal', stampFor(day), note: text),
     );
   }
 

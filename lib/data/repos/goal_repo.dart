@@ -60,13 +60,14 @@ class GoalRepo {
     int? monthlyPaise,
   }) {
     return _db.transaction(() async {
-      final id = await _db.into(_db.goals).insert(
+      final id = await _db
+          .into(_db.goals)
+          .insert(
             GoalsCompanion.insert(
               name: name,
               targetPaise: targetPaise,
               kind: kind,
-              targetDate:
-                  Value(targetDate?.toIso8601String().split('T').first),
+              targetDate: Value(targetDate?.toIso8601String().split('T').first),
               monthlyPaise: Value(monthlyPaise),
             ),
           );
@@ -77,8 +78,9 @@ class GoalRepo {
 
   Future<void> archive(int id) {
     return _db.transaction(() async {
-      await (_db.update(_db.goals)..where((g) => g.id.equals(id)))
-          .write(const GoalsCompanion(archived: Value(true)));
+      await (_db.update(_db.goals)..where((g) => g.id.equals(id))).write(
+        const GoalsCompanion(archived: Value(true)),
+      );
       await bbxSync.patch(SyncKinds.goal, id, {'archived': true});
     });
   }
@@ -98,8 +100,7 @@ class GoalRepo {
   }
 
   Stream<List<GoalView>> watchViews() {
-    final q = _db.select(_db.goals)
-      ..where((g) => g.archived.equals(false));
+    final q = _db.select(_db.goals)..where((g) => g.archived.equals(false));
     return q.watch().asyncMap((goals) async {
       final views = <GoalView>[];
       for (final g in goals) {
@@ -109,11 +110,13 @@ class GoalRepo {
           ..addColumns([sum, count])
           ..where(_db.txns.goalId.equals(g.id));
         final row = await query.getSingle();
-        views.add(GoalView(
-          goal: g,
-          donePaise: row.read(sum) ?? 0,
-          entryCount: row.read(count) ?? 0,
-        ));
+        views.add(
+          GoalView(
+            goal: g,
+            donePaise: row.read(sum) ?? 0,
+            entryCount: row.read(count) ?? 0,
+          ),
+        );
       }
       return views;
     });

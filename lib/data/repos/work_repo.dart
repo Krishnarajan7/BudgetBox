@@ -37,7 +37,9 @@ class WorkRepo {
     return _db.transaction(() async {
       final id = await _db
           .into(_db.clients)
-          .insert(ClientsCompanion.insert(name: name.trim(), note: Value(note)));
+          .insert(
+            ClientsCompanion.insert(name: name.trim(), note: Value(note)),
+          );
       await bbxSync.upsert(SyncKinds.client, id);
       return id;
     });
@@ -45,14 +47,13 @@ class WorkRepo {
 
   // ————— projects —————
 
-  Stream<List<Project>> watchProjects() =>
-      (_db.select(_db.projects)..orderBy([
-            (p) => OrderingTerm.desc(p.startedAt),
-          ]))
-          .watch();
+  Stream<List<Project>> watchProjects() => (_db.select(
+    _db.projects,
+  )..orderBy([(p) => OrderingTerm.desc(p.startedAt)])).watch();
 
-  Stream<Project?> watchProject(int id) =>
-      (_db.select(_db.projects)..where((p) => p.id.equals(id))).watchSingleOrNull();
+  Stream<Project?> watchProject(int id) => (_db.select(
+    _db.projects,
+  )..where((p) => p.id.equals(id))).watchSingleOrNull();
 
   /// A new piece of work. The opening quote is also the first revision, so
   /// the history starts where the project does.
@@ -75,7 +76,9 @@ class WorkRepo {
               name: name.trim(),
               kind: kind,
               quotePaise: quotePaise,
-              billingDay: Value(kind == ProjectKind.monthly ? billingDay : null),
+              billingDay: Value(
+                kind == ProjectKind.monthly ? billingDay : null,
+              ),
               startedAt: at,
               note: Value(note),
             ),
@@ -100,9 +103,8 @@ class WorkRepo {
   /// keeps the old one and why it changed.
   Future<void> reviseQuote(int projectId, int paise, {String? reason}) {
     return _db.transaction(() async {
-      await (_db.update(_db.projects)..where((p) => p.id.equals(projectId))).write(
-        ProjectsCompanion(quotePaise: Value(paise)),
-      );
+      await (_db.update(_db.projects)..where((p) => p.id.equals(projectId)))
+          .write(ProjectsCompanion(quotePaise: Value(paise)));
       await bbxSync.upsert(SyncKinds.project, projectId);
       final rev = await _db
           .into(_db.quoteRevisions)
@@ -110,7 +112,9 @@ class WorkRepo {
             QuoteRevisionsCompanion.insert(
               projectId: projectId,
               paise: paise,
-              reason: Value(reason?.trim().isEmpty ?? true ? null : reason!.trim()),
+              reason: Value(
+                reason?.trim().isEmpty ?? true ? null : reason!.trim(),
+              ),
               at: DateTime.now(),
             ),
           );
@@ -120,9 +124,8 @@ class WorkRepo {
 
   Future<void> setStatus(int projectId, ProjectStatus status) {
     return _db.transaction(() async {
-      await (_db.update(_db.projects)..where((p) => p.id.equals(projectId))).write(
-        ProjectsCompanion(status: Value(status)),
-      );
+      await (_db.update(_db.projects)..where((p) => p.id.equals(projectId)))
+          .write(ProjectsCompanion(status: Value(status)));
       await bbxSync.upsert(SyncKinds.project, projectId);
     });
   }
@@ -134,10 +137,14 @@ class WorkRepo {
     String? note,
   }) {
     return _db.transaction(() async {
-      await (_db.update(_db.projects)..where((p) => p.id.equals(projectId))).write(
+      await (_db.update(
+        _db.projects,
+      )..where((p) => p.id.equals(projectId))).write(
         ProjectsCompanion(
           name: name == null ? const Value.absent() : Value(name.trim()),
-          billingDay: billingDay == null ? const Value.absent() : Value(billingDay),
+          billingDay: billingDay == null
+              ? const Value.absent()
+              : Value(billingDay),
           note: note == null ? const Value.absent() : Value(note),
         ),
       );
@@ -145,9 +152,9 @@ class WorkRepo {
     });
   }
 
-  Stream<List<QuoteRevision>> watchAllRevisions() =>
-      (_db.select(_db.quoteRevisions)..orderBy([(r) => OrderingTerm.asc(r.at)]))
-          .watch();
+  Stream<List<QuoteRevision>> watchAllRevisions() => (_db.select(
+    _db.quoteRevisions,
+  )..orderBy([(r) => OrderingTerm.asc(r.at)])).watch();
 
   Stream<List<QuoteRevision>> watchRevisions(int projectId) =>
       (_db.select(_db.quoteRevisions)
@@ -158,18 +165,21 @@ class WorkRepo {
   // ————— the lines a project claims —————
 
   Stream<List<ProjectLine>> watchLines(int projectId) {
-    final q = _db.select(_db.projectLinks).join([
-      innerJoin(_db.txns, _db.txns.id.equalsExp(_db.projectLinks.txnId)),
-    ])
-      ..where(_db.projectLinks.projectId.equals(projectId))
-      ..orderBy([OrderingTerm.desc(_db.txns.at)]);
-    return q.watch().map((rows) => [
-      for (final r in rows)
-        ProjectLine(
-          link: r.readTable(_db.projectLinks),
-          txn: r.readTable(_db.txns),
-        ),
-    ]);
+    final q =
+        _db.select(_db.projectLinks).join([
+            innerJoin(_db.txns, _db.txns.id.equalsExp(_db.projectLinks.txnId)),
+          ])
+          ..where(_db.projectLinks.projectId.equals(projectId))
+          ..orderBy([OrderingTerm.desc(_db.txns.at)]);
+    return q.watch().map(
+      (rows) => [
+        for (final r in rows)
+          ProjectLine(
+            link: r.readTable(_db.projectLinks),
+            txn: r.readTable(_db.txns),
+          ),
+      ],
+    );
   }
 
   /// Every claimed line across every project — the work page reads these
@@ -178,13 +188,15 @@ class WorkRepo {
     final q = _db.select(_db.projectLinks).join([
       innerJoin(_db.txns, _db.txns.id.equalsExp(_db.projectLinks.txnId)),
     ]);
-    return q.watch().map((rows) => [
-      for (final r in rows)
-        ProjectLine(
-          link: r.readTable(_db.projectLinks),
-          txn: r.readTable(_db.txns),
-        ),
-    ]);
+    return q.watch().map(
+      (rows) => [
+        for (final r in rows)
+          ProjectLine(
+            link: r.readTable(_db.projectLinks),
+            txn: r.readTable(_db.txns),
+          ),
+      ],
+    );
   }
 
   /// Claims an existing ledger line for a project.
@@ -214,18 +226,46 @@ class WorkRepo {
 
   Future<void> detach(int linkId) {
     return _db.transaction(() async {
-      await (_db.delete(_db.projectLinks)..where((l) => l.id.equals(linkId))).go();
+      await (_db.delete(
+        _db.projectLinks,
+      )..where((l) => l.id.equals(linkId))).go();
       await bbxSync.remove(SyncKinds.plink, linkId);
     });
   }
 
   Future<void> setBillable(int linkId, bool billable) {
     return _db.transaction(() async {
-      await (_db.update(_db.projectLinks)..where((l) => l.id.equals(linkId))).write(
-        ProjectLinksCompanion(billable: Value(billable)),
-      );
+      await (_db.update(_db.projectLinks)..where((l) => l.id.equals(linkId)))
+          .write(ProjectLinksCompanion(billable: Value(billable)));
       await bbxSync.upsert(SyncKinds.plink, linkId);
     });
+  }
+
+  /// The income category that freelance money belongs to — the pot the
+  /// work book fills and draws on. 'Extra income' by the shelf's default
+  /// name; any income category that speaks of extra, freelance, side or
+  /// work otherwise; the first one that is not the salary as a last
+  /// resort.
+  Future<int?> workPot() async {
+    final pots =
+        await (_db.select(_db.categories)
+              ..where((c) => c.archived.equals(false))
+              ..where((c) => c.kind.equalsValue(CategoryKind.income))
+              ..orderBy([(c) => OrderingTerm.asc(c.sortOrder)]))
+            .get();
+    if (pots.isEmpty) return null;
+    final named = RegExp(
+      r'extra|freelanc|side|work|client|project',
+      caseSensitive: false,
+    );
+    for (final p in pots) {
+      if (named.hasMatch(p.name)) return p.id;
+    }
+    final salary = RegExp(r'salary|pay', caseSensitive: false);
+    for (final p in pots) {
+      if (!salary.hasMatch(p.name)) return p.id;
+    }
+    return pots.first.id;
   }
 
   /// The client paid: one income line in the ledger, claimed at once.
@@ -241,7 +281,7 @@ class WorkRepo {
       amountPaise: amountPaise,
       accountId: accountId,
       title: title,
-      categoryId: categoryId,
+      categoryId: categoryId ?? await workPot(),
       at: at,
     );
     await attach(projectId, txnId, role: LinkRole.received);
@@ -264,6 +304,8 @@ class WorkRepo {
       accountId: accountId,
       title: title,
       categoryId: categoryId,
+      // A project's cost is paid out of the work it earns, not the salary.
+      sourceId: await workPot(),
       at: at,
     );
     await attach(projectId, txnId, role: LinkRole.cost, billable: billable);
@@ -280,7 +322,8 @@ class WorkRepo {
     final rows =
         await (_db.select(_db.txns)
               ..where(
-                (t) => t.type.equalsValue(type) & t.at.isBiggerOrEqualValue(since),
+                (t) =>
+                    t.type.equalsValue(type) & t.at.isBiggerOrEqualValue(since),
               )
               ..orderBy([(t) => OrderingTerm.desc(t.at)]))
             .get();

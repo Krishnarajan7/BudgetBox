@@ -214,11 +214,67 @@ void main() {
       expect(find.text('rides'), findsOneWidget);
       expect(find.textContaining('4 times in'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('habit-fine-often:rides')));
+      final fine = find.byKey(const ValueKey('habit-fine-often:rides'));
+      await tester.ensureVisible(fine);
+      await tester.pumpAndSettle();
+      await tester.tap(fine);
       await tester.pumpAndSettle();
       expect(find.text('rides'), findsNothing);
       expect(find.textContaining('nothing repeats enough'), findsOneWidget);
       expect(await SettingsRepo(db).handsMuted(), {'often:rides'});
+      await unmount(tester);
+    });
+
+    testWidgets('a habit row opens the book, and the book stands on its own', (
+      tester,
+    ) async {
+      final db = LedgerDb.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final cash = await AccountRepo(
+        db,
+      ).create(name: 'Cash', kind: AccountKind.cash);
+      final txns = TxnRepo(db);
+      final now = DateTime.now();
+      for (var i = 1; i <= 4; i++) {
+        await txns.addExpense(
+          amountPaise: 5000,
+          accountId: cash,
+          title: 'rapido',
+          at: now.subtract(Duration(days: i)),
+        );
+      }
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [dbProvider.overrideWithValue(db)],
+          child: MaterialApp(
+            theme: ledgerDayTheme(),
+            home: const InsightsPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final door = find.byKey(const ValueKey('habit-open-often:rides'));
+      await tester.scrollUntilVisible(
+        door,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(door);
+      await tester.pumpAndSettle();
+      await tester.tap(door);
+      await tester.pumpAndSettle();
+      // The book is up, searched on the word, with no ink complaint from
+      // its bar — it was pushed without a Material ancestor once.
+      expect(find.byType(BookPage), findsOneWidget);
+      expect(find.text('rapido'), findsWidgets);
+      expect(tester.takeException(), isNull);
+      // It stands clear of the status bar and wears a way back.
+      expect(find.byType(SafeArea), findsWidgets);
+      final back = find.byKey(const ValueKey('bar-back'));
+      expect(back, findsOneWidget);
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(find.byType(BookPage), findsNothing);
       await unmount(tester);
     });
 

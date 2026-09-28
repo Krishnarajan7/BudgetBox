@@ -35,12 +35,15 @@ class CategoryRepo {
     required CategoryKind kind,
   }) {
     return _db.transaction(() async {
-      final siblings = await (_db.select(_db.categories)
-            ..where((c) => c.kind.equalsValue(kind)))
-          .get();
+      final siblings = await (_db.select(
+        _db.categories,
+      )..where((c) => c.kind.equalsValue(kind))).get();
       final next =
-          siblings.fold(-1, (int m, c) => c.sortOrder > m ? c.sortOrder : m) + 1;
-      final id = await _db.into(_db.categories).insert(
+          siblings.fold(-1, (int m, c) => c.sortOrder > m ? c.sortOrder : m) +
+          1;
+      final id = await _db
+          .into(_db.categories)
+          .insert(
             CategoriesCompanion.insert(
               name: name,
               icon: Value(icon),
@@ -68,8 +71,9 @@ class CategoryRepo {
   /// Retired, not deleted — it leaves the pickers; history keeps it.
   Future<void> retire(int id) {
     return _db.transaction(() async {
-      await (_db.update(_db.categories)..where((c) => c.id.equals(id)))
-          .write(const CategoriesCompanion(archived: Value(true)));
+      await (_db.update(_db.categories)..where((c) => c.id.equals(id))).write(
+        const CategoriesCompanion(archived: Value(true)),
+      );
       // CategoryIn carries no `archived`; retiring is a PATCH upstream.
       await bbxSync.patch(SyncKinds.category, id, {'archived': true});
     });

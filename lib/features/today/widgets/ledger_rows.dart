@@ -166,52 +166,85 @@ class LeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
+    final labelStyle = LedgerType.bodyText.copyWith(
+      fontSize: 13,
+      color: c.inkFaint,
+    );
+    final detailStyle = LedgerType.bodyText.copyWith(
+      fontSize: 11,
+      color: c.inkFaint,
+    );
+    final amountStyle =
+        (emphasized ? LedgerType.amountTotal : LedgerType.amount).copyWith(
+          color: amountColor ?? c.ink,
+        );
+    double width(String text, TextStyle style, TextScaler scaler) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Text(
-            label,
-            style: LedgerType.bodyText.copyWith(
-              fontSize: 13,
-              color: c.inkFaint,
-            ),
-          ),
-          if (detail != null) ...[
-            const SizedBox(width: Gap.x2),
-            Text(
-              detail!,
-              style: LedgerType.bodyText.copyWith(
-                fontSize: 11,
-                color: c.inkFaint,
-              ),
-            ),
-          ],
-          const SizedBox(width: Gap.x2),
-          Expanded(
-            child: Baseline(
-              baseline: 2,
-              baselineType: TextBaseline.alphabetic,
-              child: SizedBox(
-                height: 2,
-                child: CustomPaint(
-                  painter: _DottedLeaderPainter(c.rule),
-                  size: const Size(double.infinity, 2),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          // The detail is a whisper, not the point. It gets whatever the
+          // label and the figure leave over, less a short run of dots,
+          // and trails off past that — so the figure always lands.
+          final scaler = MediaQuery.textScalerOf(context);
+          final labelW = width(label, labelStyle, scaler);
+          final amountW = amountWidget == null
+              ? width(amount, amountStyle, scaler)
+              : 96.0;
+          const dots = 24.0;
+          final detailMax = box.hasBoundedWidth
+              ? (box.maxWidth - labelW - amountW - dots - Gap.x2 * 3).clamp(
+                  0.0,
+                  double.infinity,
+                )
+              : double.infinity;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(label, style: labelStyle),
+              if (detail != null) ...[
+                const SizedBox(width: Gap.x2),
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: detailMax),
+                  child: Text(
+                    detail!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: detailStyle,
+                  ),
+                ),
+              ],
+              const SizedBox(width: Gap.x2),
+              Expanded(
+                child: Baseline(
+                  baseline: 2,
+                  baselineType: TextBaseline.alphabetic,
+                  child: SizedBox(
+                    height: 2,
+                    child: CustomPaint(
+                      painter: _DottedLeaderPainter(c.rule),
+                      size: const Size(double.infinity, 2),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: Gap.x2),
-          amountWidget ??
-              Text(
-                amount,
-                style:
-                    (emphasized ? LedgerType.amountTotal : LedgerType.amount)
-                        .copyWith(color: amountColor ?? c.ink),
-              ),
-        ],
+              const SizedBox(width: Gap.x2),
+              amountWidget ?? Text(amount, style: amountStyle),
+            ],
+          );
+        },
       ),
     );
     return onTap == null ? row : Pressable(onTap: onTap, child: row);

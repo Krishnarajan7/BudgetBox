@@ -99,6 +99,9 @@ class SettingsRepo {
     // The habits he has called fine. Raising "rapido, 7 times" again after
     // a reinstall would be nagging.
     handsMutedKey,
+    // The pot the last expense drew on — the add sheet's default, so a
+    // reinstall does not start asking "salary or extra?" from scratch.
+    lastSourceKey,
   ];
 
   static const pinPassedKey = 'pinPassed';
@@ -118,6 +121,13 @@ class SettingsRepo {
       ..add(title.trim().toLowerCase());
     await _set(pinPassedKey, cur.join('\n'));
   }
+
+  static const lastSourceKey = 'lastSource';
+
+  /// The income category the last expense drew on, if any.
+  Future<int?> lastSourceId() async =>
+      int.tryParse(await _get(lastSourceKey) ?? '');
+  Future<void> setLastSourceId(int id) => _set(lastSourceKey, '$id');
 
   static const handsMutedKey = 'handsMuted';
 
@@ -405,6 +415,62 @@ class SettingsRepo {
       _db.settings,
     )..where((s) => s.key.isIn(syncableKeys))).get();
     return {for (final r in rows) r.key: r.value};
+  }
+
+  /// The day a kural reading belongs to, as a key. The book's day turns
+  /// at six in the morning, not midnight (see `kuralDay` in the kural
+  /// page): a verse read at half past twelve is still last night's.
+  static String kuralDayKey(DateTime now) {
+    final d = now.hour < 6 ? now.subtract(const Duration(hours: 6)) : now;
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  /// The kural is progress, not a preference — and the phone-is-the-author
+  /// rule gets it wrong on a reinstall: the day's verse greets the very
+  /// first opening, before the server is even wired, and that reading
+  /// writes a new seed, position 1 and streak 1, which would then win over
+  /// the server's fortieth day. So the two copies are compared, and the
+  /// one further into the cycle is the book. When the phone has already
+  /// read to-day's verse, that day is kept and counted onto the server's
+  /// streak rather than restarting it. Returns true when the server's copy
+  /// was taken.
+  Future<bool> adoptKuralIfFurther(
+    Map<String, String> remote, {
+    required String today,
+  }) async {
+    final remotePosition = int.tryParse(
+      remote[_kuralPosition] ?? remote[_kuralIndex] ?? '',
+    );
+    final remoteSeed = remote[_kuralSeed];
+    if (remotePosition == null || remoteSeed == null) return false;
+    final localPosition = await kuralPosition();
+    final localStreak = int.tryParse(await _get(_kuralStreak) ?? '') ?? 0;
+    final remoteStreak = int.tryParse(remote[_kuralStreak] ?? '') ?? 0;
+    final further =
+        remotePosition > localPosition ||
+        (remotePosition == localPosition && remoteStreak > localStreak);
+    if (!further) return false;
+
+    final localDay = await kuralDay();
+    final remoteDay = remote[_kuralDay];
+    await _db.transaction(() async {
+      await _set(_kuralSeed, remoteSeed);
+      await _set(_kuralPosition, '$remotePosition');
+      if (localDay == today) {
+        // To-day's page was already read here: the day stands, and the
+        // streak continues the server's chain if that chain reached
+        // yesterday — or starts over if it did not.
+        await _set(_kuralDay, today);
+        await _set(
+          _kuralStreak,
+          '${_nextStreak(today, remoteDay, remoteStreak)}',
+        );
+      } else {
+        if (remoteDay != null) await _set(_kuralDay, remoteDay);
+        await _set(_kuralStreak, '$remoteStreak');
+      }
+    });
+    return true;
   }
 
   /// Write a preference that came down from the server. Unknown or

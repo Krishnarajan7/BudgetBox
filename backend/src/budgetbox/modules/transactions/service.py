@@ -51,6 +51,7 @@ _TXN_FIELDS = (
     "note",
     "at",
     "goal_id",
+    "source_id",
 )
 
 
@@ -77,6 +78,12 @@ def _validate_shape(session: Session, row: Txn) -> None:
             raise Invalid("to_account_id is only for transfers")
         if row.category_id is not None and session.get(Category, row.category_id) is None:
             raise Invalid(f"no category {row.category_id}")
+    if row.source_id is not None:
+        source = session.get(Category, row.source_id)
+        if source is None:
+            raise Invalid(f"no category {row.source_id}")
+        if row.type is not TxnType.EXPENSE:
+            raise Invalid("only an expense draws on a source")
     if row.goal_id is not None:
         from budgetbox.modules.goals.models import Goal
 
@@ -108,6 +115,7 @@ def _row_from_snapshot(raw: str) -> Txn:
         at=data.at,
         goal_id=data.goal_id,
         recurring_id=data.recurring_id,
+        source_id=data.source_id,
         created_at=data.created_at,
         updated_at=data.updated_at,
     )

@@ -73,9 +73,7 @@ String untilPhrase(Duration d) {
   }
   final days = d.inDays;
   final restHours = hours % 24;
-  return restHours == 0
-      ? 'in ${days}d'
-      : 'in ${days}d ${restHours}h';
+  return restHours == 0 ? 'in ${days}d' : 'in ${days}d ${restHours}h';
 }
 
 /// Wall-clock text for a minute of the day: '06:30'.
@@ -103,10 +101,9 @@ class AlarmRepo {
           ]))
           .watch();
 
-  Future<List<Alarm>> all() =>
-      (_db.select(_db.alarms)
-            ..orderBy([(a) => OrderingTerm.asc(a.minuteOfDay)]))
-          .get();
+  Future<List<Alarm>> all() => (_db.select(
+    _db.alarms,
+  )..orderBy([(a) => OrderingTerm.asc(a.minuteOfDay)])).get();
 
   Future<int> create({
     required int minuteOfDay,
@@ -146,8 +143,9 @@ class AlarmRepo {
     await _db.transaction(() async {
       await (_db.update(_db.alarms)..where((a) => a.id.equals(id))).write(
         AlarmsCompanion(
-          minuteOfDay:
-              minuteOfDay == null ? const Value.absent() : Value(minuteOfDay),
+          minuteOfDay: minuteOfDay == null
+              ? const Value.absent()
+              : Value(minuteOfDay),
           label: label == null ? const Value.absent() : Value(label.trim()),
           days: days == null ? const Value.absent() : Value(days),
           enabled: enabled == null ? const Value.absent() : Value(enabled),

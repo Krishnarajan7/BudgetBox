@@ -40,7 +40,9 @@ class RecurringRepo {
   }) {
     final next = nextDate(dayOfMonth, everyMonths, DateTime.now());
     return _db.transaction(() async {
-      final id = await _db.into(_db.recurrings).insert(
+      final id = await _db
+          .into(_db.recurrings)
+          .insert(
             RecurringsCompanion.insert(
               title: title,
               amountPaise: amountPaise,
@@ -59,8 +61,9 @@ class RecurringRepo {
 
   Future<void> stop(int id) {
     return _db.transaction(() async {
-      await (_db.update(_db.recurrings)..where((r) => r.id.equals(id)))
-          .write(const RecurringsCompanion(active: Value(false)));
+      await (_db.update(_db.recurrings)..where((r) => r.id.equals(id))).write(
+        const RecurringsCompanion(active: Value(false)),
+      );
       // `active` rides the full body, so stopping a charge is a plain PUT.
       await bbxSync.upsert(SyncKinds.recurring, id);
     });
@@ -123,9 +126,9 @@ class RecurringRepo {
   Future<Map<int, int>> upcomingByCategory() async {
     final now = DateTime.now();
     final end = LedgerDates.monthEnd(now);
-    final rows = await (_db.select(_db.recurrings)
-          ..where((r) => r.active.equals(true)))
-        .get();
+    final rows = await (_db.select(
+      _db.recurrings,
+    )..where((r) => r.active.equals(true))).get();
     final out = <int, int>{};
     for (final r in rows) {
       if (r.categoryId == null) continue;
@@ -142,9 +145,11 @@ class RecurringRepo {
     final count = _db.txns.id.count();
     final q = _db.selectOnly(_db.txns)
       ..addColumns([count])
-      ..where(_db.txns.recurringId.equals(r.id) &
-          _db.txns.at.isBiggerOrEqualValue(LedgerDates.monthStart(now)) &
-          _db.txns.at.isSmallerThanValue(LedgerDates.monthEnd(now)));
+      ..where(
+        _db.txns.recurringId.equals(r.id) &
+            _db.txns.at.isBiggerOrEqualValue(LedgerDates.monthStart(now)) &
+            _db.txns.at.isSmallerThanValue(LedgerDates.monthEnd(now)),
+      );
     return ((await q.getSingle()).read(count) ?? 0) > 0;
   }
 
@@ -164,8 +169,9 @@ class RecurringRepo {
       DateTime.now().add(const Duration(days: 1)),
     );
     await _db.transaction(() async {
-      await (_db.update(_db.recurrings)..where((x) => x.id.equals(r.id)))
-          .write(RecurringsCompanion(nextDue: Value(LedgerDates.dayKey(next))));
+      await (_db.update(_db.recurrings)..where((x) => x.id.equals(r.id))).write(
+        RecurringsCompanion(nextDue: Value(LedgerDates.dayKey(next))),
+      );
       await bbxSync.upsert(SyncKinds.recurring, r.id);
     });
     return id;
@@ -173,9 +179,9 @@ class RecurringRepo {
 
   /// Yearly cost of everything on the shelf, cadences normalised.
   Future<int> yearlyTotal({RecurringKind? kind}) async {
-    final rows = await (_db.select(_db.recurrings)
-          ..where((r) => r.active.equals(true)))
-        .get();
+    final rows = await (_db.select(
+      _db.recurrings,
+    )..where((r) => r.active.equals(true))).get();
     return rows
         .where((r) => kind == null || r.kind == kind)
         .fold<int>(0, (s, r) => s + r.amountPaise * (12 ~/ r.everyMonths));

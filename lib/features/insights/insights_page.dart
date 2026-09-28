@@ -10,7 +10,6 @@ import '../../core/dates.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
-import '../../core/widgets/ledger_widgets.dart';
 import '../../core/widgets/module_scaffold.dart';
 import '../../core/widgets/motion.dart';
 import '../../core/icons.dart';
@@ -229,19 +228,6 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
         '${Inr.format(incomePaise)} that came in';
   }
 
-  /// The split, in one sentence: what was his to move against what was
-  /// not. The fixed half is named so the figure is not mistaken for blame.
-  String _handsLine(Hands h, bool onNow, int days) {
-    final span = onNow ? 'the last $days days' : 'this month';
-    if (h.fixedPaise == 0) {
-      return 'all ${Inr.format(h.flexiblePaise)} of $span was yours to move '
-          '— no rent or bills in it.';
-    }
-    final pct = (h.share * 100).round();
-    return '${Inr.format(h.flexiblePaise)} of ${Inr.format(h.totalPaise)} '
-        'over $span was yours to move — $pct%. rent and bills took the rest.';
-  }
-
   /// Round enough to say "near": to ₹100 above ₹1,000, to ₹10 below it.
   /// A projection quoted to the rupee would be lying about its precision.
   static int _near(int paise) => paise >= 100_000
@@ -375,10 +361,14 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
       m[t.categoryId] = (m[t.categoryId] ?? 0) + t.amountPaise;
     }
     final dayInks = List<Color?>.filled(daysIn, null);
+    // What carried each day, for the scrub readout: the category that
+    // took most of it.
+    final dayCarriers = List<String?>.filled(daysIn, null);
     byDayCat.forEach((day, m) {
       if (day < 1 || day > daysIn) return;
       final top = m.entries.reduce((a, b) => a.value >= b.value ? a : b);
       dayInks[day - 1] = inkByCat[top.key];
+      dayCarriers[day - 1] = catName(top.key);
     });
 
     // What carried the heaviest day — one line if one line was most of
@@ -437,27 +427,10 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
             priorMonthTotals: priorTotals,
           )
         : null;
-    String? paceLine;
     var paceInk = c.inkFaint;
-    if (pace != null) {
-      final near = Inr.format(_near(pace.projected));
-      final usual = pace.usual;
-      if (usual == null) {
-        paceLine = 'at this pace the month lands near $near';
-      } else {
-        final gap = pace.projected - usual;
-        if (gap.abs() < 20_000) {
-          paceLine =
-              'at this pace the month lands near $near — '
-              'about a usual month';
-        } else {
-          paceLine =
-              'at this pace the month lands near $near — '
-              '${Inr.format(_near(gap.abs()))} '
-              '${gap > 0 ? 'heavier' : 'lighter'} than usual';
-          if (gap > 0) paceInk = c.warn;
-        }
-      }
+    if (pace != null && pace.usual != null) {
+      final gap = pace.projected - pace.usual!;
+      if (gap.abs() >= 20_000 && gap > 0) paceInk = c.warn;
     }
 
     // ————— the movement worth naming, against last month —————
@@ -481,23 +454,20 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
       );
     }
 
-    Widget dayNote(String line, {Color? ink}) => Padding(
-      padding: const EdgeInsets.only(top: Gap.x2),
-      child: Text(
-        line,
-        style: LedgerType.bodyText.copyWith(
-          fontSize: 13,
-          height: 1.45,
-          color: ink ?? c.inkFaint,
-        ),
-      ),
-    );
+    final perDay = nowTotal ~/ math.max(1, elapsed);
+    final topFour = stories.take(4).toList();
+    final sectionPad = MediaQuery.paddingOf(context).bottom + Gap.x8;
+
+    String heavyDayLabel() => heavyDay == null
+        ? ''
+        : LedgerDates.dayLabel(
+            DateTime(_month.year, _month.month, heavyDay.$1),
+          );
 
     return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.page),
+      padding: EdgeInsets.fromLTRB(Gap.page, Gap.x4, Gap.page, sectionPad),
       children: [
-        const SizedBox(height: Gap.x4),
-        // ————— the month, in one figure —————
+        // ————— the month, in one figure, and the three numbers beside it —————
         Text(
           _label.toLowerCase(),
           style: LedgerType.label.copyWith(color: c.inkFaint),
@@ -522,172 +492,62 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
               ),
             ],
           ),
-
-        // ————— the paragraph worth reading first —————
-        if (lead != null) ...[
-          const SizedBox(height: Gap.x3),
-          Text(
-            _headlineLine(lead, catName),
-            style: LedgerType.bodyText.copyWith(
-              fontSize: 13,
-              height: 1.45,
-              color: lead.$2 ? c.inkFaint : c.warn,
+        StatTiles(
+          tiles: [
+            if (pace != null)
+              StatTile(
+                label: 'lands near',
+                value: Inr.compact(_near(pace.projected)),
+                tone: paceInk == c.warn ? c.warn : c.ink,
+                sub: pace.usual == null
+                    ? 'no usual month yet'
+                    : (pace.projected - pace.usual!).abs() < 20_000
+                    ? 'about a usual month'
+                    : '${Inr.compact(_near((pace.projected - pace.usual!).abs()))} '
+                          '${pace.projected > pace.usual! ? 'heavier' : 'lighter'} than usual',
+              )
+            else
+              StatTile(
+                label: 'the month',
+                value: Inr.compact(nowTotal),
+                tone: c.ink,
+                sub: thenTotal == 0
+                    ? 'nothing to compare'
+                    : 'was ${Inr.compact(thenTotal)}',
+              ),
+            StatTile(
+              label: 'a day',
+              value: Inr.compact(perDay),
+              tone: c.ink,
+              sub: onNow ? '$elapsed days in' : 'over $daysIn days',
+            ),
+            StatTile(
+              label: 'heaviest day',
+              value: heavyDay == null ? '—' : Inr.compact(heavyDay.$2),
+              tone: heavyDay == null ? c.inkFaint : c.ink,
+              sub: heavyDay == null ? 'nothing yet' : heavyDayLabel(),
+            ),
+          ],
+        ),
+        // ————— the one line worth reading first —————
+        if (lead != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.x3),
+            child: Text(
+              _headlineLine(lead, catName),
+              style: LedgerType.bodyText.copyWith(
+                fontSize: 13,
+                height: 1.45,
+                color: lead.$2 ? c.inkFaint : c.warn,
+              ),
             ),
           ),
-        ],
-        if (paceLine != null) ...[
-          const SizedBox(height: Gap.x1),
-          Text(
-            paceLine,
-            style: LedgerType.bodyText.copyWith(
-              fontSize: 13,
-              height: 1.45,
-              color: paceInk,
-            ),
-          ),
-        ],
 
-        // ————— the running month: what living costs, apart from what
-        // happened once —————
+        // ————— where it went: the ring, then the ranking —————
         //
-        // A first month somewhere new is mostly one-offs: the ticket, the
-        // deposit, the pillow. The figure worth carrying forward is the
-        // month *without* them, set against what came in.
-        if (running.oneOffPaise > 0 && running.runningPaise > 0) ...[
-          const SectionHead('the running month'),
-          LeaderRow(
-            label: 'living',
-            detail: 'rent, food, getting around, bills, kirana',
-            amount: Inr.format(running.runningPaise),
-            amountColor: c.ink,
-          ),
-          LeaderRow(
-            label: 'one-offs',
-            detail: running.oneOffs
-                .take(3)
-                .map((o) => o.$1.toLowerCase())
-                .join(', '),
-            amount: Inr.format(running.oneOffPaise),
-            amountColor: c.inkFaint,
-          ),
-          const SizedBox(height: Gap.x2),
-          Text(
-            _runningLine(running, incomeNow, onNow),
-            style: LedgerType.bodyText.copyWith(
-              fontSize: 13,
-              height: 1.45,
-              color: incomeNow > 0 && running.runningPaise > incomeNow
-                  ? c.warn
-                  : c.inkFaint,
-            ),
-          ),
-        ],
-
-        // ————— in your hands: what he could move, and the habits in it —————
-        if (inHands.totalPaise > 0) ...[
-          const SectionHead('in your hands'),
-          Text(
-            _handsLine(inHands, onNow, windowDays),
-            style: LedgerType.bodyText.copyWith(
-              fontSize: 13,
-              height: 1.45,
-              color: c.inkFaint,
-            ),
-          ),
-          const SizedBox(height: Gap.x2),
-          RoundedBar(fraction: inHands.share, ink: c.quill, height: 5),
-          if (inHands.habits.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: Gap.x3),
-              child: Text(
-                'nothing repeats enough to call a habit yet.',
-                style: LedgerType.bodyText.copyWith(
-                  fontSize: 13,
-                  color: c.inkFaint,
-                ),
-              ),
-            )
-          else
-            Plate(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final (i, h) in inHands.habits.indexed)
-                    _HabitRow(
-                      key: ValueKey('habit-${h.key}'),
-                      habit: h,
-                      last: i == inHands.habits.length - 1,
-                      onOpen: h.search.isEmpty
-                          ? null
-                          : () => Navigator.of(context).push(
-                              LedgerRoute<void>(
-                                builder: (_) => BookPage(
-                                  initialMonth: _month,
-                                  initialQuery: h.search,
-                                ),
-                              ),
-                            ),
-                      onFine: () {
-                        HapticFeedback.selectionClick();
-                        ref.read(settingsRepoProvider).muteHand(h.key);
-                      },
-                    ),
-                ],
-              ),
-            ),
-        ],
-
-        // ————— the days: the month's shape, stroke by stroke —————
-        if (nowSpend.isNotEmpty) ...[
-          const SectionHead('the days'),
-          _DayStrip(
-            key: ValueKey('days-$_month'),
-            daily: daily,
-            elapsed: elapsed,
-            heavyDay: heavyDay?.$1,
-            dayInks: dayInks,
-          ),
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Text(
-                LedgerDates.ddMmm(_month),
-                style: LedgerType.amount.copyWith(
-                  fontSize: 9,
-                  color: c.inkFaint,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                LedgerDates.ddMmm(DateTime(_month.year, _month.month, daysIn)),
-                style: LedgerType.amount.copyWith(
-                  fontSize: 9,
-                  color: c.inkFaint,
-                ),
-              ),
-            ],
-          ),
-          if (heavyDay != null)
-            dayNote(
-              'the heaviest day was ${LedgerDates.dayLabel(DateTime(_month.year, _month.month, heavyDay.$1))} '
-              '— ${Inr.format(heavyDay.$2)}'
-              '${heavyCarrier == null ? '' : ', mostly $heavyCarrier'}',
-            ),
-          if (quiet != null)
-            dayNote(
-              'the quietest stretch — ${quiet.$1}–'
-              '${LedgerDates.ddMmm(DateTime(_month.year, _month.month, quiet.$1 + 6))}, '
-              '${quiet.$2 == 0 ? 'not a rupee written' : '${Inr.format(quiet.$2)} in seven days'}',
-            ),
-        ],
-
-        // ————— where it went —————
-        //
-        // The whole month, ranked — no wheel, no fold, no "everything
-        // else" hiding two-thirds of the money. Each category carries its
-        // share, a bar against the heaviest, and one line of judgement
-        // against its own last three months. Tap a row and the book opens
-        // already turned to this month and narrowed to that category.
+        // The ring says the shape at a glance — four inks, the rest in
+        // track — and the ranking under it says the same thing in order,
+        // each category judged against its own last three months.
         if (stories.isNotEmpty) ...[
           const SectionHead('where it went'),
           Plate(
@@ -695,6 +555,67 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Row(
+                  children: [
+                    Donut(
+                      segments: [
+                        for (final s in topFour)
+                          (
+                            s.paise.toDouble(),
+                            inkByCat[s.categoryId] ?? c.inkFaint,
+                          ),
+                      ],
+                      total: nowTotal.toDouble(),
+                      size: 116,
+                      thickness: 13,
+                      center: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${stories.length}',
+                            style: LedgerType.amountTotal.copyWith(
+                              fontSize: 20,
+                              color: c.ink,
+                            ),
+                          ),
+                          Text(
+                            stories.length == 1 ? 'category' : 'categories',
+                            style: LedgerType.label.copyWith(
+                              fontSize: 9,
+                              color: c.inkFaint,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: Gap.x4),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final s in topFour)
+                            _LegendRow(
+                              ink: inkByCat[s.categoryId] ?? c.inkFaint,
+                              name: catName(s.categoryId),
+                              paise: s.paise,
+                            ),
+                          if (stories.length > 4)
+                            _LegendRow(
+                              ink: c.rule,
+                              name: '${stories.length - 4} more',
+                              paise: stories
+                                  .skip(4)
+                                  .fold(0, (t, s) => t + s.paise),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                  child: Divider(height: 1, color: c.rule),
+                ),
                 for (final (i, story) in stories.indexed)
                   _StoryRow(
                     story: story,
@@ -705,9 +626,14 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
                     last: i == stories.length - 1,
                     onTap: () => Navigator.of(context).push(
                       LedgerRoute<void>(
-                        builder: (_) => BookPage(
-                          initialMonth: _month,
-                          initialCategory: story.categoryId,
+                        builder: (_) => Scaffold(
+                          body: SafeArea(
+                            bottom: false,
+                            child: BookPage(
+                              initialMonth: _month,
+                              initialCategory: story.categoryId,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -717,50 +643,530 @@ class _InsightsPageState extends ConsumerState<InsightsPage> {
           ),
         ],
 
-        // ————— where the weight moved —————
+        // ————— the running month: living against what happened once —————
+        if (running.oneOffPaise > 0 && running.runningPaise > 0) ...[
+          const SectionHead('the running month'),
+          Plate(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _SplitBar(
+                  parts: [
+                    (running.runningPaise, c.quill),
+                    (running.oneOffPaise, c.inkFaint.withValues(alpha: 0.35)),
+                  ],
+                ),
+                const SizedBox(height: Gap.x3),
+                Row(
+                  children: [
+                    _Figure(
+                      label: 'living',
+                      value: Inr.compact(running.runningPaise),
+                      sub: 'rent, food, rides, bills',
+                      dot: c.quill,
+                    ),
+                    _Figure(
+                      label: 'one-offs',
+                      value: Inr.compact(running.oneOffPaise),
+                      sub: running.oneOffs
+                          .take(2)
+                          .map((o) => o.$1.toLowerCase())
+                          .join(', '),
+                      dot: c.inkFaint.withValues(alpha: 0.35),
+                    ),
+                    _Figure(
+                      label: 'came in',
+                      value: incomeNow == 0 ? '—' : Inr.compact(incomeNow),
+                      sub: incomeNow == 0
+                          ? 'nothing yet'
+                          : running.runningPaise > incomeNow
+                          ? 'living runs past it'
+                          : '${Inr.compact(incomeNow - running.runningPaise)} clear of living',
+                      tone: incomeNow > 0 && running.runningPaise > incomeNow
+                          ? c.warn
+                          : null,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Gap.x3),
+                Text(
+                  _runningLine(running, incomeNow, onNow),
+                  style: LedgerType.bodyText.copyWith(
+                    fontSize: 12.5,
+                    height: 1.4,
+                    color: incomeNow > 0 && running.runningPaise > incomeNow
+                        ? c.warn
+                        : c.inkFaint,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // ————— in your hands: what he could move, and the habits in it —————
+        if (inHands.totalPaise > 0) ...[
+          const SectionHead('in your hands'),
+          Plate(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _SplitBar(
+                  parts: [
+                    (inHands.flexiblePaise, c.quill),
+                    (inHands.fixedPaise, c.inkFaint.withValues(alpha: 0.35)),
+                  ],
+                ),
+                const SizedBox(height: Gap.x3),
+                Row(
+                  children: [
+                    _Figure(
+                      label: 'yours to move',
+                      value: Inr.compact(inHands.flexiblePaise),
+                      sub:
+                          '${(inHands.share * 100).round()}% of '
+                          '${onNow ? 'the last $windowDays days' : 'the month'}',
+                      dot: c.quill,
+                    ),
+                    _Figure(
+                      label: 'rent & bills',
+                      value: Inr.compact(inHands.fixedPaise),
+                      sub: 'stays where it is',
+                      dot: c.inkFaint.withValues(alpha: 0.35),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.x3),
+                  child: Divider(height: 1, color: c.rule),
+                ),
+                if (inHands.habits.isEmpty)
+                  Text(
+                    'nothing repeats enough to call a habit yet.',
+                    style: LedgerType.bodyText.copyWith(
+                      fontSize: 13,
+                      color: c.inkFaint,
+                    ),
+                  )
+                else
+                  for (final (i, h) in inHands.habits.indexed)
+                    _HabitRow(
+                      key: ValueKey('habit-${h.key}'),
+                      habit: h,
+                      share: inHands.flexiblePaise == 0
+                          ? 0
+                          : (h.paise / inHands.flexiblePaise).clamp(0.0, 1.0),
+                      last: i == inHands.habits.length - 1,
+                      onOpen: h.search.isEmpty
+                          ? null
+                          : () => Navigator.of(context).push(
+                              LedgerRoute<void>(
+                                builder: (_) => Scaffold(
+                                  body: SafeArea(
+                                    bottom: false,
+                                    child: BookPage(
+                                      initialMonth: _month,
+                                      initialQuery: h.search,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                      onFine: () {
+                        HapticFeedback.selectionClick();
+                        ref.read(settingsRepoProvider).muteHand(h.key);
+                      },
+                    ),
+              ],
+            ),
+          ),
+        ],
+
+        // ————— the days: the month's shape, stroke by stroke —————
+        if (nowSpend.isNotEmpty) ...[
+          const SectionHead('the days'),
+          Plate(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _DayChart(
+                  key: ValueKey('days-$_month'),
+                  month: _month,
+                  daily: daily,
+                  elapsed: elapsed,
+                  heavyDay: heavyDay?.$1,
+                  dayInks: dayInks,
+                  carriers: dayCarriers,
+                  average: perDay,
+                ),
+                const SizedBox(height: Gap.x3),
+                Row(
+                  children: [
+                    _Figure(
+                      label: 'heaviest day',
+                      value: heavyDay == null ? '—' : Inr.compact(heavyDay.$2),
+                      sub: heavyDay == null
+                          ? 'nothing yet'
+                          : heavyCarrier == null
+                          ? heavyDayLabel()
+                          : '${heavyDayLabel()} · mostly $heavyCarrier',
+                    ),
+                    _Figure(
+                      label: 'quietest week',
+                      value: quiet == null
+                          ? '—'
+                          : quiet.$2 == 0
+                          ? '₹0'
+                          : Inr.compact(quiet.$2),
+                      sub: quiet == null
+                          ? 'not a week in yet'
+                          : '${quiet.$1}–${LedgerDates.ddMmm(DateTime(_month.year, _month.month, quiet.$1 + 6))}'
+                                '${quiet.$2 == 0 ? ' · not a rupee' : ''}',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // ————— where the weight moved: each swing as a bar off the axis —————
         if (shifts.isNotEmpty) ...[
           const SectionHead('where the weight moved'),
-          for (final s in shifts)
-            LeaderRow(
-              label: catName(s.categoryId),
-              amountWidget: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    '${s.deltaPaise > 0 ? '+' : '−'}'
-                    '${Inr.format(s.deltaPaise.abs())}',
-                    style: LedgerType.amount.copyWith(
-                      color: s.deltaPaise > 0 ? c.warn : c.jama,
-                    ),
+          Plate(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (i, s) in shifts.indexed)
+                  _DivergeRow(
+                    name: catName(s.categoryId),
+                    deltaPaise: s.deltaPaise,
+                    maxPaise: shifts
+                        .map((x) => x.deltaPaise.abs())
+                        .reduce(math.max),
+                    tag: s.isNew
+                        ? 'first seen'
+                        : s.wentQuiet
+                        ? 'went quiet'
+                        : null,
+                    last: i == shifts.length - 1,
                   ),
-                  if (s.isNew || s.wentQuiet)
-                    Text(
-                      s.isNew ? ' · first seen' : ' · went quiet',
-                      style: LedgerType.label.copyWith(color: c.inkFaint),
-                    ),
-                ],
-              ),
+              ],
             ),
+          ),
         ],
 
         // ————— the heaviest single lines —————
         if (heaviest.isNotEmpty) ...[
           const SectionHead('heaviest lines'),
-          for (final (i, t) in heaviest.take(3).indexed)
-            LedgerLine(
-              leading: LedgerDates.ddMmm(t.at),
-              title: t.title,
-              detail: catName(t.categoryId),
-              amount: Inr.format(t.amountPaise),
-              last: i == heaviest.take(3).length - 1,
+          Plate(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final t in heaviest.take(3))
+                  PlateRow(
+                    leading: Medallion(
+                      icon: LedgerIcons.resolve(catIcon(t.categoryId)),
+                      ink: inkByCat[t.categoryId] ?? c.inkFaint,
+                      size: 34,
+                      iconSize: 16,
+                    ),
+                    title: t.title,
+                    sub:
+                        '${LedgerDates.ddMmm(t.at)} · ${catName(t.categoryId)}',
+                    amount: Inr.format(t.amountPaise),
+                    dense: true,
+                  ),
+              ],
             ),
+          ),
         ],
-        const SizedBox(height: Gap.x8),
       ],
     );
   }
+}
+
+/// Two or more parts of one whole, laid end to end — living against
+/// one-offs, yours against rent. Rounded at the ends, hairline gaps
+/// between, so the proportion reads before the numbers do.
+class _SplitBar extends StatelessWidget {
+  const _SplitBar({required this.parts});
+
+  /// (paise, ink), in order.
+  final List<(int, Color)> parts;
+  static const height = 8.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final total = parts.fold(0, (t, p) => t + p.$1);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height),
+      child: SizedBox(
+        height: height,
+        child: total <= 0
+            ? ColoredBox(color: c.rule)
+            : Row(
+                children: [
+                  for (final (i, p) in parts.indexed)
+                    if (p.$1 > 0) ...[
+                      if (i > 0) const SizedBox(width: 2),
+                      Expanded(
+                        flex: math.max(1, (p.$1 * 1000 / total).round()),
+                        child: ColoredBox(color: p.$2),
+                      ),
+                    ],
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+/// A small labelled figure in a row of them — the plate's numbers, set
+/// under a one-word label with a line of context beneath.
+class _Figure extends StatelessWidget {
+  const _Figure({
+    required this.label,
+    required this.value,
+    this.sub,
+    this.dot,
+    this.tone,
+  });
+
+  final String label;
+  final String value;
+  final String? sub;
+  final Color? dot;
+  final Color? tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (dot != null) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 5),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: LedgerType.label.copyWith(color: c.inkFaint),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: LedgerType.amountTotal.copyWith(
+              fontSize: 16,
+              color: tone ?? c.ink,
+            ),
+          ),
+          if (sub != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 1, right: Gap.x2),
+              child: Text(
+                sub!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: LedgerType.bodyText.copyWith(
+                  fontSize: 11,
+                  height: 1.3,
+                  color: c.inkFaint,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One line of the ring's legend: the ink, the name, the share.
+class _LegendRow extends StatelessWidget {
+  const _LegendRow({
+    required this.ink,
+    required this.name,
+    required this.paise,
+  });
+
+  final Color ink;
+  final String name;
+  final int paise;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: ink, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: Gap.x2),
+          Expanded(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: LedgerType.bodyText.copyWith(fontSize: 12.5, color: c.ink),
+            ),
+          ),
+          const SizedBox(width: Gap.x2),
+          Text(
+            Inr.compact(paise),
+            style: LedgerType.amount.copyWith(fontSize: 12, color: c.inkFaint),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A category's swing against last month as a bar off a centre axis:
+/// left and in jama when it fell, right and in warn when it rose. The
+/// figure sits at the end so the eye reads direction, size, then number.
+class _DivergeRow extends StatelessWidget {
+  const _DivergeRow({
+    required this.name,
+    required this.deltaPaise,
+    required this.maxPaise,
+    required this.last,
+    this.tag,
+  });
+
+  final String name;
+  final int deltaPaise;
+  final int maxPaise;
+  final bool last;
+  final String? tag;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = LedgerColors.of(context);
+    final rose = deltaPaise > 0;
+    final ink = rose ? c.warn : c.jama;
+    final fraction = maxPaise == 0 ? 0.0 : deltaPaise.abs() / maxPaise;
+    final row = Padding(
+      padding: EdgeInsets.only(top: 8, bottom: last ? 2 : 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 104,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: LedgerType.bodyStrong.copyWith(
+                    fontSize: 13,
+                    color: c.ink,
+                  ),
+                ),
+                if (tag != null)
+                  Text(
+                    tag!,
+                    style: LedgerType.label.copyWith(color: c.inkFaint),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: Gap.x2),
+          Expanded(
+            child: SizedBox(
+              height: 14,
+              child: CustomPaint(
+                painter: _DivergePainter(
+                  fraction: fraction,
+                  rose: rose,
+                  ink: ink,
+                  axis: c.rule,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: Gap.x2),
+          Text(
+            '${rose ? '+' : '−'}${Inr.format(deltaPaise.abs())}',
+            style: LedgerType.amount.copyWith(fontSize: 13, color: ink),
+          ),
+        ],
+      ),
+    );
+    if (last) return row;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: c.rule)),
+      ),
+      child: row,
+    );
+  }
+}
+
+class _DivergePainter extends CustomPainter {
+  const _DivergePainter({
+    required this.fraction,
+    required this.rose,
+    required this.ink,
+    required this.axis,
+  });
+
+  final double fraction;
+  final bool rose;
+  final Color ink;
+  final Color axis;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final mid = size.width / 2;
+    canvas.drawLine(
+      Offset(mid, 0),
+      Offset(mid, size.height),
+      Paint()
+        ..color = axis
+        ..strokeWidth = 1,
+    );
+    final half = mid - 2;
+    final len = half * fraction.clamp(0.0, 1.0);
+    if (len <= 0) return;
+    final top = size.height / 2 - 4;
+    final rect = rose
+        ? Rect.fromLTWH(mid + 2, top, len, 8)
+        : Rect.fromLTWH(mid - 2 - len, top, len, 8);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(4)),
+      Paint()..color = ink,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_DivergePainter old) =>
+      old.fraction != fraction || old.rose != rose || old.ink != ink;
 }
 
 /// The month's movement, stamped small — status ink on a wash of itself.
@@ -786,82 +1192,188 @@ class _DeltaChip extends StatelessWidget {
   }
 }
 
-/// The month's spending as a row of ink strokes, one per day — the way a
-/// ledger's pages thicken and thin. Each stroke wears the ink of the
-/// category that carried its day (plain ink when that category is
-/// unranked); the heaviest day is drawn at full voice; a day with nothing
-/// written keeps a rule tick; days still to come are blank paper. The
-/// strokes rise left to right as the page draws itself.
-class _DayStrip extends StatelessWidget {
-  const _DayStrip({
+/// The month, a bar a day: weekends washed faintly behind, Mondays
+/// numbered under the line, the average drawn across as a dash, and the
+/// heaviest day at full voice. A finger on the chart names the day, what
+/// it cost and what carried it.
+class _DayChart extends StatefulWidget {
+  const _DayChart({
     super.key,
+    required this.month,
     required this.daily,
     required this.elapsed,
     required this.dayInks,
+    required this.carriers,
+    required this.average,
     this.heavyDay,
   });
 
+  final DateTime month;
   final List<int> daily;
   final int elapsed;
-
-  /// Per-day ink from the dominant category, null for plain ink days.
   final List<Color?> dayInks;
+  final List<String?> carriers;
 
-  /// 1-based day of the month set at full voice, when one earned it.
+  /// What a day cost on average, for the dash across the chart.
+  final int average;
   final int? heavyDay;
+
+  @override
+  State<_DayChart> createState() => _DayChartState();
+}
+
+class _DayChartState extends State<_DayChart> {
+  int? _scrub;
+
+  void _read(Offset p, double width) {
+    final n = widget.daily.length;
+    if (n == 0) return;
+    final i = (p.dx / width * n).floor().clamp(0, n - 1);
+    if (i >= widget.elapsed) return;
+    if (i != _scrub) {
+      HapticFeedback.selectionClick();
+      setState(() => _scrub = i);
+    }
+  }
+
+  void _lift() {
+    if (_scrub != null) setState(() => _scrub = null);
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
-    return SizedBox(
-      height: 56,
-      width: double.infinity,
-      child: DrawIn(
-        duration: const Duration(milliseconds: 700),
-        builder: (context, t) => CustomPaint(
-          painter: _DayStrokesPainter(
-            daily: daily,
-            elapsed: elapsed,
-            heavyDay: heavyDay,
-            dayInks: dayInks,
-            ink: c.ink,
-            quill: c.quill,
-            rule: c.rule,
-            progress: t,
+    final s = _scrub;
+    final heavy = widget.heavyDay;
+    final String readout;
+    final Color readoutInk;
+    if (s != null) {
+      final day = DateTime(widget.month.year, widget.month.month, s + 1);
+      final carrier = widget.carriers[s];
+      readout =
+          '${LedgerDates.dayLabel(day)} · ${Inr.format(widget.daily[s])}'
+          '${carrier == null || widget.daily[s] == 0 ? '' : ' · $carrier'}';
+      readoutInk = c.ink;
+    } else if (heavy != null) {
+      readout =
+          'heaviest ${LedgerDates.ddMmm(DateTime(widget.month.year, widget.month.month, heavy))} '
+          '· ${Inr.compact(widget.average)} a day on average';
+      readoutInk = c.inkFaint;
+    } else {
+      readout = 'touch a day to read it';
+      readoutInk = c.inkFaint;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          readout,
+          key: const ValueKey('day-chart-readout'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: LedgerType.bodyText.copyWith(fontSize: 12, color: readoutInk),
+        ),
+        const SizedBox(height: Gap.x2),
+        SizedBox(
+          height: 108,
+          width: double.infinity,
+          child: LayoutBuilder(
+            builder: (context, box) => GestureDetector(
+              key: const ValueKey('day-chart-touch'),
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (d) => _read(d.localPosition, box.maxWidth),
+              onTapUp: (_) => _lift(),
+              onTapCancel: _lift,
+              onHorizontalDragStart: (d) =>
+                  _read(d.localPosition, box.maxWidth),
+              onHorizontalDragUpdate: (d) =>
+                  _read(d.localPosition, box.maxWidth),
+              onHorizontalDragEnd: (_) => _lift(),
+              onHorizontalDragCancel: _lift,
+              child: DrawIn(
+                duration: const Duration(milliseconds: 700),
+                builder: (context, t) => CustomPaint(
+                  painter: _DayBarsPainter(
+                    month: widget.month,
+                    daily: widget.daily,
+                    elapsed: widget.elapsed,
+                    heavyDay: widget.heavyDay,
+                    dayInks: widget.dayInks,
+                    average: widget.average,
+                    scrub: _scrub,
+                    ink: c.ink,
+                    quill: c.quill,
+                    rule: c.rule,
+                    faint: c.inkFaint,
+                    wash: c.paperRaised,
+                    progress: t,
+                    textScaler: MediaQuery.textScalerOf(context),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }
 
-class _DayStrokesPainter extends CustomPainter {
-  _DayStrokesPainter({
+class _DayBarsPainter extends CustomPainter {
+  _DayBarsPainter({
+    required this.month,
     required this.daily,
     required this.elapsed,
     required this.heavyDay,
     required this.dayInks,
+    required this.average,
+    required this.scrub,
     required this.ink,
     required this.quill,
     required this.rule,
+    required this.faint,
+    required this.wash,
+    required this.textScaler,
     this.progress = 1,
   });
 
+  final DateTime month;
   final List<int> daily;
   final int elapsed;
   final int? heavyDay;
   final List<Color?> dayInks;
+  final int average;
+  final int? scrub;
   final Color ink;
   final Color quill;
   final Color rule;
+  final Color faint;
+  final Color wash;
+  final TextScaler textScaler;
 
-  /// 0→1: the strokes rise left to right, each on the tail of the last.
+  /// 0→1: the bars rise left to right, each on the tail of the last.
   final double progress;
+
+  static const _labelBand = 16.0;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (daily.isEmpty) return;
-    final base = size.height - 1;
+    final base = size.height - _labelBand;
+    final n = math.min(elapsed, daily.length);
+    final slot = size.width / daily.length;
+
+    // Weekends, washed behind the bars.
+    for (var i = 0; i < daily.length; i++) {
+      final wd = DateTime(month.year, month.month, i + 1).weekday;
+      if (wd == DateTime.saturday || wd == DateTime.sunday) {
+        canvas.drawRect(
+          Rect.fromLTWH(slot * i, 0, slot, base),
+          Paint()..color = wash.withValues(alpha: 0.55),
+        );
+      }
+    }
+
     canvas.drawLine(
       Offset(0, base),
       Offset(size.width, base),
@@ -870,20 +1382,60 @@ class _DayStrokesPainter extends CustomPainter {
         ..strokeWidth = 1,
     );
 
-    final n = math.min(elapsed, daily.length);
     var maxV = 0;
     for (var i = 0; i < n; i++) {
       maxV = math.max(maxV, daily[i]);
     }
+    maxV = math.max(maxV, average);
+    final top = 10.0;
+    double yFor(int v) => maxV <= 0 ? base : base - (base - top) * (v / maxV);
 
-    final slot = size.width / daily.length;
-    final strokeW = math.min(slot * 0.5, 4.0);
+    // The average, dashed across, labelled at the right edge.
+    if (average > 0 && maxV > 0) {
+      final y = yFor(average);
+      final dash = Paint()
+        ..color = faint.withValues(alpha: 0.7)
+        ..strokeWidth = 1;
+      for (var x = 0.0; x < size.width; x += 6) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(math.min(x + 3, size.width), y),
+          dash,
+        );
+      }
+      final label = TextPainter(
+        text: TextSpan(
+          text: 'avg ${Inr.compact(average)}',
+          style: TextStyle(
+            fontSize: 9,
+            color: faint,
+            fontFamily: 'Spline Sans Mono',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: textScaler,
+      )..layout();
+      canvas.drawRect(
+        Rect.fromLTWH(
+          size.width - label.width - 6,
+          y - label.height - 1,
+          label.width + 6,
+          label.height + 1,
+        ),
+        Paint()..color = wash.withValues(alpha: 0.85),
+      );
+      label.paint(
+        canvas,
+        Offset(size.width - label.width - 3, y - label.height - 1),
+      );
+      label.dispose();
+    }
+
+    final barW = math.min(slot * 0.62, 7.0);
     final tickPaint = Paint()
       ..color = rule
-      ..strokeWidth = math.max(strokeW * 0.6, 1.0);
+      ..strokeWidth = math.max(barW * 0.5, 1.0);
     for (var i = 0; i < n; i++) {
-      // Staggered reveal: each stroke grows over a short beat that starts
-      // as its neighbour's ends.
       final t = Curves.easeOutCubic.transform(
         ((progress * (daily.length + 6) - i) / 6).clamp(0.0, 1.0),
       );
@@ -893,29 +1445,64 @@ class _DayStrokesPainter extends CustomPainter {
         canvas.drawLine(Offset(x, base), Offset(x, base - 2.5 * t), tickPaint);
         continue;
       }
-      final h = (4 + (base - 12) * (daily[i] / maxV)) * t;
+      final h = (base - yFor(daily[i])) * t;
       final heavy = (i + 1) == heavyDay;
       final catInk = i < dayInks.length ? dayInks[i] : null;
+      final chosen = scrub == null || scrub == i;
+      final baseInk = catInk ?? (heavy ? quill : ink);
+      final alpha = !chosen
+          ? 0.25
+          : heavy || scrub == i
+          ? 1.0
+          : (catInk == null ? 0.45 : 0.75);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x - barW / 2, base - h, barW, h),
+          Radius.circular(barW / 2),
+        ),
+        Paint()..color = baseInk.withValues(alpha: alpha),
+      );
+    }
+
+    // Mondays, numbered under the line — the month's own ruler.
+    for (var i = 0; i < daily.length; i++) {
+      final d = DateTime(month.year, month.month, i + 1);
+      final first = i == 0;
+      if (d.weekday != DateTime.monday && !first) continue;
+      final x = slot * (i + 0.5);
       canvas.drawLine(
         Offset(x, base),
-        Offset(x, base - h),
+        Offset(x, base + 3),
         Paint()
-          ..color = catInk == null
-              ? (heavy ? quill : ink.withValues(alpha: 0.45))
-              : catInk.withValues(alpha: heavy ? 1.0 : 0.75)
-          ..strokeWidth = strokeW
-          ..strokeCap = StrokeCap.round,
+          ..color = rule
+          ..strokeWidth = 1,
       );
+      final label = TextPainter(
+        text: TextSpan(
+          text: '${i + 1}',
+          style: TextStyle(
+            fontSize: 9,
+            color: faint,
+            fontFamily: 'Spline Sans Mono',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: textScaler,
+      )..layout();
+      label.paint(canvas, Offset(x - label.width / 2, base + 4));
+      label.dispose();
     }
   }
 
   @override
-  bool shouldRepaint(_DayStrokesPainter old) =>
+  bool shouldRepaint(_DayBarsPainter old) =>
       old.progress != progress ||
       old.daily != daily ||
       old.elapsed != elapsed ||
       old.heavyDay != heavyDay ||
-      old.dayInks != dayInks;
+      old.dayInks != dayInks ||
+      old.scrub != scrub ||
+      old.average != average;
 }
 
 /// The lead sentence: the hottest runner named plainly, or the calm verdict.
@@ -1062,46 +1649,92 @@ class _StoryRow extends StatelessWidget {
   }
 }
 
-/// One habit on the plate: what it is, what it cost, the pace in a full
-/// sentence, and the two things he can do about it — open the lines, or
-/// call it fine and never hear of it again.
+/// One habit on the plate, three lines deep: what and how much, how
+/// often and at what pace, then its share of what was his to move — and
+/// the two things he can do about it.
 class _HabitRow extends StatelessWidget {
   const _HabitRow({
     super.key,
     required this.habit,
+    required this.share,
     required this.last,
     required this.onOpen,
     required this.onFine,
   });
 
   final Habit habit;
+
+  /// 0..1 of the flexible spend this habit took.
+  final double share;
   final bool last;
   final VoidCallback? onOpen;
   final VoidCallback onFine;
 
-  static IconData _icon(HabitKind k) => switch (k) {
-    HabitKind.often => Icons.repeat_rounded,
-    HabitKind.shop => Icons.storefront_outlined,
-    HabitKind.standing => Icons.autorenew_rounded,
-    HabitKind.weekend => Icons.weekend_outlined,
-    HabitKind.unnamed => Icons.edit_outlined,
+  static IconData _icon(Habit h) {
+    switch (h.label) {
+      case 'rides':
+        return Icons.two_wheeler_outlined;
+      case 'chai and coffee':
+        return Icons.coffee_outlined;
+      case 'ordered in':
+        return Icons.delivery_dining_outlined;
+      case 'drinks':
+        return Icons.local_drink_outlined;
+      case 'smokes':
+        return Icons.smoking_rooms_outlined;
+    }
+    return switch (h.kind) {
+      HabitKind.often => Icons.restaurant_outlined,
+      HabitKind.shop => Icons.storefront_outlined,
+      HabitKind.standing => Icons.autorenew_rounded,
+      HabitKind.weekend => Icons.weekend_outlined,
+      HabitKind.unnamed => Icons.edit_outlined,
+    };
+  }
+
+  String get _sub => switch (habit.kind) {
+    HabitKind.often => '${habit.count} times in ${habit.days} days',
+    HabitKind.shop => '${habit.count} visits in ${habit.days} days',
+    HabitKind.standing =>
+      '${habit.count} standing ${habit.count == 1 ? 'charge' : 'charges'}',
+    HabitKind.weekend => '${habit.count} weekend days',
+    HabitKind.unnamed => '${habit.count} lines with no title',
+  };
+
+  String? get _pace => switch (habit.kind) {
+    HabitKind.often => '≈${Inr.compact(roundNear(habit.monthPaise))} /mo',
+    HabitKind.shop => '${(share * 100).round()}% of yours',
+    HabitKind.standing => 'a year',
+    HabitKind.weekend => '${(share * 100).round()}% of yours',
+    HabitKind.unnamed => null,
+  };
+
+  String get _foot => switch (habit.kind) {
+    HabitKind.often =>
+      '${Inr.compact(roundNear(habit.yearPaise))} a year · half back '
+          '${Inr.compact(roundNear(habit.yearPaise ~/ 2))}',
+    HabitKind.shop =>
+      '${Inr.compact(roundNear(habit.yearPaise))} a year at this pace',
+    HabitKind.standing => 'kept for a year, or a tap to stop',
+    HabitKind.weekend => 'more than the weekdays carried',
+    HabitKind.unnamed => 'a word as you write is all it takes',
   };
 
   @override
   Widget build(BuildContext context) {
     final c = LedgerColors.of(context);
     final h = habit;
-    final amount = h.kind == HabitKind.standing
-        ? '${Inr.format(h.paise)}/yr'
-        : Inr.format(h.paise);
+    final unnamed = h.kind == HabitKind.unnamed;
     final body = Padding(
-      padding: EdgeInsets.only(top: 8, bottom: last ? 4 : 12),
+      padding: EdgeInsets.only(top: 8, bottom: last ? 2 : 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Medallion(
-            icon: _icon(h.kind),
-            ink: h.kind == HabitKind.unnamed ? c.inkFaint : c.quill,
+            icon: _icon(h),
+            ink: unnamed ? c.inkFaint : c.quill,
+            size: 34,
+            iconSize: 16,
           ),
           const SizedBox(width: Gap.x3),
           Expanded(
@@ -1125,27 +1758,55 @@ class _HabitRow extends StatelessWidget {
                     ),
                     const SizedBox(width: Gap.x2),
                     Text(
-                      amount,
+                      Inr.format(h.paise),
                       style: LedgerType.amountTotal.copyWith(
                         fontSize: 15,
-                        color: h.kind == HabitKind.unnamed ? c.inkFaint : c.ink,
+                        color: unnamed ? c.inkFaint : c.ink,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  habitLine(h),
-                  style: LedgerType.bodyText.copyWith(
-                    fontSize: 12.5,
-                    height: 1.4,
-                    color: c.inkFaint,
-                  ),
-                ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 1),
                 Row(
                   children: [
-                    if (onOpen != null)
+                    Expanded(
+                      child: Text(
+                        _sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: LedgerType.bodyText.copyWith(
+                          fontSize: 12,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                    ),
+                    if (_pace != null)
+                      Text(
+                        _pace!,
+                        style: LedgerType.amount.copyWith(
+                          fontSize: 11.5,
+                          color: c.inkFaint,
+                        ),
+                      ),
+                  ],
+                ),
+                if (!unnamed) ...[
+                  const SizedBox(height: 6),
+                  RoundedBar(fraction: share, ink: c.quill, height: 4),
+                ],
+                const SizedBox(height: 5),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _foot,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: LedgerType.label.copyWith(color: c.inkFaint),
+                      ),
+                    ),
+                    const SizedBox(width: Gap.x2),
+                    if (onOpen != null) ...[
                       Pressable(
                         key: ValueKey('habit-open-${h.key}'),
                         onTap: onOpen,
@@ -1157,7 +1818,8 @@ class _HabitRow extends StatelessWidget {
                           ),
                         ),
                       ),
-                    if (onOpen != null) const SizedBox(width: Gap.x4),
+                      const SizedBox(width: Gap.x3),
+                    ],
                     Pressable(
                       key: ValueKey('habit-fine-${h.key}'),
                       onTap: onFine,

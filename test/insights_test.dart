@@ -5,6 +5,7 @@ import 'package:budgetbox/data/repos/account_repo.dart';
 import 'package:budgetbox/data/repos/txn_repo.dart';
 import 'package:budgetbox/features/insights/insight_math.dart';
 import 'package:budgetbox/features/insights/insights_page.dart';
+import 'package:budgetbox/features/today/widgets/ledger_rows.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,10 +28,7 @@ void main() {
     });
 
     test('names arrivals and departures', () {
-      final shifts = categoryShifts(
-        [(1, 20000)],
-        [(2, 15000)],
-      );
+      final shifts = categoryShifts([(1, 20000)], [(2, 15000)]);
       expect(shifts.firstWhere((s) => s.categoryId == 1).isNew, isTrue);
       expect(shifts.firstWhere((s) => s.categoryId == 2).wentQuiet, isTrue);
     });
@@ -42,41 +40,50 @@ void main() {
   });
 
   group('InsightsPage', () {
-    testWidgets('two months of entries become totals, bars and shifts',
-        (tester) async {
+    testWidgets('two months of entries become totals, bars and shifts', (
+      tester,
+    ) async {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final accountId = await AccountRepo(db)
-          .create(name: 'Cash', kind: AccountKind.cash);
+      final accountId = await AccountRepo(
+        db,
+      ).create(name: 'Cash', kind: AccountKind.cash);
       final cats = await db.select(db.categories).get();
       final food = cats.firstWhere((c) => c.name == 'Food & chai').id;
 
       final now = DateTime.now();
       final txns = TxnRepo(db);
       await txns.addExpense(
-          amountPaise: 30000,
-          accountId: accountId,
-          categoryId: food,
-          title: 'mess bill',
-          at: now);
+        amountPaise: 30000,
+        accountId: accountId,
+        categoryId: food,
+        title: 'mess bill',
+        at: now,
+      );
       await txns.addExpense(
-          amountPaise: 12000,
-          accountId: accountId,
-          title: 'unfiled thing',
-          at: now);
+        amountPaise: 12000,
+        accountId: accountId,
+        title: 'unfiled thing',
+        at: now,
+      );
       // Last month: food cost more.
       await txns.addExpense(
-          amountPaise: 50000,
-          accountId: accountId,
-          categoryId: food,
-          title: 'mess bill',
-          at: DateTime(now.year, now.month - 1, 15));
+        amountPaise: 50000,
+        accountId: accountId,
+        categoryId: food,
+        title: 'mess bill',
+        at: DateTime(now.year, now.month - 1, 15),
+      );
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [dbProvider.overrideWithValue(db)],
-        child: MaterialApp(
-            theme: ledgerDayTheme(), home: const InsightsPage()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [dbProvider.overrideWithValue(db)],
+          child: MaterialApp(
+            theme: ledgerDayTheme(),
+            home: const InsightsPage(),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // The month's figure and its verdict against last month.
@@ -86,7 +93,6 @@ void main() {
       // The month's shape, then the ranking — each line judged against
       // its own past: food ran ₹200 under its ₹500 usual; the unfiled
       // entry has no past to judge by and says so instead of guessing.
-      expect(find.text('THE DAYS'), findsOneWidget);
       expect(find.text('WHERE IT WENT'), findsOneWidget);
       expect(find.text('Food & chai'), findsWidgets);
       expect(find.textContaining('under its usual'), findsOneWidget);
@@ -94,15 +100,51 @@ void main() {
       // And the share, so the heaviest is tellable at a glance.
       expect(find.text('71%'), findsOneWidget);
 
+      await tester.scrollUntilVisible(
+        find.text('THE DAYS'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('THE DAYS'), findsOneWidget);
+
+      // A finger on to-day's bar names the day, its figure and what
+      // carried it; lifting it lets the chart go quiet again.
+      final chart = find.byKey(const ValueKey('day-chart-touch'));
+      await tester.scrollUntilVisible(
+        chart,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      final rect = tester.getRect(chart);
+      final daysIn = DateTime(now.year, now.month + 1, 0).day;
+      final x = rect.left + rect.width * (now.day - 0.5) / daysIn;
+      final finger = await tester.startGesture(Offset(x, rect.center.dy));
+      await tester.pump(const Duration(milliseconds: 200));
+      await finger.moveBy(const Offset(24, 0));
+      await tester.pump(const Duration(milliseconds: 50));
+      await finger.moveBy(const Offset(-24, 0));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.textContaining('₹420 · Food & chai'), findsOneWidget);
+      await finger.up();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('₹420 · Food & chai'), findsNothing);
+
       // The movement against last month: food fell ₹200 — exactly at the
       // floor, so it is still news; the ₹120 arrival is not.
-      await tester.scrollUntilVisible(find.text('−₹200'), 200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        find.text('−₹200'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('−₹200'), findsOneWidget);
 
       // The heaviest single line — at the foot of the page, so scroll.
-      await tester.scrollUntilVisible(find.text('HEAVIEST LINES'), 200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        find.text('HEAVIEST LINES'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('HEAVIEST LINES'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
@@ -114,18 +156,53 @@ void main() {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
 
-      await tester.pumpWidget(ProviderScope(
-        overrides: [dbProvider.overrideWithValue(db)],
-        child: MaterialApp(
-            theme: ledgerDayTheme(), home: const InsightsPage()),
-      ));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [dbProvider.overrideWithValue(db)],
+          child: MaterialApp(
+            theme: ledgerDayTheme(),
+            home: const InsightsPage(),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('a quiet page has nothing to explain'),
-          findsOneWidget);
+      expect(
+        find.textContaining('a quiet page has nothing to explain'),
+        findsOneWidget,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  group('a leader row', () {
+    testWidgets('a long detail trails off instead of pushing the figure out', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ledgerDayTheme(),
+          home: const Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                child: LeaderRow(
+                  label: 'one-offs',
+                  detail:
+                      'souled store, advance for pg, clothes & shoes, '
+                      'flight ticket for pune, pillow and box',
+                  amount: '₹18,477.55',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('₹18,477.55'), findsOneWidget);
     });
   });
 
@@ -133,13 +210,15 @@ void main() {
     test('every table empties, the categories come back seeded', () async {
       final db = LedgerDb.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      final accountId = await AccountRepo(db)
-          .create(name: 'Cash', kind: AccountKind.cash);
+      final accountId = await AccountRepo(
+        db,
+      ).create(name: 'Cash', kind: AccountKind.cash);
       await TxnRepo(db).addExpense(
-          amountPaise: 2000,
-          accountId: accountId,
-          title: 'chai',
-          at: DateTime.now());
+        amountPaise: 2000,
+        accountId: accountId,
+        title: 'chai',
+        at: DateTime.now(),
+      );
 
       await db.eraseBook();
 
@@ -167,27 +246,20 @@ void main() {
       final spiky = dailyTotals([(3, 50_000), (1, 4_000), (2, 4_000)], 30);
       expect(heaviestDay(spiky, elapsed: 10), (3, 50_000));
       // A flat month has no heaviest day worth a sentence.
-      final flat = dailyTotals(
-        [for (var d = 1; d <= 10; d++) (d, 50_000)],
-        30,
-      );
+      final flat = dailyTotals([for (var d = 1; d <= 10; d++) (d, 50_000)], 30);
       expect(heaviestDay(flat, elapsed: 10), isNull);
     });
 
     test('the quietest week is named only when genuinely quiet', () {
       // Two loud weeks, then silence.
-      final daily = dailyTotals(
-        [for (var d = 1; d <= 14; d++) (d, 100_000)],
-        31,
-      );
+      final daily = dailyTotals([
+        for (var d = 1; d <= 14; d++) (d, 100_000),
+      ], 31);
       expect(quietestWeek(daily, elapsed: 28), (15, 0));
       // Under two weeks lived: too soon to talk about a quiet week.
       expect(quietestWeek(daily, elapsed: 13), isNull);
       // An even month has no quiet stretch worth a line.
-      final even = dailyTotals(
-        [for (var d = 1; d <= 28; d++) (d, 50_000)],
-        31,
-      );
+      final even = dailyTotals([for (var d = 1; d <= 28; d++) (d, 50_000)], 31);
       expect(quietestWeek(even, elapsed: 28), isNull);
     });
 
@@ -248,14 +320,11 @@ void main() {
     });
 
     test('running hot means past its own median, not any yardstick', () {
-      final stories = categoryStories(
-        month([(1, 90_000, 'meals')]),
-        [
-          month([(1, 50_000, 'meals')]),
-          month([(1, 60_000, 'meals')]),
-          month([(1, 40_000, 'meals')]),
-        ],
-      );
+      final stories = categoryStories(month([(1, 90_000, 'meals')]), [
+        month([(1, 50_000, 'meals')]),
+        month([(1, 60_000, 'meals')]),
+        month([(1, 40_000, 'meals')]),
+      ]);
       final food = stories.single;
       // Median of 40/50/60k is 50k; 90k is 40k past it.
       expect(food.usualPaise, 50_000);
@@ -266,24 +335,20 @@ void main() {
     test('a small swing is not news', () {
       // ₹120 over a ₹500 usual: over the band by ratio, but under the
       // rupee floor — chai does not make headlines.
-      final stories = categoryStories(
-        month([(1, 62_000, 'meals')]),
-        [month([(1, 50_000, 'meals')])],
-      );
+      final stories = categoryStories(month([(1, 62_000, 'meals')]), [
+        month([(1, 50_000, 'meals')]),
+      ]);
       expect(stories.single.verdict, CategoryVerdict.steady);
     });
 
     test('months that never knew a category are not counted as zero', () {
       // Tickets appear once in history. If the two quiet months counted
       // as ₹0, the median would be 0 and any ticket would read as "hot".
-      final stories = categoryStories(
-        month([(2, 80_000, 'bus to Madurai')]),
-        [
-          month([(1, 50_000, 'meals')]),
-          month([(1, 50_000, 'meals'), (2, 80_000, 'flight')]),
-          month([(1, 50_000, 'meals')]),
-        ],
-      );
+      final stories = categoryStories(month([(2, 80_000, 'bus to Madurai')]), [
+        month([(1, 50_000, 'meals')]),
+        month([(1, 50_000, 'meals'), (2, 80_000, 'flight')]),
+        month([(1, 50_000, 'meals')]),
+      ]);
       final tickets = stories.singleWhere((s) => s.categoryId == 2);
       expect(tickets.usualPaise, 80_000);
       expect(tickets.verdict, CategoryVerdict.steady);
@@ -292,17 +357,18 @@ void main() {
     test('one line holding a category is named as the story', () {
       final stories = categoryStories(
         month([(2, 4_50_000, 'flight home'), (2, 30_000, 'auto')]),
-        [month([(2, 40_000, 'bus')])],
+        [
+          month([(2, 40_000, 'bus')]),
+        ],
       );
       expect(stories.single.verdict, CategoryVerdict.oneBigLine);
       expect(stories.single.biggestTitle, 'flight home');
     });
 
     test('a category with no history says so instead of guessing', () {
-      final stories = categoryStories(
-        month([(3, 25_000, 'cake')]),
-        [month([(1, 50_000, 'meals')])],
-      );
+      final stories = categoryStories(month([(3, 25_000, 'cake')]), [
+        month([(1, 50_000, 'meals')]),
+      ]);
       expect(stories.single.verdict, CategoryVerdict.firstMonth);
       expect(stories.single.usualPaise, isNull);
     });
@@ -310,16 +376,17 @@ void main() {
     test('the headline names the hottest runner, or stays calm', () {
       final hot = categoryStories(
         month([(1, 90_000, 'meals'), (2, 10_000, 'bus')]),
-        [month([(1, 40_000, 'meals'), (2, 10_000, 'bus')])],
+        [
+          month([(1, 40_000, 'meals'), (2, 10_000, 'bus')]),
+        ],
       );
       final (story, calm) = headline(hot)!;
       expect(calm, isFalse);
       expect(story.categoryId, 1);
 
-      final quiet = categoryStories(
-        month([(1, 42_000, 'meals')]),
-        [month([(1, 40_000, 'meals')])],
-      );
+      final quiet = categoryStories(month([(1, 42_000, 'meals')]), [
+        month([(1, 40_000, 'meals')]),
+      ]);
       final (lead, isCalm) = headline(quiet)!;
       expect(isCalm, isTrue);
       expect(lead.categoryId, 1);

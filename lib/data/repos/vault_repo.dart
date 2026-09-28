@@ -29,11 +29,8 @@ class VaultRepo {
 
   final _aes = AesGcm.with256bits();
 
-  Pbkdf2 get _kdf => Pbkdf2(
-        macAlgorithm: Hmac.sha256(),
-        iterations: iterations,
-        bits: 256,
-      );
+  Pbkdf2 get _kdf =>
+      Pbkdf2(macAlgorithm: Hmac.sha256(), iterations: iterations, bits: 256);
 
   // ————— sealing & unlocking —————
 
@@ -47,8 +44,10 @@ class VaultRepo {
     final key = await _derive(passphrase, salt);
     final box = await _aes.encrypt(utf8.encode(_checkPlain), secretKey: key);
     await _putSetting(_checkNonceKey, base64Encode(box.nonce));
-    await _putSetting(_checkCipherKey,
-        base64Encode([...box.cipherText, ...box.mac.bytes]));
+    await _putSetting(
+      _checkCipherKey,
+      base64Encode([...box.cipherText, ...box.mac.bytes]),
+    );
     return key;
   }
 
@@ -81,11 +80,16 @@ class VaultRepo {
 
   // ————— items —————
 
-  Future<int> addItem(SecretKey key,
-      {required String title, required String body}) async {
+  Future<int> addItem(
+    SecretKey key, {
+    required String title,
+    required String body,
+  }) async {
     final sealed = await _seal(title: title, body: body, key: key);
     return _db.transaction(() async {
-      final id = await _db.into(_db.vaultItems).insert(
+      final id = await _db
+          .into(_db.vaultItems)
+          .insert(
             VaultItemsCompanion.insert(
               nonce: sealed.nonceB64,
               cipher: sealed.cipherB64,
@@ -98,8 +102,12 @@ class VaultRepo {
     });
   }
 
-  Future<void> updateItem(SecretKey key, int id,
-      {required String title, required String body}) async {
+  Future<void> updateItem(
+    SecretKey key,
+    int id, {
+    required String title,
+    required String body,
+  }) async {
     final sealed = await _seal(title: title, body: body, key: key);
     await _db.transaction(() async {
       await (_db.update(_db.vaultItems)..where((v) => v.id.equals(id))).write(
@@ -123,9 +131,9 @@ class VaultRepo {
   /// Decrypts everything (vaults are small). Throws on a wrong key — which
   /// cannot happen through [unlock]'s front door.
   Future<List<VaultOpenItem>> readAll(SecretKey key) async {
-    final rows = await (_db.select(_db.vaultItems)
-          ..orderBy([(v) => OrderingTerm.desc(v.updatedAt)]))
-        .get();
+    final rows = await (_db.select(
+      _db.vaultItems,
+    )..orderBy([(v) => OrderingTerm.desc(v.updatedAt)])).get();
     final out = <VaultOpenItem>[];
     for (final row in rows) {
       final plain = await _open(
@@ -134,12 +142,14 @@ class VaultRepo {
         key: key,
       );
       final json = jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
-      out.add(VaultOpenItem(
-        id: row.id,
-        title: json['t'] as String? ?? '',
-        body: json['b'] as String? ?? '',
-        updatedAt: row.updatedAt,
-      ));
+      out.add(
+        VaultOpenItem(
+          id: row.id,
+          title: json['t'] as String? ?? '',
+          body: json['b'] as String? ?? '',
+          updatedAt: row.updatedAt,
+        ),
+      );
     }
     return out;
   }
@@ -174,14 +184,16 @@ class VaultRepo {
   // ————— settings plumbing —————
 
   Future<String?> _setting(String key) async {
-    final row = await (_db.select(_db.settings)
-          ..where((s) => s.key.equals(key)))
-        .getSingleOrNull();
+    final row = await (_db.select(
+      _db.settings,
+    )..where((s) => s.key.equals(key))).getSingleOrNull();
     return row?.value;
   }
 
   Future<void> _putSetting(String key, String value) {
-    return _db.into(_db.settings).insertOnConflictUpdate(
+    return _db
+        .into(_db.settings)
+        .insertOnConflictUpdate(
           SettingsCompanion(key: Value(key), value: Value(value)),
         );
   }
@@ -202,5 +214,6 @@ class VaultOpenItem {
   final DateTime updatedAt;
 }
 
-final vaultRepoProvider =
-    Provider<VaultRepo>((ref) => VaultRepo(ref.watch(dbProvider)));
+final vaultRepoProvider = Provider<VaultRepo>(
+  (ref) => VaultRepo(ref.watch(dbProvider)),
+);

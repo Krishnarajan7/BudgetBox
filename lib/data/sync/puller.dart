@@ -629,6 +629,9 @@ class SyncPuller {
       final recurringId = r['recurring_id'] == null
           ? null
           : await p._ids.localFor(SyncKinds.recurring, '${r['recurring_id']}');
+      final sourceId = r['source_id'] == null
+          ? null
+          : await p._ids.localFor(SyncKinds.category, '${r['source_id']}');
 
       final row = r;
       n += await p._absorb(SyncKinds.txn, '${row['id']}', (localId) async {
@@ -644,6 +647,7 @@ class SyncPuller {
           at: Value(at),
           goalId: Value(goalId),
           recurringId: Value(recurringId),
+          sourceId: Value(sourceId),
         );
         if (localId == null) {
           return p._db.into(p._db.txns).insert(companion);

@@ -28,13 +28,19 @@ void main() {
       inner: MockClient((req) async {
         calls.add('${req.method} ${req.url.path}');
         if (req.method == 'GET') {
-          return http.Response(jsonEncode(store), 200,
-              headers: {'content-type': 'application/json'});
+          return http.Response(
+            jsonEncode(store),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
         }
         final key = req.url.pathSegments.last;
         store[key] = (jsonDecode(req.body) as Map)['value'] as String;
-        return http.Response(jsonEncode(store), 200,
-            headers: {'content-type': 'application/json'});
+        return http.Response(
+          jsonEncode(store),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
       }),
     );
     return (client: client, store: store, calls: calls);
@@ -77,8 +83,103 @@ void main() {
     expect(await repo.setupDone(), isTrue);
   });
 
-  test('the phone is the author — a live book is never overwritten',
+  group('the kural after a reinstall', () {
+    String key(DateTime d) => SettingsRepo.kuralDayKey(d);
+    final now = DateTime(2026, 9, 27, 9);
+    final today = key(now);
+    final yesterday = key(now.subtract(const Duration(days: 1)));
+
+    test(
+      'a reinstall that read to-day\'s verse before wiring keeps the server\'s place and streak',
       () async {
+        final db = freshDb();
+        addTearDown(db.close);
+        final repo = SettingsRepo(db);
+        // The first opening: a new seed, to-day's verse read, streak 1.
+        await repo.kuralCycleSeed();
+        await repo.completeDailyKural(today, expectedPosition: 0, total: 1330);
+        expect(await repo.kuralPosition(), 1);
+
+        final server = fake({
+          'kuralSeed': '777',
+          'kuralPosition': '40',
+          'kuralDay': yesterday,
+          'kuralStreak': '39',
+        });
+        await SettingsSync(db).run(server.client, now: now);
+
+        // The server's cycle continues here; to-day counts as its fortieth.
+        expect(await repo.kuralPosition(), 40);
+        expect(await repo.kuralDay(), today);
+        // The stored streak is 40: to-morrow's page would make it 41.
+      final tomorrow = key(now.add(const Duration(days: 1)));
+      expect(await repo.previewKuralStreak(tomorrow, today), 41);
+        expect(server.store['kuralSeed'], '777');
+        expect(server.store['kuralPosition'], '40');
+        expect(server.store['kuralStreak'], '40');
+        expect(server.store['kuralDay'], today);
+      },
+    );
+
+    test('a broken chain on the server does not invent a streak', () async {
+      final db = freshDb();
+      addTearDown(db.close);
+      final repo = SettingsRepo(db);
+      await repo.kuralCycleSeed();
+      await repo.completeDailyKural(today, expectedPosition: 0, total: 1330);
+      final server = fake({
+        'kuralSeed': '777',
+        'kuralPosition': '40',
+        'kuralDay': key(now.subtract(const Duration(days: 4))),
+        'kuralStreak': '12',
+      });
+      await SettingsSync(db).run(server.client, now: now);
+      expect(await repo.kuralPosition(), 40);
+      expect(server.store['kuralStreak'], '1');
+      expect(server.store['kuralDay'], today);
+    });
+
+    test('a book further along never yields to an older server copy', () async {
+      final db = freshDb();
+      addTearDown(db.close);
+      final repo = SettingsRepo(db);
+      await repo.adoptRemote('kuralSeed', '555');
+      await repo.adoptRemote('kuralPosition', '50');
+      await repo.adoptRemote('kuralDay', yesterday);
+      await repo.adoptRemote('kuralStreak', '10');
+      final server = fake({
+        'kuralSeed': '777',
+        'kuralPosition': '40',
+        'kuralDay': yesterday,
+        'kuralStreak': '39',
+      });
+      await SettingsSync(db).run(server.client, now: now);
+      expect(await repo.kuralPosition(), 50);
+      expect(server.store['kuralSeed'], '555');
+      expect(server.store['kuralStreak'], '10');
+    });
+
+    test(
+      'a fresh phone that has not read yet simply takes the server\'s place',
+      () async {
+        final db = freshDb();
+        addTearDown(db.close);
+        final repo = SettingsRepo(db);
+        final server = fake({
+          'kuralSeed': '777',
+          'kuralPosition': '40',
+          'kuralDay': yesterday,
+          'kuralStreak': '39',
+        });
+        await SettingsSync(db).run(server.client, now: now);
+        expect(await repo.kuralPosition(), 40);
+        expect(await repo.kuralDay(), yesterday);
+        expect(await repo.previewKuralStreak(today, yesterday), 40);
+      },
+    );
+  });
+
+  test('the phone is the author — a live book is never overwritten', () async {
     final db = freshDb();
     addTearDown(db.close);
     final repo = SettingsRepo(db);
@@ -146,9 +247,9 @@ void main() {
 /// nothing and carry on agreeing with that.
 void _bodilessErrors() {
   BbxClient clientFor(int status) => BbxClient(
-        const BbxConfig(baseUrl: 'https://x.test', token: 'bbx_x'),
-        inner: MockClient((_) async => http.Response('', status)),
-      );
+    const BbxConfig(baseUrl: 'https://x.test', token: 'bbx_x'),
+    inner: MockClient((_) async => http.Response('', status)),
+  );
 
   test('an empty 400 is a refusal, not an empty answer', () async {
     await expectLater(

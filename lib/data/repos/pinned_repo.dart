@@ -26,7 +26,9 @@ class PinnedRepo {
     required int accountId,
   }) {
     return _db.transaction(() async {
-      final id = await _db.into(_db.pinneds).insert(
+      final id = await _db
+          .into(_db.pinneds)
+          .insert(
             PinnedsCompanion.insert(
               title: title,
               amountPaise: amountPaise,
@@ -66,11 +68,11 @@ class PinnedRepo {
     final pins = await _db.select(_db.pinneds).get();
     final cats = await _db.select(_db.categories).get();
     return pinCandidates(
-      [for (final t in rows) (t.title, t.amountPaise, t.categoryId, t.accountId)],
-      taken: {
-        for (final p in pins) p.title.trim().toLowerCase(),
-        ...passed,
-      },
+      [
+        for (final t in rows)
+          (t.title, t.amountPaise, t.categoryId, t.accountId),
+      ],
+      taken: {for (final p in pins) p.title.trim().toLowerCase(), ...passed},
       categoryNames: {for (final c in cats) c.name.trim().toLowerCase()},
     );
   }

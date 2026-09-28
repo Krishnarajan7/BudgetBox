@@ -25,9 +25,19 @@ class SettingsSync {
   /// Runs after the rows have settled. Failure here is reported but never
   /// fatal: a book whose theme did not reach the server is still a book whose
   /// ledger did.
-  Future<void> run(BbxClient client) async {
-    final local = await _repo.syncableValues();
+  Future<void> run(BbxClient client, {DateTime? now}) async {
     final remote = await _fetch(client);
+
+    // One exception to authorship: the kural's place in its cycle is
+    // progress, and a reinstall reads to-day's verse before the server is
+    // wired. The copy that has read further is the book — see
+    // [SettingsRepo.adoptKuralIfFurther] — and once taken it is pushed
+    // back up like anything else this phone holds.
+    await _repo.adoptKuralIfFurther(
+      remote,
+      today: SettingsRepo.kuralDayKey(now ?? DateTime.now()),
+    );
+    final local = await _repo.syncableValues();
 
     // Restoring is decided **per key, not per book**. The old rule only took
     // the server's copy when the phone had set nothing at all, which meant a

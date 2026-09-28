@@ -1,8 +1,10 @@
-import 'package:drift/drift.dart' show BooleanExpressionOperators, ComparableExpr;
+import 'package:drift/drift.dart'
+    show BooleanExpressionOperators, ComparableExpr;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/dates.dart';
+import '../../core/holidays.dart';
 import '../../core/inr.dart';
 import '../../core/tokens.dart';
 import '../../core/typography.dart';
@@ -70,31 +72,44 @@ final _shelfStatusProvider = FutureProvider.autoDispose<Map<String, String>>((
   final db = ref.watch(dbProvider);
   final now = DateTime.now();
 
-  // Calendar: the next thing coming, or a clear road.
+  // Calendar: the next named day, whoever named it — his own event or
+  // the country's holiday, whichever comes first. A birthday eleven
+  // months off is not "next" when Gandhi Jayanti is on Friday.
   final events = await (db.select(
     db.events,
   )..where((e) => e.archived.equals(false))).get();
+  final dawn = DateTime(now.year, now.month, now.day);
   DateTime? next;
+  String? nextName;
+  void offer(DateTime d, String name) {
+    if (d.isBefore(dawn)) return;
+    if (next == null || d.isBefore(next!)) {
+      next = d;
+      nextName = name;
+    }
+  }
+
   for (final e in events) {
     var d = DateTime.parse(e.date);
     if (e.repeat == EventRepeat.yearly) {
       d = DateTime(now.year, d.month, d.day);
-      if (d.isBefore(DateTime(now.year, now.month, now.day))) {
-        d = DateTime(now.year + 1, d.month, d.day);
-      }
+      if (d.isBefore(dawn)) d = DateTime(now.year + 1, d.month, d.day);
     }
-    if (d.isBefore(DateTime(now.year, now.month, now.day))) continue;
-    if (next == null || d.isBefore(next)) next = d;
+    offer(d, e.title);
   }
-  // A yearly day just past rolls to next year — and must say so, or
-  // "next · 18 Aug" on the 29th reads as a page nobody turned.
+  try {
+    final holiday = (await HolidayBook.load()).next(now, within: 400);
+    if (holiday != null) offer(holiday.holiday.date, holiday.holiday.name);
+  } catch (_) {
+    // No table on this platform: his own days still answer.
+  }
   final calendar = next == null
       ? 'clear ahead'
-      : (LedgerDates.dayKey(next) == LedgerDates.dayKey(now)
-            ? 'something to-day'
-            : next.year == now.year
-            ? 'next · ${LedgerDates.ddMmm(next)}'
-            : "next · ${LedgerDates.ddMmm(next)} '${next.year % 100}");
+      : (LedgerDates.dayKey(next!) == LedgerDates.dayKey(now)
+            ? 'to-day · $nextName'
+            : next!.year == now.year
+            ? '$nextName · ${LedgerDates.ddMmm(next!)}'
+            : "$nextName · ${LedgerDates.ddMmm(next!)} '${next!.year % 100}");
 
   // Notes: how many thoughts are held.
   final notes = await (db.select(

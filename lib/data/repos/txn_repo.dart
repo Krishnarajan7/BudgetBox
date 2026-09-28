@@ -51,6 +51,7 @@ class TxnRepo {
     int? categoryId,
     int? goalId,
     int? recurringId,
+    int? sourceId,
     String? note,
     DateTime? at,
   }) {
@@ -64,6 +65,7 @@ class TxnRepo {
         categoryId: Value(categoryId),
         goalId: Value(goalId),
         recurringId: Value(recurringId),
+        sourceId: Value(sourceId),
         note: Value(note),
         at: at ?? DateTime.now(),
       ),
@@ -170,34 +172,54 @@ class TxnRepo {
     required String title,
     required DateTime at,
     String? note,
+    int? sourceId,
   }) {
     assert(amountPaise > 0);
-    return _db.transaction(() async {
-      final old = await (_db.select(
-        _db.txns,
-      )..where((t) => t.id.equals(id))).getSingle();
-      assert(
-        old.type != TxnType.transfer,
-        'transfers are rewritten, not edited',
-      );
-      await _applyBalance(old, direction: -1);
-      await (_db.update(_db.txns)..where((t) => t.id.equals(id))).write(
-        TxnsCompanion(
-          amountPaise: Value(amountPaise),
-          categoryId: Value(categoryId),
-          accountId: Value(accountId),
-          title: Value(title),
-          at: Value(at),
-          note: Value(note),
-        ),
-      );
-      final fresh = await (_db.select(
-        _db.txns,
-      )..where((t) => t.id.equals(id))).getSingle();
-      await _applyBalance(fresh, direction: 1);
-      await _log(fresh, ActivityAction.edited);
-      await bbxSync.upsert(SyncKinds.txn, id);
-    }).then((_) => _revoice());
+    return _db
+        .transaction(() async {
+          final old = await (_db.select(
+            _db.txns,
+          )..where((t) => t.id.equals(id))).getSingle();
+          assert(
+            old.type != TxnType.transfer,
+            'transfers are rewritten, not edited',
+          );
+          await _applyBalance(old, direction: -1);
+          await (_db.update(_db.txns)..where((t) => t.id.equals(id))).write(
+            TxnsCompanion(
+              amountPaise: Value(amountPaise),
+              categoryId: Value(categoryId),
+              accountId: Value(accountId),
+              title: Value(title),
+              at: Value(at),
+              note: Value(note),
+              sourceId: Value(old.type == TxnType.expense ? sourceId : null),
+            ),
+          );
+          final fresh = await (_db.select(
+            _db.txns,
+          )..where((t) => t.id.equals(id))).getSingle();
+          await _applyBalance(fresh, direction: 1);
+          await _log(fresh, ActivityAction.edited);
+          await bbxSync.upsert(SyncKinds.txn, id);
+        })
+        .then((_) => _revoice());
+  }
+
+  /// Ties expenses to the pot they drew on, nothing else touched. The
+  /// lines written before the book asked are settled this way, a screen
+  /// at a time.
+  Future<void> assignSource(List<int> ids, int? sourceId) async {
+    if (ids.isEmpty) return;
+    await _db.transaction(() async {
+      for (final id in ids) {
+        await (_db.update(_db.txns)..where(
+              (t) => t.id.equals(id) & t.type.equalsValue(TxnType.expense),
+            ))
+            .write(TxnsCompanion(sourceId: Value(sourceId)));
+        await bbxSync.upsert(SyncKinds.txn, id);
+      }
+    });
   }
 
   /// Moves entries to another category, nothing else touched — balances
@@ -371,12 +393,13 @@ class TxnRepo {
   Future<List<MonthFlow>> monthlyFlow({int months = 12}) async {
     final now = DateTime.now();
     final from = DateTime(now.year, now.month - (months - 1), 1);
-    final rows = await (_db.select(_db.txns)..where(
-          (t) =>
-              t.at.isBiggerOrEqualValue(from) &
-              t.type.isNotInValues([TxnType.transfer]),
-        ))
-        .get();
+    final rows =
+        await (_db.select(_db.txns)..where(
+              (t) =>
+                  t.at.isBiggerOrEqualValue(from) &
+                  t.type.isNotInValues([TxnType.transfer]),
+            ))
+            .get();
     final flows = <String, ({int inP, int outP})>{};
     for (var i = 0; i < months; i++) {
       final m = DateTime(from.year, from.month + i, 1);
